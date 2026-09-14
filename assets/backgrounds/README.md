@@ -1,8 +1,8 @@
-# Local backgrounds
+# Provider backgrounds
 
-Stream Shell supports optional provider backgrounds, but the repository does not ship personal/copyrighted background artwork.
+Stream Shell ships the provider artwork used by its Wide and Compact layouts. The bundled images were generated for the Stream Shell project.
 
-If you want custom artwork, add PNG files with these names:
+Bundled files:
 
 - `netflix_wide.png` / `netflix_compact.png`
 - `prime_wide.png` / `prime_compact.png`
@@ -10,4 +10,6 @@ If you want custom artwork, add PNG files with these names:
 - `crunchyroll_wide.png` / `crunchyroll_compact.png`
 - `youtube_wide.png` / `youtube_compact.png`
 
-`wide` is intended for the wide layout; `compact` is used by the compact layout. Missing files simply mean no custom provider artwork is shown.
+`wide` is intended for the wide layout; `compact` is used by the compact layout. You can replace these files locally with your own artwork using the same filenames.
+
+Third-party service names, logos and trademarks remain the property of their respective owners; see the repository `NOTICE`.

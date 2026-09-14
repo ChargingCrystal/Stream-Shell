@@ -1,9 +1,3 @@
-# Local/private artwork
-assets/backgrounds/*.png
-assets/backgrounds/*.jpg
-assets/backgrounds/*.jpeg
-assets/backgrounds/*.webp
-
 # Local release archives / diagnostics
 *.zip
 StreamShell-diagnostics-*.json

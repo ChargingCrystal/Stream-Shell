@@ -40,9 +40,9 @@ Issues and pull requests are welcome, but a public repository does **not** mean 
 
 The extension is Manifest V3 and is primarily developed/tested in Opera GX on Windows.
 
-### Optional: provider backgrounds
+### Provider backgrounds
 
-Personal background artwork is intentionally not distributed. See [`assets/backgrounds/README.md`](assets/backgrounds/README.md) for the supported filenames. Stream Shell still runs without these files.
+Wide and Compact provider artwork is bundled under [`assets/backgrounds/`](assets/backgrounds/). You can replace the images locally with your own artwork while keeping the documented filenames.
 
 ### Optional: TMDB
 

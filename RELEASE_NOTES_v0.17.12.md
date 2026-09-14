@@ -10,8 +10,10 @@ Recent work before this release focused heavily on YouTube runtime performance a
 
 Load the repository/release folder unpacked from `opera://extensions` with Developer mode enabled.
 
+Bundled artwork:
+- Wide and Compact provider backgrounds are included under `assets/backgrounds/`.
+
 Optional pieces:
-- provide your own provider artwork under `assets/backgrounds/`;
 - add a TMDB Read Access Token from Stream Shell for metadata/availability;
 - install Return YouTube Dislike if you want the ratio integration;
 - install the native Windows helpers only if you want titlebar/Discord desktop integration.
