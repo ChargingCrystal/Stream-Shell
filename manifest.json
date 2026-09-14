@@ -1,0 +1,232 @@
+{
+  "manifest_version": 3,
+  "name": "Stream Shell",
+  "version": "0.17.12",
+  "description": "Unified shell for Netflix, Prime Video, Crunchyroll, YouTube, Disney+ and auxiliary Discord/Twitch utilities.",
+  "author": "Sven Rieseler",
+  "icons": {
+    "16": "assets/brand/icons/icon16.png",
+    "32": "assets/brand/icons/icon32.png",
+    "48": "assets/brand/icons/icon48.png",
+    "128": "assets/brand/icons/icon128.png"
+  },
+  "permissions": [
+    "tabs",
+    "contextMenus",
+    "storage",
+    "nativeMessaging",
+    "scripting",
+    "activeTab",
+    "tabCapture",
+    "offscreen",
+    "alarms",
+    "system.display",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "*://*.netflix.com/*",
+    "*://*.primevideo.com/*",
+    "*://*.amazon.de/gp/video/*",
+    "*://*.crunchyroll.com/*",
+    "https://static.crunchyroll.com/*",
+    "*://*.youtube.com/*",
+    "*://*.disneyplus.com/*",
+    "https://api.themoviedb.org/*",
+    "*://*.amazon.de/*",
+    "*://*.disney.com/*",
+    "*://play.google.com/*",
+    "*://*.twitch.tv/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/backgrounds/netflix_wide.png",
+        "assets/backgrounds/netflix_compact.png",
+        "assets/backgrounds/youtube_wide.png",
+        "assets/backgrounds/youtube_compact.png"
+      ],
+      "matches": [
+        "*://*.netflix.com/*",
+        "*://*.youtube.com/*"
+      ]
+    },
+    {
+      "resources": [
+        "assets/anarchy/dvd-logo.png"
+      ],
+      "matches": [
+        "*://*.netflix.com/*",
+        "*://*.primevideo.com/*",
+        "*://*.amazon.de/*",
+        "*://*.crunchyroll.com/*",
+        "*://*.youtube.com/*",
+        "*://*.disneyplus.com/*"
+      ]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Stream Shell",
+    "default_icon": {
+      "16": "assets/brand/icons/icon16.png",
+      "32": "assets/brand/icons/icon32.png",
+      "48": "assets/brand/icons/icon48.png"
+    },
+    "default_popup": "popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.netflix.com/*"
+      ],
+      "js": [
+        "providers/player/netflix-bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "*://*.netflix.com/*",
+        "*://*.primevideo.com/*",
+        "*://*.amazon.de/*",
+        "*://*.crunchyroll.com/*",
+        "*://*.youtube.com/*",
+        "*://*.disneyplus.com/*"
+      ],
+      "js": [
+        "providers/player/fullscreen-volume-main.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN",
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
+    },
+    {
+      "matches": [
+        "*://*.netflix.com/*",
+        "*://*.primevideo.com/*",
+        "*://*.amazon.de/*",
+        "*://*.crunchyroll.com/*",
+        "*://*.youtube.com/*",
+        "*://*.disneyplus.com/*"
+      ],
+      "js": [
+        "providers/player/fullscreen-volume-client.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
+    },
+    {
+      "matches": [
+        "*://*.netflix.com/*",
+        "*://*.primevideo.com/*",
+        "*://*.amazon.de/gp/video/*",
+        "*://*.crunchyroll.com/*",
+        "*://*.youtube.com/*",
+        "*://*.disneyplus.com/*"
+      ],
+      "js": [
+        "common/shell.js"
+      ],
+      "run_at": "document_start",
+      "css": [
+        "providers/player/playback-utilities.css"
+      ]
+    },
+    {
+      "matches": [
+        "*://*.netflix.com/*"
+      ],
+      "js": [
+        "providers/theme/netflix.js"
+      ],
+      "css": [
+        "providers/theme/netflix.css"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "css": [
+        "providers/theme/youtube.css",
+        "providers/player/youtube-windowed.css",
+        "providers/player/youtube-extras.css",
+        "providers/player/youtube-cleanup.css"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.crunchyroll.com/*"
+      ],
+      "css": [
+        "providers/player/crunchyroll-windowed.css"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.crunchyroll.com/*"
+      ],
+      "css": [
+        "providers/player/crunchyroll-enhancements.css"
+      ],
+      "run_at": "document_start",
+      "all_frames": true,
+      "match_about_blank": true,
+      "match_origin_as_fallback": true
+    },
+    {
+      "matches": [
+        "*://*.primevideo.com/*",
+        "*://*.amazon.de/gp/video/*"
+      ],
+      "css": [
+        "providers/player/prime.css"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.twitch.tv/*"
+      ],
+      "js": [
+        "providers/player/twitch-utility.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "*://*.netflix.com/*",
+        "*://*.youtube.com/*",
+        "*://*.amazon.de/*",
+        "*://*.primevideo.com/*",
+        "*://*.crunchyroll.com/*",
+        "*://*.disneyplus.com/*",
+        "*://*.disney.com/*",
+        "*://play.google.com/*"
+      ],
+      "js": [
+        "subscriptions/account-scraper.js"
+      ],
+      "run_at": "document_idle",
+      "css": []
+    }
+  ],
+  "commands": {
+    "toggle-volume-booster": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+8"
+      },
+      "description": "Toggle Stream Shell volume booster"
+    }
+  }
+}

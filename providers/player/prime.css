@@ -1,0 +1,263 @@
+/*
+ * ============================================================
+ * STREAM SHELL — PRIME VIDEO ULTRAWIDE FIX
+ * ============================================================
+ *
+ * Prime Video scales parts of its web player incorrectly on
+ * very wide displays.
+ *
+ * Stream Shell compensates for this only on 32:9-class screens.
+ */
+
+
+@media (min-aspect-ratio: 3/1) {
+
+    /*
+     * ========================================================
+     * MAIN PLAYER UI + CAPTIONS
+     * ========================================================
+     *
+     * Prime scales its normal player UI too large on 32:9.
+     *
+     * Scale the complete UI layer down to 60%.
+     *
+     * Width and height are expanded beforehand so the scaled
+     * container still covers the complete player.
+     */
+
+    html[data-stream-shell="true"][data-stream-shell-prime-ui-fix="true"]
+    .atvwebplayersdk-player-container
+    > *:has(
+        button[aria-label="Play"],
+        button[aria-label="Pause"],
+        .atvwebplayersdk-captions-text
+    ) {
+        transform:
+            scale(0.6) !important;
+
+        transform-origin:
+            top left !important;
+
+        width:
+            166.6667% !important;
+
+        height:
+            166.6667% !important;
+    }
+
+
+    /*
+     * ========================================================
+     * SEEK BAR HIT AREA
+     * ========================================================
+     *
+     * The visible player UI is scaled to 60%, but Prime still
+     * calculates the seek interaction area using the original
+     * dimensions.
+     *
+     * Counter-scale the horizontal interaction geometry.
+     */
+
+    html[data-stream-shell="true"][data-stream-shell-prime-ui-fix="true"]
+    [aria-label="Web Player"]
+    *:has(
+        > input[aria-label="Seek"]
+    ) {
+        width:
+            60% !important;
+
+        scale:
+            1.6666667 1 !important;
+
+        transform-origin:
+            left center !important;
+    }
+
+
+    /*
+     * ========================================================
+     * SKIP INTRO / SKIP RECAP — STANDALONE STATE
+     * ========================================================
+     *
+     * Prime changes the DOM depending on whether the normal
+     * player controls are visible.
+     *
+     * When the normal controls disappear, the Skip Intro /
+     * Skip Recap button may exist OUTSIDE the scaled player UI.
+     *
+     * In that state it therefore needs its own 60% scaling.
+     */
+
+    html[data-stream-shell="true"][data-stream-shell-prime-ui-fix="true"]
+    [aria-label="Web Player"]
+    :is(
+        button[aria-label*="Vorspann überspringen" i],
+        button[aria-label*="Intro überspringen" i],
+        button[aria-label*="Zusammenfassung überspringen" i],
+        button[aria-label*="Skip Intro" i],
+        button[aria-label*="Skip Recap" i],
+
+        button[title*="Vorspann überspringen" i],
+        button[title*="Intro überspringen" i],
+        button[title*="Zusammenfassung überspringen" i],
+        button[title*="Skip Intro" i],
+        button[title*="Skip Recap" i]
+    ) {
+        scale:
+            0.6 !important;
+
+        transform-origin:
+            center center !important;
+    }
+
+
+    /*
+     * ========================================================
+     * SKIP INTRO / SKIP RECAP — NORMAL PLAYER UI STATE
+     * ========================================================
+     *
+     * IMPORTANT:
+     *
+     * When the normal controls are visible, Prime moves the
+     * Skip button inside the player UI wrapper above.
+     *
+     * That wrapper is ALREADY scaled to 60%.
+     *
+     * Without this override the Skip button gets:
+     *
+     *      0.6 × 0.6 = 0.36
+     *
+     * and becomes comically tiny.
+     *
+     * Inside the scaled wrapper the button therefore stays at
+     * its normal local scale of 1.
+     */
+
+    html[data-stream-shell="true"][data-stream-shell-prime-ui-fix="true"]
+    .atvwebplayersdk-player-container
+    > *:has(
+        button[aria-label="Play"],
+        button[aria-label="Pause"],
+        .atvwebplayersdk-captions-text
+    )
+    :is(
+        button[aria-label*="Vorspann überspringen" i],
+        button[aria-label*="Intro überspringen" i],
+        button[aria-label*="Zusammenfassung überspringen" i],
+        button[aria-label*="Skip Intro" i],
+        button[aria-label*="Skip Recap" i],
+
+        button[title*="Vorspann überspringen" i],
+        button[title*="Intro überspringen" i],
+        button[title*="Zusammenfassung überspringen" i],
+        button[title*="Skip Intro" i],
+        button[title*="Skip Recap" i]
+    ) {
+        scale:
+            1 !important;
+
+        transform-origin:
+            center center !important;
+    }
+}
+
+/*
+ * ============================================================
+ * PRIME VIDEO — PLAYER CLEANUP
+ * ============================================================
+ */
+
+html[data-stream-shell="true"][data-stream-shell-prime-hide-xray="true"]
+:is(
+    .xrayQuickView,
+    .xrayPopUpView,
+    [data-testid="x-ray-panel"]
+) {
+    visibility:
+        hidden !important;
+
+    opacity:
+        0 !important;
+
+    pointer-events:
+        none !important;
+}
+
+
+/*
+ * Prime currently uses separate visual layers to darken the top and
+ * bottom of the picture when its controls appear. Keep the controls,
+ * but make those dimming layers transparent / non-rendering.
+ */
+html[data-stream-shell="true"][data-stream-shell-prime-hide-overlay="true"]
+.atvwebplayersdk-player-container
+:is(
+    .feqqns3,
+    .f10znfo1,
+    .fe9293t
+) {
+    display:
+        none !important;
+}
+
+
+html[data-stream-shell="true"][data-stream-shell-prime-hide-overlay="true"]
+.atvwebplayersdk-player-container
+.fkpovp9:has(~ .atvwebplayersdk-regulatory-overlay),
+html[data-stream-shell="true"][data-stream-shell-prime-hide-overlay="true"]
+.atvwebplayersdk-player-container
+.f1makowq:has(~ .atvwebplayersdk-regulatory-overlay) {
+    opacity:
+        0 !important;
+
+    pointer-events:
+        none !important;
+}
+
+
+html[data-stream-shell="true"][data-stream-shell-prime-hide-overlay="true"]
+.atvwebplayersdk-player-container
+div:has(> .atvwebplayersdk-regulatory-overlay)
+> div:not([data-non-darkening-overlay]) {
+    background:
+        transparent !important;
+}
+
+
+/*
+ * ============================================================
+ * PRIME VIDEO — SUBTITLES
+ * ============================================================
+ */
+
+html[data-stream-shell="true"][data-stream-shell-prime-subtitles="true"]
+:is(
+    .atvwebplayersdk-captions-text,
+    .dss-subtitle-renderer-cue-window
+) {
+    scale:
+        var(--stream-shell-prime-subtitle-scale, 1) !important;
+
+    transform-origin:
+        center bottom !important;
+
+    color:
+        var(--stream-shell-prime-subtitle-color, #ffffff) !important;
+
+    font-family:
+        var(--stream-shell-prime-subtitle-font) !important;
+}
+
+
+html[data-stream-shell="true"][data-stream-shell-prime-subtitles="true"]
+:is(
+    .atvwebplayersdk-captions-text,
+    .dss-subtitle-renderer-cue-window
+)
+* {
+    color:
+        var(--stream-shell-prime-subtitle-color, #ffffff) !important;
+
+    font-family:
+        var(--stream-shell-prime-subtitle-font) !important;
+}

@@ -1,0 +1,207 @@
+/*
+ * ============================================================
+ * STREAM SHELL — YOUTUBE CLEANUP
+ * ============================================================
+ * Every rule is opt-in through a root marker controlled by the
+ * Dashboard settings center. No cleanup option affects normal tabs.
+ */
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-home-feed]
+ytd-browse[page-subtype="home"] ytd-rich-grid-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-home-feed]
+ytd-browse[page-subtype="home"] #contents {
+    display: none !important;
+}
+
+/*
+ * Home-only promotional/featured hero surfaces. YouTube has moved these
+ * between dedicated banner renderers and rich-section wrappers over time.
+ * Keep the regular Home feed intact while suppressing the oversized promo.
+ */
+html[data-stream-shell="true"][data-stream-shell-yt-hide-home-promotions]
+ytd-browse[page-subtype="home"] ytd-statement-banner-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-home-promotions]
+ytd-browse[page-subtype="home"] ytd-banner-promo-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-home-promotions]
+ytd-browse[page-subtype="home"] ytd-brand-video-shelf-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-home-promotions]
+ytd-browse[page-subtype="home"] ytd-rich-section-renderer:has(ytd-statement-banner-renderer),
+html[data-stream-shell="true"][data-stream-shell-yt-hide-home-promotions]
+ytd-browse[page-subtype="home"] ytd-rich-section-renderer:has(ytd-banner-promo-renderer),
+html[data-stream-shell="true"][data-stream-shell-yt-hide-home-promotions]
+ytd-browse[page-subtype="home"] ytd-rich-section-renderer:has(ytd-brand-video-shelf-renderer),
+html[data-stream-shell="true"][data-stream-shell-yt-hide-home-promotions]
+ytd-browse[page-subtype="home"] ytd-rich-section-renderer:has(.badge-style-type-simple[aria-label="YouTube featured" i]) {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-video-sidebar]
+ytd-watch-flexy #secondary {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-recommended]
+ytd-watch-next-secondary-results-renderer ytd-compact-video-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-recommended]
+ytd-watch-next-secondary-results-renderer ytd-item-section-renderer {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-live-chat]
+ytd-live-chat-frame,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-live-chat]
+#chat-container {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-playlist]
+ytd-playlist-panel-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-playlist]
+#playlist {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-fundraiser]
+ytd-donation-shelf-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-fundraiser]
+[class*="fundraiser"] {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-transcript-chapters]
+ytd-engagement-panel-section-list-renderer[target-id*="transcript"],
+html[data-stream-shell="true"][data-stream-shell-yt-hide-transcript-chapters]
+ytd-engagement-panel-section-list-renderer[target-id*="chapter"] {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-end-screen-feed]
+.ytp-endscreen-content,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-end-screen-feed]
+.ytp-endscreen-previous,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-end-screen-feed]
+.ytp-endscreen-next {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-end-screen-cards]
+.ytp-ce-element {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-comments]
+ytd-comments#comments,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-comments]
+#comments {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-profile-photos]
+yt-img-shadow#avatar,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-profile-photos]
+#author-thumbnail,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-profile-photos]
+#avatar-link {
+    visibility: hidden !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-mixes]
+ytd-radio-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-mixes]
+ytd-compact-radio-renderer {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-merch]
+ytd-merch-shelf-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-merch]
+ytd-product-list-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-merch]
+ytd-ticket-shelf-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-merch]
+#merch-shelf {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-video-info]
+ytd-watch-metadata #bottom-row,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-video-info]
+ytd-watch-metadata #description,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-video-info]
+#description-inline-expander {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-top-header]
+ytd-masthead,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-top-header]
+#masthead-container {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-notifications]
+ytd-notification-topbar-button-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-notifications]
+#button[aria-label*="Notifications" i],
+html[data-stream-shell="true"][data-stream-shell-yt-hide-notifications]
+#button[aria-label*="Benachrichtig" i] {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-inapt-search]
+ytd-search ytd-shelf-renderer,
+html[data-stream-shell="true"][data-stream-shell-yt-hide-inapt-search]
+ytd-search ytd-horizontal-card-list-renderer {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-explore-trending]
+ytd-guide-entry-renderer a[href="/feed/explore"],
+html[data-stream-shell="true"][data-stream-shell-yt-hide-explore-trending]
+ytd-guide-entry-renderer a[href="/feed/trending"] {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-more-youtube]
+[data-stream-shell-cleanup-hidden="true"] {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-shorts-tab]
+ytd-guide-entry-renderer a[href^="/shorts"],
+html[data-stream-shell="true"][data-stream-shell-yt-hide-shorts-tab]
+ytd-mini-guide-entry-renderer a[href^="/shorts"],
+html[data-stream-shell="true"][data-stream-shell-yt-hide-shorts-tab]
+yt-tab-shape[tab-title="Shorts"] {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-hide-subscriptions]
+ytd-guide-entry-renderer a[href="/feed/subscriptions"],
+html[data-stream-shell="true"][data-stream-shell-yt-hide-subscriptions]
+ytd-mini-guide-entry-renderer a[href="/feed/subscriptions"] {
+    display: none !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-yt-disable-annotations]
+.annotation,
+html[data-stream-shell="true"][data-stream-shell-yt-disable-annotations]
+.ytp-cards-teaser,
+html[data-stream-shell="true"][data-stream-shell-yt-disable-annotations]
+.ytp-cards-button {
+    display: none !important;
+}
+
+#stream-shell-youtube-upload-date {
+    color: var(--yt-spec-text-secondary, #aaa);
+    font-size: inherit;
+    white-space: nowrap;
+}
+
+
+/* Stream Shell owns this one YouTube survey: translated-audio satisfaction. */
+[data-stream-shell-translated-audio-survey-hidden="true"] {
+    display: none !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}

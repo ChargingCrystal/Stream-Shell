@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stream Shell</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup-shell">
+    <header class="brand-row">
+      <img src="../assets/brand/icons/icon32.png" alt="">
+      <div>
+        <strong>Stream Shell</strong>
+        <span>Quick actions</span>
+      </div>
+    </header>
+
+    <section class="page-preview" id="page-preview">
+      <div class="page-title" id="page-title">Reading current page…</div>
+      <div class="page-host" id="page-host"></div>
+    </section>
+
+    <div class="actions">
+      <button class="action primary" id="open-shell" type="button">
+        <span class="icon">▶</span>
+        <span><strong>Open Stream Shell</strong><small>Landing + dashboard</small></span>
+      </button>
+
+      <button class="action" id="save-page" type="button">
+        <span class="icon">＋</span>
+        <span><strong id="save-label">Save current page</strong><small id="save-detail">Add to Direct</small></span>
+      </button>
+
+      <button class="action" id="open-direct" type="button">
+        <span class="icon">↗</span>
+        <span><strong>Open Direct links</strong><small>Open Stream Shell on Direct</small></span>
+      </button>
+    </div>
+
+    <div class="status" id="status" aria-live="polite"></div>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

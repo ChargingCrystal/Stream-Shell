@@ -1,0 +1,1100 @@
+<!doctype html>
+
+<html lang="en">
+
+<head>
+
+    <meta charset="utf-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1"
+    >
+
+    <title>Stream Shell</title>
+
+    <link
+        id="compact-home-landing-styles"
+        rel="stylesheet"
+        href="../landing/landing.css"
+        disabled
+    >
+
+    <link
+        rel="stylesheet"
+        href="dashboard.css"
+    >
+
+</head>
+
+
+<body data-provider="netflix">
+
+    <main class="dashboard">
+
+        <div
+            id="panorama-background"
+            class="panorama-background"
+            aria-hidden="true"
+        ></div>
+
+
+        <div
+            class="dashboard-shade"
+            aria-hidden="true"
+        ></div>
+
+
+        <img
+            id="provider-wordmark"
+            class="provider-wordmark"
+            alt=""
+        >
+
+
+        <header id="brand-area" class="brand-area">
+
+            <div class="brand-line">
+
+                <img
+                    class="stream-shell-logo"
+                    src="../assets/brand/icons/icon128.png"
+                    alt=""
+                >
+
+
+                <div class="stream-shell-name">
+                    STREAM SHELL
+                </div>
+
+            </div>
+
+
+            <div
+                id="clock"
+                class="clock"
+            >
+                00:00
+            </div>
+
+
+            <div
+                id="date"
+                class="date"
+            >
+                —
+            </div>
+
+        </header>
+
+
+        <section class="provider-selector">
+
+            <div class="provider-row provider-row-single">
+
+                <button
+                    type="button"
+                    class="provider-card"
+                    data-provider="youtube"
+                >
+
+                    <img
+                        src="../assets/providers/icons/youtube.svg"
+                        alt=""
+                    >
+
+                    <span>
+                        YouTube
+                    </span>
+
+                </button>
+
+            </div>
+
+
+            <div class="provider-row provider-row-main">
+
+                <button
+                    type="button"
+                    class="provider-card"
+                    data-provider="netflix"
+                >
+
+                    <img
+                        src="../assets/providers/icons/netflix.svg"
+                        alt=""
+                    >
+
+                    <span>
+                        Netflix
+                    </span>
+
+                </button>
+
+
+                <button
+                    type="button"
+                    class="provider-card"
+                    data-provider="prime"
+                >
+
+                    <img
+                        src="../assets/providers/icons/prime.svg"
+                        alt=""
+                    >
+
+                    <span>
+                        Prime Video
+                    </span>
+
+                </button>
+
+
+                <button
+                    type="button"
+                    class="provider-card"
+                    data-provider="disney"
+                >
+
+                    <img
+                        src="../assets/providers/icons/disney.svg"
+                        alt=""
+                    >
+
+                    <span>
+                        Disney+
+                    </span>
+
+                </button>
+
+            </div>
+
+
+            <div class="provider-row provider-row-single">
+
+                <button
+                    type="button"
+                    class="provider-card"
+                    data-provider="crunchyroll"
+                >
+
+                    <img
+                        src="../assets/providers/icons/crunchyroll.svg"
+                        alt=""
+                    >
+
+                    <span>
+                        Crunchyroll
+                    </span>
+
+                </button>
+
+            </div>
+
+        </section>
+
+
+
+
+        <section id="compact-home-runtime-root" class="compact-home-runtime-root" aria-label="Compact Shell Home">
+        <section
+            id="subscription-panel"
+            class="subscription-panel"
+            aria-label="Subscription status"
+        >
+
+            <header class="subscription-panel-header">
+
+                <div>
+                    <div class="subscription-panel-title">Subscriptions</div>
+                    <div id="subscription-sync-meta" class="subscription-sync-meta">Never synced</div>
+                </div>
+
+                <button
+                    type="button"
+                    id="subscription-sync"
+                    class="subscription-sync"
+                    title="Sync subscriptions"
+                    aria-label="Sync subscriptions"
+                >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M20 7V3.5L17.2 6.3A8 8 0 1 0 19.3 14"></path>
+                        <path d="M20 3.5H16.5"></path>
+                    </svg>
+                </button>
+
+            </header>
+
+            <div class="subscription-grid">
+
+                <div class="subscription-item" data-subscription-provider="youtube">
+                    <img src="../assets/providers/icons/youtube.svg" alt="" aria-hidden="true">
+                    <span class="subscription-name">YouTube</span>
+                    <span class="subscription-status">UNKNOWN</span>
+                    <span class="subscription-renewal">—</span>
+                </div>
+
+                <div class="subscription-item" data-subscription-provider="netflix">
+                    <img src="../assets/providers/icons/netflix.svg" alt="" aria-hidden="true">
+                    <span class="subscription-name">Netflix</span>
+                    <span class="subscription-status">UNKNOWN</span>
+                    <span class="subscription-renewal">—</span>
+                </div>
+
+                <div class="subscription-item" data-subscription-provider="prime">
+                    <img src="../assets/providers/icons/prime.svg" alt="" aria-hidden="true">
+                    <span class="subscription-name">Prime</span>
+                    <span class="subscription-status">UNKNOWN</span>
+                    <span class="subscription-renewal">—</span>
+                </div>
+
+                <div class="subscription-item" data-subscription-provider="disney">
+                    <img src="../assets/providers/icons/disney.svg" alt="" aria-hidden="true">
+                    <span class="subscription-name">Disney+</span>
+                    <span class="subscription-status">UNKNOWN</span>
+                    <span class="subscription-renewal">—</span>
+                </div>
+
+                <div class="subscription-item" data-subscription-provider="crunchyroll">
+                    <img src="../assets/providers/icons/crunchyroll.svg" alt="" aria-hidden="true">
+                    <span class="subscription-name">Crunchyroll</span>
+                    <span class="subscription-status">UNKNOWN</span>
+                    <span class="subscription-renewal">—</span>
+                </div>
+
+                <div class="subscription-item" data-subscription-provider="discord">
+                    <img src="../assets/providers/icons/discord.svg" alt="" aria-hidden="true">
+                    <span class="subscription-name">Discord</span>
+                    <span class="subscription-status">UNKNOWN</span>
+                    <span class="subscription-renewal">—</span>
+                </div>
+
+            </div>
+
+        </section>
+
+        <section
+            id="media-hub"
+            class="media-hub"
+        >
+
+            <div class="media-hub-controls">
+
+                <button
+                    type="button"
+                    id="watchlist-toggle"
+                    class="hub-control watchlist-control"
+                    aria-expanded="false"
+                >
+
+                    <svg
+                        class="hub-control-icon"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                    >
+                        <path
+                            d="M6 3.75C6 2.78 6.78 2 7.75 2H16.25C17.22 2 18 2.78 18 3.75V21L12 17.25L6 21Z"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.7"
+                            stroke-linejoin="round"
+                        ></path>
+                    </svg>
+
+                    <span>
+                        Watchlist
+                    </span>
+
+                    <span
+                        id="watchlist-count"
+                        class="watchlist-count"
+                    >
+                        0
+                    </span>
+
+                </button>
+
+
+                <div
+                    id="search-control"
+                    class="hub-control search-control"
+                >
+
+                    <svg
+                        class="hub-control-icon"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                    >
+                        <circle
+                            cx="10.8"
+                            cy="10.8"
+                            r="6.5"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.8"
+                        ></circle>
+
+                        <path
+                            d="M15.7 15.7L21 21"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.8"
+                            stroke-linecap="round"
+                        ></path>
+                    </svg>
+
+                    <input
+                        id="media-search-input"
+                        class="media-search-input"
+                        type="search"
+                        autocomplete="off"
+                        spellcheck="false"
+                        placeholder="Search movies and TV shows..."
+                        aria-label="Search movies and TV shows"
+                    >
+
+                    <button
+                        type="button"
+                        id="media-search-clear"
+                        class="media-search-clear"
+                        title="Clear search"
+                        aria-label="Clear search"
+                        hidden
+                    >
+                        ×
+                    </button>
+
+                </div>
+
+            </div>
+
+
+            <section
+                id="media-panel"
+                class="media-panel"
+                hidden
+            >
+
+                <header class="media-panel-header">
+
+                    <div class="media-panel-heading">
+
+                        <div
+                            id="library-header-controls"
+                            class="library-header-controls"
+                        >
+
+                            <button
+                                type="button"
+                                id="watchlist-tab"
+                                class="library-tab active"
+                            >
+                                Official
+                            </button>
+
+
+                            <button
+                                type="button"
+                                id="continue-tab"
+                                class="library-tab"
+                            >
+                                Continue
+                            </button>
+
+
+                            <button
+                                type="button"
+                                id="recent-tab"
+                                class="library-tab"
+                            >
+                                Recent
+                            </button>
+
+
+                            <button
+                                type="button"
+                                id="direct-tab"
+                                class="library-tab"
+                            >
+                                Direct
+                            </button>
+
+
+                            <button
+                                type="button"
+                                id="watchlist-import"
+                                class="library-icon-button"
+                                title="Import Watchlist"
+                                aria-label="Import Watchlist"
+                            >
+
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        d="M12 4V15M8.5 11.5L12 15L15.5 11.5"
+                                    ></path>
+
+                                    <path
+                                        d="M5 13.5V18.5C5 19.3 5.7 20 6.5 20H17.5C18.3 20 19 19.3 19 18.5V13.5"
+                                    ></path>
+                                </svg>
+
+                            </button>
+
+
+                            <button
+                                type="button"
+                                id="watchlist-export"
+                                class="library-icon-button"
+                                title="Export Watchlist"
+                                aria-label="Export Watchlist"
+                            >
+
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        d="M12 15V4M8.5 7.5L12 4L15.5 7.5"
+                                    ></path>
+
+                                    <path
+                                        d="M5 13.5V18.5C5 19.3 5.7 20 6.5 20H17.5C18.3 20 19 19.3 19 18.5V13.5"
+                                    ></path>
+                                </svg>
+
+                            </button>
+
+                        </div>
+
+
+                        <div
+                            id="search-header-title"
+                            class="search-header-title"
+                            hidden
+                        >
+                            Search Results
+                        </div>
+
+
+                        <div
+                            id="media-panel-subtitle"
+                            class="media-panel-subtitle"
+                        ></div>
+
+                    </div>
+
+
+                    <div class="media-panel-header-actions">
+
+                        <label
+                            id="watchlist-sort-wrapper"
+                            class="watchlist-sort-wrapper"
+                            hidden
+                        >
+
+                            <span class="watchlist-sort-label">
+                                Sort
+                            </span>
+
+
+                            <select
+                                id="watchlist-sort"
+                                class="watchlist-sort"
+                                aria-label="Sort watchlist"
+                            >
+
+                                <option value="added-desc">
+                                    Added: Newest
+                                </option>
+
+                                <option value="added-asc">
+                                    Added: Oldest
+                                </option>
+
+                                <option value="title-asc">
+                                    Title: A–Z
+                                </option>
+
+                                <option value="title-desc">
+                                    Title: Z–A
+                                </option>
+
+                                <option value="release-desc">
+                                    Release: Newest
+                                </option>
+
+                                <option value="release-asc">
+                                    Release: Oldest
+                                </option>
+
+                            </select>
+
+                        </label>
+
+
+                        <button
+                            type="button"
+                            id="media-panel-close"
+                            class="media-panel-close"
+                            title="Close"
+                            aria-label="Close"
+                        >
+                            ×
+                        </button>
+
+                    </div>
+
+                </header>
+
+
+                <div
+                    id="media-panel-body"
+                    class="media-panel-body"
+                ></div>
+
+
+                <footer class="media-panel-footer">
+
+                    <span
+                        id="availability-attribution"
+                        class="availability-attribution"
+                    >
+                        Streaming availability: JustWatch via TMDB
+                    </span>
+
+
+                    <button
+                        type="button"
+                        id="tmdb-token-button"
+                        class="tmdb-token-button"
+                        title="Change TMDB Read Access Token"
+                    >
+                        API
+                    </button>
+
+                </footer>
+
+            </section>
+
+        </section>
+
+            <button type="button" id="restore-home-layout" class="compact-runtime-placeholder" hidden aria-hidden="true"></button>
+            <button type="button" id="discord" class="compact-runtime-placeholder" hidden aria-hidden="true"></button>
+            <input id="watchlist-import-input" type="file" accept="application/json,.json" hidden>
+        </section>
+
+
+        <section
+            id="settings-center"
+            class="settings-center"
+            aria-label="Stream Shell settings"
+            hidden
+        >
+
+            <header class="settings-header">
+
+                <nav
+                    id="settings-provider-tabs"
+                    class="settings-provider-tabs"
+                    aria-label="Settings categories"
+                >
+
+                    <button type="button" class="settings-provider-tab" data-settings-provider="general">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M4 7H13"></path>
+                            <path d="M17 7H20"></path>
+                            <circle cx="15" cy="7" r="2"></circle>
+                            <path d="M4 17H7"></path>
+                            <path d="M11 17H20"></path>
+                            <circle cx="9" cy="17" r="2"></circle>
+                        </svg>
+                        <span>General</span>
+                    </button>
+
+                    <button type="button" class="settings-provider-tab" data-settings-provider="youtube">
+                        <img src="../assets/providers/icons/youtube.svg" alt="">
+                        <span>YouTube</span>
+                    </button>
+
+                    <button type="button" class="settings-provider-tab" data-settings-provider="netflix">
+                        <img src="../assets/providers/icons/netflix.svg" alt="">
+                        <span>Netflix</span>
+                    </button>
+
+                    <button type="button" class="settings-provider-tab" data-settings-provider="prime">
+                        <img src="../assets/providers/icons/prime.svg" alt="">
+                        <span>Prime Video</span>
+                    </button>
+
+                    <button type="button" class="settings-provider-tab" data-settings-provider="disney">
+                        <img src="../assets/providers/icons/disney.svg" alt="">
+                        <span>Disney+</span>
+                    </button>
+
+                    <button type="button" class="settings-provider-tab" data-settings-provider="crunchyroll">
+                        <img src="../assets/providers/icons/crunchyroll.svg" alt="">
+                        <span>Crunchyroll</span>
+                    </button>
+
+                </nav>
+
+                <div class="settings-header-actions">
+                    <span id="settings-io-status" class="settings-io-status" aria-live="polite"></span>
+
+                    <button
+                        type="button"
+                        id="settings-diagnostics"
+                        class="settings-header-action"
+                        title="Diagnostics"
+                        aria-label="Open diagnostics"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M3.5 12H7L9.1 7.5L12.3 16.5L14.8 10.5L16.3 12H20.5"></path>
+                        </svg>
+                    </button>
+
+                    <button
+                        type="button"
+                        id="settings-import"
+                        class="settings-header-action"
+                        title="Import settings"
+                        aria-label="Import settings"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 4V15M8.5 11.5L12 15L15.5 11.5"></path>
+                            <path d="M5 13.5V18.5C5 19.3 5.7 20 6.5 20H17.5C18.3 20 19 19.3 19 18.5V13.5"></path>
+                        </svg>
+                    </button>
+                    <button
+                        type="button"
+                        id="settings-export"
+                        class="settings-header-action"
+                        title="Export settings"
+                        aria-label="Export settings"
+                    >
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path d="M12 15V4M8.5 7.5L12 4L15.5 7.5"></path>
+                            <path d="M5 13.5V18.5C5 19.3 5.7 20 6.5 20H17.5C18.3 20 19 19.3 19 18.5V13.5"></path>
+                        </svg>
+                    </button>
+                    <input id="settings-import-file" type="file" accept=".json,application/json" hidden>
+
+                    <button
+                        type="button"
+                        id="settings-close"
+                        class="settings-close"
+                        aria-label="Close settings"
+                        title="Close settings"
+                    >
+                        ×
+                    </button>
+                </div>
+
+            </header>
+
+            <div class="settings-shell">
+
+                <aside
+                    id="settings-sidebar"
+                    class="settings-sidebar"
+                    aria-label="Settings sections"
+                ></aside>
+
+                <div
+                    id="settings-content"
+                    class="settings-content"
+                ></div>
+
+            </div>
+
+            <div
+                id="settings-diagnostics-overlay"
+                class="settings-diagnostics-overlay"
+                hidden
+            >
+                <section
+                    class="settings-diagnostics-dialog"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="settings-diagnostics-title"
+                >
+                    <header class="settings-diagnostics-header">
+                        <div>
+                            <span class="settings-diagnostics-kicker">STREAM SHELL</span>
+                            <h2 id="settings-diagnostics-title">Diagnostics</h2>
+                            <p>Shell, helper and provider snapshot.</p>
+                        </div>
+
+                        <div class="settings-diagnostics-actions">
+                            <span
+                                id="settings-diagnostics-status"
+                                class="settings-diagnostics-status"
+                                aria-live="polite"
+                            ></span>
+
+                            <button
+                                type="button"
+                                id="settings-diagnostics-refresh"
+                                class="settings-header-action"
+                                title="Refresh diagnostics"
+                                aria-label="Refresh diagnostics"
+                            >
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M20 7V12H15"></path>
+                                    <path d="M18.2 5.8A8 8 0 1 0 19.5 14"></path>
+                                </svg>
+                            </button>
+
+                            <button
+                                type="button"
+                                id="settings-diagnostics-export"
+                                class="settings-header-action"
+                                title="Export diagnostics"
+                                aria-label="Export diagnostics"
+                            >
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M12 15V4M8.5 7.5L12 4L15.5 7.5"></path>
+                                    <path d="M5 13.5V18.5C5 19.3 5.7 20 6.5 20H17.5C18.3 20 19 19.3 19 18.5V13.5"></path>
+                                </svg>
+                            </button>
+
+                            <button
+                                type="button"
+                                id="settings-diagnostics-close"
+                                class="settings-close settings-diagnostics-close"
+                                aria-label="Close diagnostics"
+                                title="Close diagnostics"
+                            >
+                                ×
+                            </button>
+                        </div>
+                    </header>
+
+                    <div
+                        id="settings-diagnostics-content"
+                        class="settings-diagnostics-content"
+                    ></div>
+
+                    <footer class="settings-diagnostics-footer">
+                        Diagnostics export includes the session flight recorder but excludes watch history, titles, URLs, TMDB credentials and imported settings files.
+                    </footer>
+                </section>
+            </div>
+
+        </section>
+
+
+        <footer class="dashboard-footer">
+
+            <div class="status-group">
+
+                <div class="status-item">
+
+                    <span class="status-side">
+                        LEFT
+                    </span>
+
+                    <strong id="left-status">
+                        Landing
+                    </strong>
+
+                </div>
+
+
+                <div class="status-divider"></div>
+
+
+                <div class="status-item">
+
+                    <span class="status-side">
+                        RIGHT
+                    </span>
+
+                    <strong id="right-status">
+                        Dashboard
+                    </strong>
+
+                </div>
+
+            </div>
+
+
+            <div
+                id="now-playing-slot"
+                class="contextual-slot"
+                hidden
+            >
+
+            <section
+                id="now-playing"
+                class="now-playing empty"
+                aria-label="Now playing"
+                aria-disabled="true"
+                role="button"
+                tabindex="0"
+                title="Return to current player"
+            >
+
+                        <button
+                            type="button"
+                            id="now-playing-settings"
+                            class="now-playing-settings"
+                            aria-label="Toggle provider settings"
+                            title="Provider settings"
+                        >
+                            <svg viewBox="0 0 24 24" aria-hidden="true">
+                                <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.07-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.61-.22l-2.39.96a7.2 7.2 0 0 0-1.62-.94L14.38 2.8a.5.5 0 0 0-.49-.4h-3.84a.5.5 0 0 0-.49.4l-.36 2.52c-.58.24-1.12.55-1.62.93L5.2 5.3a.5.5 0 0 0-.61.22L2.67 8.84a.5.5 0 0 0 .12.64l2.02 1.58c-.04.31-.07.64-.07.96 0 .31.02.62.07.92L2.79 14.52a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .61.22l2.38-.96c.5.39 1.05.7 1.63.94l.36 2.52a.5.5 0 0 0 .49.4h3.84a.5.5 0 0 0 .49-.4l.36-2.52c.58-.24 1.13-.55 1.63-.94l2.38.96a.5.5 0 0 0 .61-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.02-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" fill="currentColor"/>
+                            </svg>
+                        </button>
+
+                <div class="now-playing-artwork-shell">
+
+                    <img
+                        id="now-playing-artwork"
+                        class="now-playing-artwork"
+                        alt=""
+                    >
+
+                    <div
+                        id="now-playing-artwork-fallback"
+                        class="now-playing-artwork-fallback"
+                        aria-hidden="true"
+                    >
+                        ▶
+                    </div>
+
+                </div>
+
+                    <div class="now-playing-label-row">
+
+                        <div class="now-playing-label-copy">
+
+                            <span class="now-playing-label">
+                                NOW PLAYING
+                            </span>
+
+                            <span
+                                id="now-playing-state"
+                                class="now-playing-state"
+                            >
+                                —
+                            </span>
+
+                        </div>
+
+                    </div>
+
+                    <div
+                        id="now-playing-rating"
+                        class="now-playing-rating"
+                        hidden
+                    ></div>
+
+                    <div
+                        id="now-playing-title-viewport"
+                        class="now-playing-title-viewport"
+                    >
+
+                        <span
+                            id="now-playing-title"
+                            class="now-playing-title"
+                        >
+                            Nothing playing
+                        </span>
+
+                    </div>
+
+                    <div class="now-playing-progress-row">
+
+                        <div
+                            class="now-playing-progress-track"
+                            aria-hidden="true"
+                        >
+
+                            <div
+                                id="now-playing-progress"
+                                class="now-playing-progress"
+                            ></div>
+
+                        </div>
+
+                        <span
+                            id="now-playing-time"
+                            class="now-playing-time"
+                        >
+                            --:-- / --:--
+                        </span>
+
+                    </div>
+
+            </section>
+
+            </div>
+
+
+            <div
+                id="reload-left-slot"
+                class="contextual-slot"
+                hidden
+            >
+
+            <button
+                type="button"
+                id="reload-left"
+                class="footer-action reload-action"
+                title="Reload the left side"
+            >
+
+                <span class="footer-icon">
+                    ↻
+                </span>
+
+                <span>
+                    Reload
+                </span>
+
+            </button>
+
+            </div>
+
+
+            <button
+                type="button"
+                id="kill-shell"
+                class="kill-action"
+                title="Close all Stream Shell windows"
+                aria-label="Close all Stream Shell windows"
+            >
+
+                <svg
+                    class="kill-icon"
+                    viewBox="0 0 64 64"
+                    aria-hidden="true"
+                >
+
+                    <path
+                        d="M32 8C20.4 8 11 17.4 11 29C11 37.2 15.7 44.3 22.5 47.8V54C22.5 56.2 24.3 58 26.5 58H37.5C39.7 58 41.5 56.2 41.5 54V47.8C48.3 44.3 53 37.2 53 29C53 17.4 43.6 8 32 8Z"
+                        fill="currentColor"
+                        opacity="0.92"
+                    ></path>
+
+                    <circle
+                        cx="24"
+                        cy="29"
+                        r="4.2"
+                        fill="#0a0d12"
+                    ></circle>
+
+                    <circle
+                        cx="40"
+                        cy="29"
+                        r="4.2"
+                        fill="#0a0d12"
+                    ></circle>
+
+                    <path
+                        d="M32 34L28.8 39H35.2Z"
+                        fill="#0a0d12"
+                    ></path>
+
+                    <rect
+                        x="26"
+                        y="43"
+                        width="12"
+                        height="7"
+                        rx="1.8"
+                        fill="#0a0d12"
+                    ></rect>
+
+                    <line
+                        x1="30"
+                        y1="43"
+                        x2="30"
+                        y2="50"
+                        stroke="currentColor"
+                        stroke-width="1.4"
+                        opacity="0.35"
+                    ></line>
+
+                    <line
+                        x1="34"
+                        y1="43"
+                        x2="34"
+                        y2="50"
+                        stroke="currentColor"
+                        stroke-width="1.4"
+                        opacity="0.35"
+                    ></line>
+
+
+                    <g opacity="0.88">
+
+                        <rect
+                            x="10"
+                            y="49"
+                            width="20"
+                            height="4.8"
+                            rx="2.4"
+                            transform="rotate(-28 20 51.4)"
+                            fill="currentColor"
+                        ></rect>
+
+                        <rect
+                            x="34"
+                            y="49"
+                            width="20"
+                            height="4.8"
+                            rx="2.4"
+                            transform="rotate(28 44 51.4)"
+                            fill="currentColor"
+                        ></rect>
+
+                        <circle
+                            cx="12.5"
+                            cy="45.5"
+                            r="3"
+                            fill="currentColor"
+                        ></circle>
+
+                        <circle
+                            cx="17.5"
+                            cy="43.5"
+                            r="3"
+                            fill="currentColor"
+                        ></circle>
+
+                        <circle
+                            cx="46.5"
+                            cy="43.5"
+                            r="3"
+                            fill="currentColor"
+                        ></circle>
+
+                        <circle
+                            cx="51.5"
+                            cy="45.5"
+                            r="3"
+                            fill="currentColor"
+                        ></circle>
+
+                    </g>
+
+                </svg>
+
+            </button>
+
+        </footer>
+
+    </main>
+
+
+    <script src="../media/history.js"></script>
+    <script src="../media/media-api.js"></script>
+    <script src="dashboard.js"></script>
+
+</body>
+
+</html>

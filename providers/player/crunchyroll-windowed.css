@@ -1,0 +1,85 @@
+/*
+ * Stream Shell — Crunchyroll windowed player
+ *
+ * The Stream Shell windowed-player marker is the sole scope boundary here.
+ * It is only applied after the provider window has been verified as managed.
+ * Current Crunchyroll layout (2026-08):
+ *   .video-player-wrapper
+ *     #player-container
+ *       .bitmovinplayer-container
+ *         video
+ */
+
+html[data-stream-shell-windowed-player="crunchyroll"],
+html[data-stream-shell-windowed-player="crunchyroll"] body {
+    width: 100% !important;
+    height: 100% !important;
+    overflow: hidden !important;
+    background: #000 !important;
+}
+
+/* The outer Crunchyroll player surface owns the complete provider viewport. */
+html[data-stream-shell-windowed-player="crunchyroll"] .video-player-wrapper {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 2147483000 !important;
+
+    box-sizing: border-box !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    min-width: 100vw !important;
+    min-height: 100vh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background: #000 !important;
+}
+
+/* Everything below the wrapper follows its bounds instead of fighting it. */
+html[data-stream-shell-windowed-player="crunchyroll"] .video-player-wrapper > #player-container,
+html[data-stream-shell-windowed-player="crunchyroll"] .video-player-wrapper #player-container {
+    position: absolute !important;
+    inset: 0 !important;
+
+    box-sizing: border-box !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-width: 100% !important;
+    min-height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    background: #000 !important;
+}
+
+html[data-stream-shell-windowed-player="crunchyroll"] .video-player-wrapper .bitmovinplayer-container,
+html[data-stream-shell-windowed-player="crunchyroll"] .video-player-wrapper video[id^="bitmovinplayer-video-"] {
+    position: absolute !important;
+    inset: 0 !important;
+
+    box-sizing: border-box !important;
+    width: 100% !important;
+    height: 100% !important;
+    min-width: 100% !important;
+    min-height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+html[data-stream-shell-windowed-player="crunchyroll"] .video-player-wrapper .bitmovinplayer-container {
+    overflow: hidden !important;
+    background: #000 !important;
+}
+
+html[data-stream-shell-windowed-player="crunchyroll"] .video-player-wrapper video[id^="bitmovinplayer-video-"] {
+    object-fit: contain !important;
+}

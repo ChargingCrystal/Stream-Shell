@@ -1,0 +1,6 @@
+/* Optional spoiler protection: only artwork linking directly to watch pages. */
+html[data-stream-shell-crunchyroll-blur-thumbnails] a[href*="/watch/"] img {
+    filter: blur(14px) saturate(.55) brightness(.78) !important;
+    transform: scale(1.07) !important;
+    transition: filter .18s ease, transform .18s ease !important;
+}

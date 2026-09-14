@@ -1,0 +1,57 @@
+/*
+ * Stream Shell — YouTube windowed quick actions
+ *
+ * Kept separate from youtube-windowed.css on purpose: the Windowed toggle
+ * owns the viewport layout, while the Extras toggle only exposes YouTube's
+ * own fullscreen quick-action strip inside that layout.
+ *
+ * Visibility deliberately follows #movie_player.ytp-autohide. That class is
+ * YouTube's own source of truth for the native timeline / control bar, so the
+ * extra actions now enter and leave at the same moment instead of running on
+ * a separate Stream Shell timer.
+ */
+
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"][data-stream-shell-youtube-extras="true"]
+#movie_player:not(.ytp-fullscreen)
+.ytp-fullscreen-quick-actions {
+    display: flex !important;
+}
+
+
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"][data-stream-shell-youtube-extras="true"]
+#movie_player:not(.ytp-fullscreen):not(.ytp-autohide)
+.ytp-fullscreen-quick-actions {
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+}
+
+
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"][data-stream-shell-youtube-extras="true"]
+#movie_player:not(.ytp-fullscreen).ytp-autohide
+.ytp-fullscreen-quick-actions {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+}
+
+
+/* Comments depend on YouTube's native fullscreen engagement-panel layout.
+   Keep the rest of the native quick actions, but do not expose a dead control. */
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"][data-stream-shell-youtube-extras="true"]
+.ytp-fullscreen-quick-actions
+:is(
+    button,
+    [role="button"]
+):is(
+    [aria-label*="comment" i],
+    [aria-label*="kommentar" i],
+    [title*="comment" i],
+    [title*="kommentar" i],
+    [data-title-no-tooltip*="comment" i],
+    [data-title-no-tooltip*="kommentar" i],
+    [data-tooltip-text*="comment" i],
+    [data-tooltip-text*="kommentar" i]
+) {
+    display: none !important;
+}

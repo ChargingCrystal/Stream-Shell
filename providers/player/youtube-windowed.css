@@ -1,0 +1,108 @@
+/*
+ * Stream Shell — YouTube windowed player
+ *
+ * Inspired by the open-source windowed-fullscreen pattern used by
+ * Window Fullscreen for YouTube: cooperate with YouTube theater mode,
+ * then let CSS make the theater player fill the content viewport.
+ */
+
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"],
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"] body,
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"] ytd-app {
+    overflow: hidden !important;
+    background: #000 !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"] #guide,
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"] ytd-mini-guide-renderer {
+    display: none !important;
+}
+
+/*
+ * Keep YouTube's metadata/action column alive and painted off-screen instead
+ * of hiding it. RYD rejects regular-video button candidates when an ancestor
+ * is display:none, visibility:hidden or opacity:0. Parking the column far
+ * outside the viewport keeps that lifecycle valid without exposing or making
+ * the metadata/action UI interactive.
+ */
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"] ytd-watch-flexy #columns {
+    display: flex !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: -100000px !important;
+    width: 1280px !important;
+    max-width: 1280px !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    /* Keep it painted: current RYD rejects zero-opacity ancestors. */
+    pointer-events: none !important;
+    overflow: visible !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"] #page-manager.ytd-app,
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"] ytd-watch-flexy {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"] ytd-watch-flexy {
+    --ytd-watch-flexy-masthead-height: 0px !important;
+    height: 100vh !important;
+    min-height: 100vh !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"] ytd-watch-flexy[theater]:not([fullscreen]) :is(
+    #full-bleed-container,
+    #player-full-bleed-container,
+    #player-theater-container,
+    #player-wide-container,
+    #player
+) {
+    width: 100vw !important;
+    height: 100vh !important;
+    min-height: 100vh !important;
+    max-height: 100vh !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"] #movie_player {
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
+    background: #000 !important;
+}
+
+/* Keep YouTube's own logo/search masthead available at the upper video edge. */
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"] #masthead-container {
+    display: block !important;
+    position: fixed !important;
+    inset: 0 0 auto 0 !important;
+    z-index: 2147482000 !important;
+
+    transform: translateY(-100%) !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+
+    transition:
+        transform 160ms ease,
+        opacity 140ms ease,
+        visibility 0s linear 160ms !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"][data-stream-shell-youtube-top-ui="true"] #masthead-container,
+html[data-stream-shell="true"][data-stream-shell-windowed-player="youtube"] #masthead-container:hover {
+    transform: translateY(0) !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    pointer-events: auto !important;
+
+    transition:
+        transform 160ms ease,
+        opacity 140ms ease,
+        visibility 0s linear 0s !important;
+}

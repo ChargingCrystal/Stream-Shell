@@ -1,0 +1,91 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  width: 344px;
+  min-height: 300px;
+  color: #f5f6fa;
+  background:
+    radial-gradient(circle at 15% -10%, rgba(123, 73, 255, .22), transparent 42%),
+    #090a0e;
+}
+.popup-shell { padding: 16px; }
+.brand-row { display: flex; align-items: center; gap: 11px; padding: 2px 2px 14px; }
+.brand-row img { width: 30px; height: 30px; border-radius: 8px; }
+.brand-row div { display: grid; gap: 1px; }
+.brand-row strong { font-size: 15px; letter-spacing: .01em; }
+.brand-row span { color: #777b86; font-size: 11px; }
+.page-preview {
+  min-width: 0;
+  margin-bottom: 12px;
+  padding: 11px 12px;
+  border: 1px solid #23252d;
+  border-radius: 12px;
+  background: rgba(255,255,255,.025);
+}
+.page-title {
+  overflow: hidden;
+  color: #dadce5;
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-host {
+  overflow: hidden;
+  margin-top: 4px;
+  color: #6f7380;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.actions { display: grid; gap: 8px; }
+.action {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  min-height: 56px;
+  padding: 9px 11px;
+  text-align: left;
+  color: #dfe1e9;
+  border: 1px solid #252832;
+  border-radius: 12px;
+  background: rgba(255,255,255,.025);
+  cursor: pointer;
+  transition: border-color .14s ease, background .14s ease, transform .14s ease;
+}
+.action:hover {
+  border-color: #3d414d;
+  background: rgba(255,255,255,.055);
+  transform: translateY(-1px);
+}
+.action:active { transform: translateY(0); }
+.action.primary {
+  border-color: rgba(124, 92, 255, .38);
+  background: rgba(112, 76, 255, .10);
+}
+.action:disabled { opacity: .38; cursor: default; transform: none; }
+.action .icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: #a996ff;
+  font-size: 15px;
+}
+.action > span:last-child { display: grid; gap: 2px; min-width: 0; }
+.action strong { font-size: 12px; font-weight: 700; }
+.action small { color: #747986; font-size: 10px; }
+.status {
+  min-height: 15px;
+  padding: 10px 3px 0;
+  color: #8f93a0;
+  font-size: 10px;
+}
+.status.success { color: #9fd6b0; }
+.status.error { color: #e6a0a9; }

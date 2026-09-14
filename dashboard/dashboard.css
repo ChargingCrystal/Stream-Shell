@@ -1,0 +1,4694 @@
+* {
+    box-sizing: border-box;
+}
+
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+
+    margin: 0;
+
+    overflow: hidden;
+}
+
+
+body {
+    --accent-rgb:
+        229, 9, 20;
+
+    background:
+        #03050a;
+
+    color:
+        #f5f5f7;
+
+    font-family:
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+}
+
+
+/*
+ * ============================================================
+ * PROVIDER THEMES
+ * ============================================================
+ */
+
+body[data-provider="youtube"] {
+    --accent-rgb:
+        255, 0, 51;
+}
+
+
+body[data-provider="netflix"] {
+    --accent-rgb:
+        229, 9, 20;
+}
+
+
+body[data-provider="prime"] {
+    --accent-rgb:
+        23, 168, 229;
+}
+
+
+body[data-provider="disney"] {
+    --accent-rgb:
+        107, 121, 255;
+}
+
+
+body[data-provider="crunchyroll"] {
+    --accent-rgb:
+        244, 117, 33;
+}
+
+
+/*
+ * ============================================================
+ * ROOT
+ * ============================================================
+ */
+
+.dashboard {
+    position: relative;
+
+    width: 100%;
+    height: 100%;
+
+    overflow: hidden;
+}
+
+
+/*
+ * ============================================================
+ * BACKGROUND
+ * ============================================================
+ */
+
+.panorama-background {
+    position: absolute;
+
+    top: 0;
+    bottom: 0;
+    right: 0;
+
+    width: 200.084602%;
+
+    z-index: 0;
+
+    background-repeat:
+        no-repeat;
+
+    background-position:
+        center center;
+
+    background-size:
+        cover;
+
+    pointer-events:
+        none;
+
+    user-select:
+        none;
+}
+
+
+.dashboard-shade {
+    position: absolute;
+
+    inset: 0;
+
+    z-index: 1;
+
+    pointer-events:
+        none;
+
+    user-select:
+        none;
+
+    background:
+        linear-gradient(
+            90deg,
+            rgba(3,5,9,.70) 0%,
+            rgba(3,5,9,.20) 34%,
+            rgba(3,5,9,.04) 70%
+        ),
+
+        linear-gradient(
+            0deg,
+            rgba(2,4,8,.76) 0%,
+            transparent 32%
+        );
+}
+
+
+/*
+ * ============================================================
+ * PROVIDER WORDMARK
+ * ============================================================
+ */
+
+.provider-wordmark {
+    position: absolute;
+
+    top: 9%;
+    right: 6%;
+
+    z-index: 2;
+
+    width: 31%;
+    height: 150px;
+
+    object-fit:
+        contain;
+
+    object-position:
+        right center;
+
+    opacity: .24;
+
+    filter:
+        drop-shadow(
+            0 18px 50px
+            rgba(0,0,0,.40)
+        );
+
+    pointer-events:
+        none;
+
+    user-select:
+        none;
+}
+
+
+/*
+ * ============================================================
+ * STREAM SHELL BRAND + CLOCK
+ * ============================================================
+ */
+
+.brand-area {
+    position: absolute;
+
+    top: 58px;
+    left: 66px;
+
+    z-index: 4;
+}
+
+
+.brand-line {
+    max-height: 122px;
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 28px;
+
+    margin-bottom: 32px;
+
+    overflow: hidden;
+
+    opacity: 1;
+
+    transform:
+        translateY(0);
+
+    transition:
+        max-height .20s cubic-bezier(.2,.75,.25,1),
+        margin-bottom .20s cubic-bezier(.2,.75,.25,1),
+        opacity .12s ease,
+        transform .20s cubic-bezier(.2,.75,.25,1);
+}
+
+
+/*
+ * When the Landing page is unobstructed on the left side, its large
+ * Stream Shell wordmark already carries the branding. The Dashboard
+ * therefore promotes the clock/date into the brand slot. As soon as
+ * another window covers Landing, the normal brand + clock stack returns.
+ */
+.brand-area.landing-exposed
+.brand-line {
+    max-height: 0;
+
+    margin-bottom: 0;
+
+    opacity: 0;
+
+    transform:
+        translateY(-8px);
+}
+
+
+.stream-shell-logo {
+    width: 92px;
+    height: 92px;
+
+    padding: 13px;
+
+    object-fit:
+        contain;
+
+    border:
+        1px solid
+        rgba(255,255,255,.14);
+
+    border-radius: 22px;
+
+    background:
+        rgba(5,7,11,.52);
+
+    backdrop-filter:
+        blur(15px);
+
+    -webkit-backdrop-filter:
+        blur(15px);
+
+    box-shadow:
+        0 18px 46px
+        rgba(0,0,0,.32);
+
+    pointer-events:
+        none;
+
+    user-select:
+        none;
+}
+
+
+.stream-shell-name {
+    color:
+        rgba(255,255,255,.94);
+
+    font-size: 36px;
+
+    font-weight: 650;
+
+    letter-spacing: .16em;
+
+    text-shadow:
+        0 8px 24px
+        rgba(0,0,0,.42);
+
+    pointer-events:
+        none;
+
+    user-select:
+        none;
+}
+
+
+.clock {
+    color:
+        rgba(255,255,255,.96);
+
+    font-size:
+        clamp(
+            72px,
+            5vw,
+            92px
+        );
+
+    line-height: .94;
+
+    font-weight: 300;
+
+    letter-spacing:
+        -.055em;
+
+    text-shadow:
+        0 8px 26px
+        rgba(0,0,0,.42);
+
+    pointer-events:
+        none;
+
+    user-select:
+        none;
+}
+
+
+.date {
+    margin-top: 14px;
+
+    color:
+        rgba(255,255,255,.62);
+
+    font-size: 20px;
+
+    font-weight: 400;
+
+    text-shadow:
+        0 5px 16px
+        rgba(0,0,0,.50);
+
+    pointer-events:
+        none;
+
+    user-select:
+        none;
+}
+
+
+/*
+ * ============================================================
+ * PROVIDER SELECTOR
+ * ============================================================
+ */
+
+.provider-selector {
+    position: absolute;
+
+    left: 50%;
+    top: 55%;
+
+    z-index: 4;
+
+    width: 100%;
+
+    display: flex;
+
+    flex-direction: column;
+
+    align-items: center;
+
+    gap: 28px;
+
+    transform:
+        translate(-50%, -50%);
+}
+
+
+.provider-row {
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    gap: 28px;
+}
+
+
+.provider-row-main {
+    width: 70%;
+}
+
+
+.provider-row-single {
+    width: 37%;
+}
+
+
+.provider-row-main
+.provider-card {
+    flex: 1;
+
+    min-width: 0;
+}
+
+
+.provider-row-single
+.provider-card {
+    width: 100%;
+}
+
+
+/*
+ * ============================================================
+ * PROVIDER BUTTON
+ * ============================================================
+ */
+
+.provider-card {
+    position: relative;
+
+    height: 108px;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    gap: 24px;
+
+    padding:
+        0 68px;
+
+    border:
+        1px solid
+        rgba(255,255,255,.13);
+
+    border-radius: 20px;
+
+    background:
+        rgba(7,9,13,.58);
+
+    backdrop-filter:
+        blur(20px);
+
+    -webkit-backdrop-filter:
+        blur(20px);
+
+    color:
+        rgba(255,255,255,.90);
+
+    font-family:
+        inherit;
+
+    font-size: 27px;
+
+    font-weight: 550;
+
+    text-align: center;
+
+    cursor: pointer;
+
+    box-shadow:
+        0 15px 38px
+        rgba(0,0,0,.26);
+
+    transition:
+        background .14s ease,
+        border-color .14s ease,
+        color .14s ease,
+        transform .14s ease,
+        box-shadow .14s ease;
+}
+
+
+.provider-card img {
+    width: 62px;
+    height: 62px;
+
+    flex:
+        0 0 62px;
+
+    object-fit:
+        contain;
+
+    object-position:
+        center;
+
+    pointer-events:
+        none;
+
+    user-select:
+        none;
+}
+
+
+.provider-card span {
+    display: inline-flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    line-height: 1;
+
+    pointer-events:
+        none;
+
+    user-select:
+        none;
+}
+
+
+.provider-card:hover {
+    color:
+        white;
+
+    background:
+        rgba(18,21,27,.78);
+
+    border-color:
+        rgba(255,255,255,.23);
+
+    transform:
+        translateY(-2px);
+
+    box-shadow:
+        0 19px 44px
+        rgba(0,0,0,.30);
+}
+
+
+.provider-card.active {
+    color:
+        white;
+
+    border-color:
+        rgba(var(--accent-rgb), .68);
+
+    background:
+        rgba(var(--accent-rgb), .17);
+
+    box-shadow:
+        0 0 0 1px
+        rgba(var(--accent-rgb), .12),
+
+        0 18px 46px
+        rgba(0,0,0,.29);
+}
+
+
+/*
+ * ============================================================
+ * MEDIA AVAILABILITY
+ * ============================================================
+ *
+ * Intentionally no filled badge anymore.
+ *
+ * The icons now sit quietly inside the provider cards instead
+ * of looking like five traffic lights.
+ */
+
+.provider-availability {
+    position: absolute;
+
+    right: 22px;
+    top: 50%;
+
+    width: 30px;
+    height: 30px;
+
+    display: grid !important;
+
+    place-items: center;
+
+    transform:
+        translateY(-50%);
+
+    opacity: 0;
+
+    pointer-events:
+        none;
+
+    user-select:
+        none;
+
+    transition:
+        color .14s ease,
+        opacity .14s ease,
+        transform .14s ease;
+}
+
+
+.provider-availability.visible {
+    opacity: .92;
+}
+
+
+.provider-availability svg {
+    width: 27px;
+    height: 27px;
+
+    display: block;
+
+    overflow: visible;
+
+    fill: none;
+
+    stroke:
+        currentColor;
+
+    stroke-width:
+        1.8;
+
+    stroke-linecap:
+        round;
+
+    stroke-linejoin:
+        round;
+}
+
+
+.provider-availability.available {
+    color:
+        rgba(111,225,151,.96);
+
+    filter:
+        drop-shadow(
+            0 0 7px
+            rgba(80,220,130,.12)
+        );
+}
+
+
+.provider-availability.extra {
+    color:
+        rgba(255,196,88,.90);
+
+    filter:
+        drop-shadow(
+            0 0 7px
+            rgba(255,180,50,.10)
+        );
+}
+
+
+.provider-availability.unavailable {
+    color:
+        rgba(255,255,255,.29);
+}
+
+
+.provider-availability.unknown {
+    color:
+        rgba(255,255,255,.42);
+}
+
+
+/*
+ * ============================================================
+ * FOOTER
+ * ============================================================
+ */
+
+.dashboard-footer {
+    position: absolute;
+
+    left: 66px;
+    right: 54px;
+    bottom: 40px;
+
+    z-index: 5;
+
+    min-height: 78px;
+
+    display: flex;
+
+    align-items: center;
+}
+
+
+/*
+ * ============================================================
+ * STATUS
+ * ============================================================
+ */
+
+.status-group {
+    height: 72px;
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 26px;
+
+    padding:
+        0 26px;
+
+    border:
+        1px solid
+        rgba(255,255,255,.11);
+
+    border-radius: 17px;
+
+    background:
+        rgba(6,8,12,.62);
+
+    backdrop-filter:
+        blur(17px);
+
+    -webkit-backdrop-filter:
+        blur(17px);
+}
+
+
+.status-item {
+    display: flex;
+
+    align-items: baseline;
+
+    gap: 12px;
+}
+
+
+.status-side {
+    color:
+        rgba(255,255,255,.40);
+
+    font-size: 13px;
+
+    font-weight: 700;
+
+    letter-spacing: .17em;
+
+    pointer-events:
+        none;
+}
+
+
+.status-item strong {
+    color:
+        rgba(255,255,255,.91);
+
+    font-size: 20px;
+
+    font-weight: 560;
+
+    pointer-events:
+        none;
+}
+
+
+.status-divider {
+    width: 1px;
+    height: 30px;
+
+    background:
+        rgba(255,255,255,.12);
+}
+
+
+/*
+ * ============================================================
+ * NOW PLAYING
+ * ============================================================
+ */
+
+.now-playing {
+    height: 72px;
+
+    min-width: 0;
+
+    margin-left: 20px;
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 15px;
+
+    padding:
+        8px 17px 8px 8px;
+
+    border:
+        1px solid
+        rgba(255,255,255,.11);
+
+    border-radius: 17px;
+
+    background:
+        rgba(6,8,12,.62);
+
+    backdrop-filter:
+        blur(17px);
+
+    -webkit-backdrop-filter:
+        blur(17px);
+
+    overflow: hidden;
+}
+
+
+.now-playing-artwork-shell {
+    position: relative;
+
+    width:
+        var(
+            --now-playing-artwork-width,
+            96px
+        );
+    height: 54px;
+
+    flex:
+        0 0
+        var(
+            --now-playing-artwork-width,
+            96px
+        );
+
+    transition:
+        width .16s ease,
+        flex-basis .16s ease;
+
+    overflow: hidden;
+
+    border-radius: 11px;
+
+    background:
+        rgba(255,255,255,.055);
+}
+
+
+.now-playing-artwork {
+    position: relative;
+
+    z-index: 2;
+
+    width: 100%;
+    height: 100%;
+
+    display: block;
+
+    object-fit: cover;
+
+    opacity: 0;
+
+    transition:
+        opacity .16s ease;
+}
+
+
+.now-playing.has-artwork
+.now-playing-artwork {
+    opacity: 1;
+}
+
+
+.now-playing-artwork-fallback {
+    position: absolute;
+
+    inset: 0;
+
+    z-index: 1;
+
+    display: grid;
+
+    place-items: center;
+
+    color:
+        rgba(255,255,255,.27);
+
+    font-size: 18px;
+
+    pointer-events: none;
+}
+
+
+.now-playing-label {
+    color:
+        rgba(255,255,255,.38);
+
+    font-size: 11px;
+
+    font-weight: 750;
+
+    letter-spacing: .16em;
+
+    line-height: 1;
+
+    pointer-events: none;
+
+    user-select: none;
+}
+
+
+.now-playing-title-viewport {
+    width: 100%;
+
+    overflow: hidden;
+
+    white-space: nowrap;
+}
+
+
+.now-playing-title {
+    display: inline-block;
+
+    max-width: none;
+
+    color:
+        rgba(255,255,255,.91);
+
+    font-size: 17px;
+
+    font-weight: 560;
+
+    line-height: 1.15;
+
+    white-space: nowrap;
+
+    will-change: transform;
+
+    pointer-events: none;
+
+    user-select: none;
+}
+
+
+.now-playing-title.scrolling {
+    transform: translateX(0);
+}
+
+
+@keyframes now-playing-scroll {
+    0%, 12% {
+        transform:
+            translateX(0);
+    }
+
+    88%, 100% {
+        transform:
+            translateX(
+                calc(
+                    -1 *
+                    var(--now-playing-scroll-distance, 0px)
+                )
+            );
+    }
+}
+
+
+/*
+ * ============================================================
+ * GENERIC FOOTER ACTION
+ * ============================================================
+ */
+
+.footer-action {
+    height: 72px;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: center;
+
+    gap: 13px;
+
+    margin-left: 20px;
+
+    padding:
+        0 27px;
+
+    border:
+        1px solid
+        rgba(255,255,255,.11);
+
+    border-radius: 17px;
+
+    background:
+        rgba(6,8,12,.62);
+
+    color:
+        rgba(255,255,255,.80);
+
+    font-family:
+        inherit;
+
+    font-size: 19px;
+
+    font-weight: 530;
+
+    cursor: pointer;
+
+    backdrop-filter:
+        blur(17px);
+
+    -webkit-backdrop-filter:
+        blur(17px);
+
+    transition:
+        background .14s ease,
+        color .14s ease,
+        border-color .14s ease;
+}
+
+
+.footer-action:hover {
+    color:
+        white;
+
+    background:
+        rgba(255,255,255,.11);
+
+    border-color:
+        rgba(255,255,255,.18);
+}
+
+
+.footer-action span,
+.footer-action img {
+    pointer-events:
+        none;
+
+    user-select:
+        none;
+}
+
+
+.footer-icon {
+    font-size: 27px;
+
+    line-height: 1;
+}
+
+
+/*
+ * ============================================================
+ * KILL SWITCH
+ * ============================================================
+ */
+
+.kill-action {
+    width: 68px;
+    height: 68px;
+
+    margin-left: auto;
+
+    display: grid;
+
+    place-items: center;
+
+    border:
+        1px solid
+        rgba(255,65,75,.18);
+
+    border-radius:
+        17px;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(145,20,30,.18) 0%,
+            rgba(95,12,20,.22) 100%
+        );
+
+    color:
+        rgba(255,120,130,.92);
+
+    font-family:
+        inherit;
+
+    cursor:
+        pointer;
+
+    box-shadow:
+        none;
+
+    transition:
+        color .14s ease,
+        background .14s ease,
+        border-color .14s ease,
+        box-shadow .14s ease,
+        transform .14s ease;
+}
+
+
+.kill-action:hover {
+    color:
+        white;
+
+    background:
+        linear-gradient(
+            180deg,
+            rgba(185,35,45,.50) 0%,
+            rgba(140,20,30,.58) 100%
+        );
+
+    border-color:
+        rgba(255,80,90,.34);
+
+    box-shadow:
+        none;
+
+    transform:
+        translateY(-1px);
+}
+
+
+.kill-action:active {
+    transform:
+        translateY(0);
+}
+
+
+.kill-icon {
+    width: 30px;
+    height: 30px;
+
+    display: block;
+
+    filter:
+        none;
+}
+
+/*
+ * ============================================================
+ * NOW PLAYING — LIVE PLAYBACK DETAILS
+ * ============================================================
+ */
+
+.now-playing {
+    cursor: pointer;
+
+    transition:
+        background .14s ease,
+        border-color .14s ease,
+        transform .14s ease;
+}
+
+
+.now-playing.empty {
+    cursor: default;
+}
+
+
+.now-playing:not(.empty):hover {
+    background:
+        rgba(12,15,21,.72);
+
+    border-color:
+        rgba(255,255,255,.18);
+
+    transform:
+        translateY(-1px);
+}
+
+
+.now-playing-label-row,
+.now-playing-progress-row {
+    min-width: 0;
+
+    display: flex;
+
+    align-items: center;
+
+    justify-content: space-between;
+
+    gap: 9px;
+}
+
+
+.now-playing-state {
+    color:
+        rgba(255,255,255,.52);
+
+    font-size: 10px;
+
+    font-weight: 760;
+
+    letter-spacing: .08em;
+
+    line-height: 1;
+
+    white-space: nowrap;
+
+    pointer-events: none;
+
+    user-select: none;
+}
+
+
+.now-playing[data-playback-state="playing"]
+.now-playing-state {
+    color:
+        rgba(var(--accent-rgb), .92);
+}
+
+
+.now-playing[data-playback-state="paused"]
+.now-playing-state {
+    color:
+        rgba(255,255,255,.67);
+}
+
+
+.now-playing[data-playback-state="ended"]
+.now-playing-state {
+    color:
+        rgba(255,255,255,.40);
+}
+
+
+.now-playing-progress-row {
+    height: 12px;
+}
+
+
+.now-playing-progress-track {
+    position: relative;
+
+    min-width: 0;
+    height: 3px;
+
+    flex: 1 1 auto;
+
+    overflow: hidden;
+
+    border-radius: 999px;
+
+    background:
+        rgba(255,255,255,.12);
+}
+
+
+.now-playing-progress {
+    position: absolute;
+
+    inset:
+        0 auto 0 0;
+
+    width: 0%;
+
+    border-radius: inherit;
+
+    background:
+        rgba(var(--accent-rgb), .88);
+
+    transition:
+        width .45s linear;
+}
+
+
+.now-playing-time {
+    flex: 0 0 auto;
+
+    color:
+        rgba(255,255,255,.42);
+
+    font-size: 9px;
+
+    font-weight: 650;
+
+    letter-spacing: .01em;
+
+    line-height: 1;
+
+    white-space: nowrap;
+
+    pointer-events: none;
+
+    user-select: none;
+}
+
+
+.now-playing.empty
+.now-playing-progress-track,
+.now-playing.empty
+.now-playing-time {
+    opacity: .35;
+}
+
+
+/*
+ * A tiny live indicator on provider cards makes it obvious where
+ * playback currently exists without changing the provider layout.
+ */
+
+.provider-card.now-playing-active::after {
+    content: "";
+
+    position: absolute;
+
+    top: 14px;
+    right: 14px;
+
+    width: 8px;
+    height: 8px;
+
+    border-radius: 50%;
+
+    background:
+        rgba(var(--accent-rgb), .86);
+
+    box-shadow:
+        0 0 0 3px
+        rgba(var(--accent-rgb), .10);
+
+    pointer-events: none;
+}
+
+
+.provider-card.now-playing-paused::after {
+    opacity: .55;
+}
+
+
+.provider-card[data-provider="youtube"] {
+    --provider-live-rgb:
+        255, 0, 51;
+}
+
+
+.provider-card[data-provider="netflix"] {
+    --provider-live-rgb:
+        229, 9, 20;
+}
+
+
+.provider-card[data-provider="prime"] {
+    --provider-live-rgb:
+        23, 168, 229;
+}
+
+
+.provider-card[data-provider="disney"] {
+    --provider-live-rgb:
+        107, 121, 255;
+}
+
+
+.provider-card[data-provider="crunchyroll"] {
+    --provider-live-rgb:
+        244, 117, 33;
+}
+
+
+.provider-card.now-playing-active::after {
+    background:
+        rgba(var(--provider-live-rgb), .86);
+
+    box-shadow:
+        0 0 0 3px
+        rgba(var(--provider-live-rgb), .10);
+}
+
+
+
+/*
+ * ============================================================
+ * DASHBOARD FOOTER — COMPACT CONTROL CENTER LAYOUT
+ * ============================================================
+ *
+ * Functional behavior is intentionally untouched. The footer is
+ * rearranged purely through CSS so the 0.9.10 Discord/player state
+ * logic remains unchanged.
+ */
+
+.dashboard-footer {
+    align-items: flex-end;
+}
+
+
+.now-playing {
+    order: 1;
+
+    position: relative;
+
+    height: 116px;
+
+    margin-left: 0;
+
+    display: grid;
+
+    grid-template-columns:
+        88px minmax(0, 1fr);
+
+    grid-template-rows:
+        48px 24px 17px;
+
+    column-gap: 13px;
+    row-gap: 3px;
+
+    align-items: center;
+
+    padding:
+        9px 14px;
+
+    border-radius: 19px;
+}
+
+
+.reload-action {
+    order: 2;
+
+    align-self: flex-end;
+}
+
+
+.status-group {
+    order: 4;
+
+    margin-left: auto;
+
+    align-self: flex-end;
+}
+
+
+.kill-action {
+    order: 5;
+
+    margin-left: 20px;
+
+    align-self: flex-end;
+}
+
+
+/*
+ * Top row: artwork at the left, playback metadata beside it.
+ */
+.now-playing-artwork-shell {
+    grid-column: 1;
+    grid-row: 1;
+
+    width: 88px;
+    height: 48px;
+
+    flex: none;
+
+    align-self: start;
+
+    border-radius: 11px;
+}
+
+
+.now-playing-artwork-fallback {
+    font-size: 20px;
+}
+
+
+.now-playing-label-row {
+    grid-column: 2;
+    grid-row: 1;
+
+    align-self: stretch;
+
+    min-width: 0;
+
+    display: flex;
+
+    flex-direction: column;
+
+    align-items: flex-start;
+
+    justify-content: center;
+
+    gap: 8px;
+
+    position: relative;
+
+    padding-right: 36px;
+}
+
+
+.now-playing.has-rating .now-playing-label-row {
+    grid-column: 2;
+    grid-row: 1;
+
+    height: 24px;
+    align-self: start;
+
+    justify-content: center;
+
+    padding-right: 36px;
+}
+
+
+.now-playing-label {
+    font-size: 11px;
+}
+
+
+.now-playing-state {
+    max-width: 100%;
+
+    overflow: hidden;
+
+    color:
+        rgba(255,255,255,.66);
+
+    font-size: 11px;
+
+    letter-spacing: .09em;
+
+    text-overflow: ellipsis;
+
+    white-space: nowrap;
+}
+
+
+/* When a provider rating is available, split the artwork metadata row:
+   playback state above, provider-specific rating below. */
+.now-playing-rating {
+    grid-column: 2;
+    grid-row: 1;
+
+    height: 24px;
+    align-self: end;
+
+    min-width: 0;
+
+    display: flex;
+    align-items: center;
+
+    color: rgba(255,255,255,.68);
+
+    font-size: 11px;
+    font-weight: 720;
+    letter-spacing: .06em;
+
+    white-space: nowrap;
+}
+
+.now-playing-rating[data-rating-kind="tmdb"]::before {
+    content: "★";
+
+    margin-right: 5px;
+
+    color: rgb(var(--now-playing-accent-rgb));
+}
+
+/* Title stays full-width below the artwork/status row. */
+.now-playing-title-viewport {
+    grid-column: 1 / -1;
+    grid-row: 2;
+
+    align-self: center;
+
+    position: relative;
+
+    z-index: 2;
+
+    width: 100%;
+    height: 24px;
+
+    padding-bottom: 2px;
+
+    display: flex;
+
+    align-items: flex-start;
+}
+
+
+.now-playing-title {
+    font-size: 17px;
+
+    line-height: 1.22;
+
+    padding-bottom: 2px;
+}
+
+
+/*
+ * Bottom row: progress consumes almost all available width, while
+ * the elapsed / duration text keeps a fixed readable area at right.
+ */
+.now-playing-progress-row {
+    grid-column: 1 / -1;
+    grid-row: 3;
+
+    position: relative;
+
+    z-index: 1;
+
+    height: 17px;
+
+    min-width: 0;
+
+    display: flex;
+
+    flex-direction: row;
+
+    align-items: center;
+
+    justify-content: stretch;
+
+    gap: 12px;
+}
+
+
+.now-playing-progress-track {
+    min-width: 0;
+    width: auto;
+    height: 5px;
+
+    flex:
+        1 1 auto;
+}
+
+
+.now-playing-time {
+    flex:
+        0 0 auto;
+
+    align-self: center;
+
+    min-width: 104px;
+
+    color:
+        rgba(255,255,255,.78);
+
+    font-size: 13px;
+
+    font-weight: 680;
+
+    letter-spacing: .02em;
+
+    text-align: right;
+
+    font-variant-numeric:
+        tabular-nums;
+}
+
+/*
+ * ============================================================
+ * NOW PLAYING — LOW-COMPOSITOR MODE
+ * ============================================================
+ * Keep the control center visually equivalent without forcing
+ * Chromium to continuously recomposite a blurred surface while
+ * a hardware-decoded video is playing in the neighbouring window.
+ */
+.now-playing {
+    background: rgba(6,8,12,.86);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    transition: none;
+}
+
+.now-playing:not(.empty):hover {
+    background: rgba(12,15,21,.90);
+    transform: none;
+}
+
+.now-playing-title {
+    will-change: auto;
+    transform: translateX(0);
+}
+
+/* Overflowing titles drift continuously and slowly without requiring hover. */
+.now-playing-title.scrolling {
+    will-change: transform;
+
+    animation:
+        now-playing-scroll
+        var(--now-playing-scroll-duration, 16s)
+        ease-in-out
+        .7s
+        infinite
+        alternate;
+}
+
+/* Match the exact provider accent colors used by the native titlebar. */
+.now-playing {
+    --now-playing-accent-rgb: 166, 84, 255;
+}
+
+.now-playing[data-provider="youtube"] {
+    --now-playing-accent-rgb: 255, 35, 72;
+}
+
+.now-playing[data-provider="netflix"] {
+    --now-playing-accent-rgb: 229, 9, 20;
+}
+
+.now-playing[data-provider="prime"] {
+    --now-playing-accent-rgb: 0, 168, 225;
+}
+
+.now-playing[data-provider="disney"] {
+    --now-playing-accent-rgb: 69, 116, 255;
+}
+
+.now-playing[data-provider="crunchyroll"] {
+    --now-playing-accent-rgb: 255, 101, 0;
+}
+
+.now-playing-progress {
+    background:
+        rgb(var(--now-playing-accent-rgb));
+
+    transition: none;
+}
+
+.now-playing-state {
+    color:
+        rgba(var(--now-playing-accent-rgb), .96);
+}
+
+.now-playing[data-playback-state="paused"]
+.now-playing-state {
+    color:
+        rgba(var(--now-playing-accent-rgb), .76);
+}
+
+.now-playing[data-playback-state="ended"]
+.now-playing-state {
+    color:
+        rgba(var(--now-playing-accent-rgb), .52);
+}
+
+
+/*
+ * ============================================================
+ * NOW PLAYING — SETTINGS ENTRY
+ * ============================================================
+ */
+
+.now-playing-label-row {
+    position: relative;
+}
+
+.now-playing-label-copy {
+    min-width: 0;
+
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.now-playing-settings {
+    position: absolute;
+
+    top: 9px;
+    right: 10px;
+
+    z-index: 4;
+
+    width: 28px;
+    height: 28px;
+
+    display: grid;
+    place-items: center;
+
+    padding: 0;
+
+    border:
+        1px solid
+        rgba(255,255,255,.12);
+
+    border-radius: 9px;
+
+    background:
+        rgba(255,255,255,.055);
+
+    color:
+        rgba(255,255,255,.62);
+
+    cursor: pointer;
+
+    transition:
+        color .14s ease,
+        border-color .14s ease,
+        background .14s ease;
+}
+
+.now-playing-settings:hover {
+    color:
+        rgb(var(--now-playing-accent-rgb));
+
+    border-color:
+        rgba(var(--now-playing-accent-rgb), .42);
+
+    background:
+        rgba(var(--now-playing-accent-rgb), .12);
+}
+
+.now-playing-settings svg {
+    width: 16px;
+    height: 16px;
+
+    display: block;
+
+    pointer-events: none;
+}
+
+
+/* Context-only dashboard controls stay out of the footer until useful. */
+.now-playing[hidden],
+.reload-action[hidden] {
+    display: none !important;
+}
+
+
+/*
+ * ============================================================
+ * CONTEXTUAL FOOTER MOTION
+ * ============================================================
+ */
+
+.contextual-slot {
+    width: 0;
+    max-width: 0;
+
+    flex: 0 0 auto;
+
+    margin-left: 0;
+
+    overflow: hidden;
+
+    opacity: 0;
+
+    transform:
+        translateX(-9px)
+        scale(.985);
+
+    transition:
+        width .20s cubic-bezier(.2,.75,.25,1),
+        max-width .20s cubic-bezier(.2,.75,.25,1),
+        margin-left .20s cubic-bezier(.2,.75,.25,1),
+        opacity .13s ease,
+        transform .20s cubic-bezier(.2,.75,.25,1);
+}
+
+.contextual-slot.measuring {
+    width: auto;
+    max-width: none;
+
+    position: absolute;
+
+    margin-left: 0;
+
+    visibility: hidden;
+    opacity: 0;
+
+    pointer-events: none;
+}
+
+.contextual-slot.visible {
+    width:
+        var(
+            --contextual-slot-width,
+            0px
+        );
+
+    max-width:
+        var(
+            --contextual-slot-width,
+            0px
+        );
+
+    margin-left: 20px;
+
+    opacity: 1;
+
+    transform:
+        translateX(0)
+        scale(1);
+}
+
+/*
+ * The footer already owns the page gutter. Do not add the contextual 20px
+ * inter-control gap in front of the first visible control as well.
+ */
+#now-playing-slot.visible {
+    margin-left: 0;
+}
+
+#now-playing-slot:not(.visible) +
+#reload-left-slot.visible {
+    margin-left: 0;
+}
+
+.contextual-slot >
+.now-playing,
+.contextual-slot >
+.reload-action {
+    margin-left: 0;
+
+    flex: 0 0 auto;
+}
+
+
+/*
+ * ============================================================
+ * PROVIDER SETTINGS CENTER
+ * ============================================================
+ */
+
+.settings-center {
+    --settings-accent-rgb:
+        var(--accent-rgb);
+
+    position: absolute;
+
+    left: 66px;
+    right: 54px;
+    top: 58px;
+
+    /*
+     * Keep the global footer reachable while Settings owns the main
+     * dashboard workspace. Footer bottom (40) + Now Playing height (116)
+     * + the normal right-edge breathing room (54) = 210px.
+     */
+    bottom: calc(40px + 116px + 54px);
+
+    z-index: 7;
+
+    width: auto;
+    height: auto;
+    min-height: 0;
+
+    display: grid;
+
+    grid-template-rows:
+        74px minmax(0, 1fr);
+
+    overflow: hidden;
+
+    border:
+        1px solid
+        rgba(255,255,255,.14);
+
+    border-radius: 24px;
+
+    background:
+        rgba(6,8,12,.94);
+
+    box-shadow:
+        0 34px 100px
+        rgba(0,0,0,.50);
+
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+
+    transform:
+        translateY(12px)
+        scale(.988);
+
+    transform-origin:
+        50% 50%;
+
+    transition:
+        opacity .18s ease,
+        transform .24s cubic-bezier(.2,.75,.25,1),
+        visibility 0s linear .24s;
+}
+
+.settings-center.visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+
+    transform:
+        translateY(0)
+        scale(1);
+
+    transition-delay: 0s;
+}
+
+.settings-center[hidden] {
+    display: none !important;
+}
+
+.settings-center[data-settings-provider="general"] {
+    --settings-accent-rgb:
+        157, 177, 210;
+}
+
+.settings-center[data-settings-provider="general"][data-settings-section="twitch"] {
+    --settings-accent-rgb:
+        145, 70, 255;
+}
+
+.settings-center[data-settings-provider="youtube"] {
+    --settings-accent-rgb:
+        255, 35, 72;
+}
+
+.settings-center[data-settings-provider="netflix"] {
+    --settings-accent-rgb:
+        229, 9, 20;
+}
+
+.settings-center[data-settings-provider="prime"] {
+    --settings-accent-rgb:
+        0, 168, 225;
+}
+
+.settings-center[data-settings-provider="disney"] {
+    --settings-accent-rgb:
+        69, 116, 255;
+}
+
+.settings-center[data-settings-provider="crunchyroll"] {
+    --settings-accent-rgb:
+        255, 101, 0;
+}
+
+/*
+ * Settings owns the main dashboard workspace, but the footer remains the
+ * persistent shell control strip. Branding/provider furniture clears away
+ * with the same restrained motion as before; the footer only settles back a
+ * hair so Now Playing, Reload, LEFT/RIGHT and Kill stay visible and usable.
+ */
+.brand-area,
+.provider-wordmark,
+.provider-selector,
+.dashboard-footer {
+    transition:
+        opacity .18s ease,
+        transform .24s cubic-bezier(.2,.75,.25,1),
+        filter .18s ease;
+}
+
+.settings-open .brand-area,
+.settings-open .provider-wordmark,
+.settings-open .provider-selector {
+    opacity: 0;
+    pointer-events: none;
+    filter: blur(2px);
+}
+
+.settings-open .brand-area {
+    transform:
+        translate(-10px, -8px)
+        scale(.985);
+}
+
+.settings-open .provider-wordmark {
+    transform:
+        translateX(18px)
+        scale(.985);
+}
+
+.settings-open .provider-selector {
+    transform:
+        translate(-50%, calc(-50% + 12px))
+        scale(.985);
+}
+
+.settings-open .dashboard-footer {
+    opacity: .96;
+
+    transform:
+        translateY(2px)
+        scale(.998);
+
+    filter:
+        saturate(.94);
+}
+
+.settings-header {
+    position: relative;
+
+    min-width: 0;
+
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+
+    padding:
+        0 72px;
+
+    border-bottom:
+        1px solid
+        rgba(255,255,255,.10);
+
+    background:
+        rgba(255,255,255,.025);
+}
+
+.settings-provider-tabs {
+    width: min(100%, 1100px);
+    min-width: 0;
+    max-width: 1100px;
+
+    display: grid;
+    grid-template-columns:
+        repeat(6, minmax(0, 1fr));
+    align-items: stretch;
+
+    gap: 0;
+
+    flex: 0 1 1100px;
+}
+
+.settings-provider-tab {
+    position: relative;
+
+    min-width: 0;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    gap: 10px;
+
+    padding:
+        0 22px;
+
+    border: 0;
+
+    background: transparent;
+
+    color:
+        rgba(255,255,255,.52);
+
+    font: inherit;
+    font-size: 14px;
+    font-weight: 650;
+
+    cursor: pointer;
+
+    transition:
+        color .14s ease,
+        background .14s ease;
+}
+
+.settings-provider-tab:hover {
+    color:
+        rgba(255,255,255,.82);
+
+    background:
+        rgba(255,255,255,.025);
+}
+
+.settings-provider-tab +
+.settings-provider-tab::before {
+    content: "";
+
+    position: absolute;
+
+    left: 0;
+    top: 23px;
+    bottom: 23px;
+
+    width: 1px;
+
+    background:
+        rgba(255,255,255,.12);
+
+    pointer-events: none;
+}
+
+.settings-provider-tab::after {
+    content: "";
+
+    position: absolute;
+
+    left: 18px;
+    right: 18px;
+    bottom: -1px;
+
+    height: 2px;
+
+    border-radius: 999px;
+
+    background:
+        rgb(var(--settings-accent-rgb));
+
+    opacity: 0;
+
+    transform:
+        scaleX(.45);
+
+    transition:
+        opacity .14s ease,
+        transform .18s cubic-bezier(.2,.75,.25,1);
+}
+
+.settings-provider-tab.active {
+    color: white;
+}
+
+.settings-provider-tab.active::after {
+    opacity: 1;
+    transform: scaleX(1);
+}
+
+.settings-provider-tab img,
+.settings-provider-tab svg {
+    width: 24px;
+    height: 24px;
+
+    object-fit: contain;
+
+    pointer-events: none;
+}
+
+.settings-provider-tab svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.settings-provider-tab span {
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.settings-header-actions {
+    position: absolute;
+    top: 50%;
+    right: 16px;
+
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    transform: translateY(-50%);
+}
+
+.settings-io-status {
+    min-width: 0;
+    max-width: 120px;
+
+    overflow: hidden;
+    color: rgba(255,255,255,.48);
+    font-size: 11px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-header-action {
+    width: 36px;
+    height: 36px;
+    padding: 0;
+
+    display: grid;
+    place-items: center;
+
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 10px;
+
+    background: rgba(255,255,255,.04);
+    color: rgba(255,255,255,.62);
+
+    cursor: pointer;
+
+    transition: color .14s ease, background .14s ease, border-color .14s ease;
+}
+
+.settings-header-action:hover {
+    color: white;
+    background: rgba(255,255,255,.09);
+    border-color: rgba(255,255,255,.18);
+}
+
+.settings-header-action svg {
+    width: 17px;
+    height: 17px;
+
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.settings-close {
+    position: relative;
+
+    top: auto;
+    right: auto;
+
+    width: 42px;
+    height: 42px;
+
+    margin: 0;
+
+    display: grid;
+    place-items: center;
+
+    border: 0;
+    border-radius: 12px;
+
+    background: transparent;
+    color: rgba(255,255,255,.46);
+
+    font: inherit;
+    font-size: 27px;
+    font-weight: 300;
+    line-height: 1;
+
+    cursor: pointer;
+
+    transform: none;
+
+    transition: color .12s ease, background .12s ease;
+}
+
+.settings-close:hover {
+    color: white;
+    background: rgba(255,255,255,.09);
+}
+
+.settings-shell {
+    min-width: 0;
+    min-height: 0;
+
+    display: grid;
+
+    grid-template-columns:
+        220px minmax(0, 1fr);
+}
+
+.settings-sidebar {
+    min-height: 0;
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 6px;
+
+    padding: 22px 14px;
+
+    overflow-y: auto;
+
+    border-right:
+        1px solid
+        rgba(255,255,255,.085);
+
+    background:
+        rgba(255,255,255,.018);
+}
+
+.settings-section-button {
+    width: 100%;
+
+    padding:
+        11px 14px;
+
+    border:
+        1px solid
+        transparent;
+
+    border-radius: 11px;
+
+    background: transparent;
+
+    color:
+        rgba(255,255,255,.53);
+
+    font: inherit;
+    font-size: 14px;
+    font-weight: 590;
+    text-align: left;
+
+    cursor: pointer;
+}
+
+.settings-section-button:hover {
+    color:
+        rgba(255,255,255,.82);
+
+    background:
+        rgba(255,255,255,.045);
+}
+
+.settings-section-button.active {
+    color: white;
+
+    border-color:
+        rgba(var(--settings-accent-rgb), .24);
+
+    background:
+        rgba(var(--settings-accent-rgb), .11);
+}
+
+.settings-content {
+    min-width: 0;
+    min-height: 0;
+
+    overflow-y: auto;
+
+    padding:
+        26px 30px 32px;
+}
+
+.settings-content,
+.settings-sidebar {
+    scrollbar-width: thin;
+    scrollbar-color:
+        rgba(255,255,255,.16)
+        transparent;
+}
+
+.settings-group {
+    width: 100%;
+    max-width: none;
+
+    margin: 0 auto;
+}
+
+.settings-group-heading {
+    margin-bottom: 18px;
+}
+
+.settings-group-heading h2 {
+    margin: 0;
+
+    color:
+        rgba(255,255,255,.94);
+
+    font-size: 24px;
+    font-weight: 620;
+}
+
+.settings-group-heading p {
+    margin:
+        7px 0 0;
+
+    color:
+        rgba(255,255,255,.45);
+
+    font-size: 13px;
+    line-height: 1.45;
+}
+
+.settings-group-rows {
+    overflow: hidden;
+
+    border:
+        1px solid
+        rgba(255,255,255,.09);
+
+    border-radius: 16px;
+
+    background:
+        rgba(255,255,255,.025);
+}
+
+.setting-row {
+    min-height: 64px;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    gap: 28px;
+
+    padding:
+        13px 17px;
+
+    border-bottom:
+        1px solid
+        rgba(255,255,255,.065);
+}
+
+.setting-row:last-child {
+    border-bottom: 0;
+}
+
+.setting-row-dependent {
+    padding-left: 34px;
+
+    background:
+        linear-gradient(
+            90deg,
+            rgba(var(--settings-accent-rgb), .055),
+            transparent 44%
+        );
+}
+
+.setting-row-dependent .setting-copy {
+    position: relative;
+}
+
+.setting-row-dependent .setting-copy::before {
+    content: "";
+
+    position: absolute;
+    left: -13px;
+    top: 5px;
+    bottom: 5px;
+
+    width: 2px;
+
+    border-radius: 99px;
+
+    background:
+        rgba(var(--settings-accent-rgb), .34);
+}
+
+.setting-row-dependent.is-disabled {
+    opacity: .46;
+}
+
+.setting-row-dependent.is-disabled .settings-switch > span {
+    cursor: default;
+}
+
+.setting-copy {
+    min-width: 0;
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 4px;
+}
+
+.setting-copy strong {
+    color:
+        rgba(255,255,255,.88);
+
+    font-size: 14px;
+    font-weight: 620;
+}
+
+.setting-copy > span {
+    color:
+        rgba(255,255,255,.43);
+
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+.settings-switch {
+    position: relative;
+
+    width: 42px;
+    height: 23px;
+
+    flex: 0 0 42px;
+}
+
+.settings-switch input {
+    position: absolute;
+
+    width: 1px;
+    height: 1px;
+
+    opacity: 0;
+}
+
+.settings-switch > span {
+    position: absolute;
+
+    inset: 0;
+
+    border:
+        1px solid
+        rgba(255,255,255,.13);
+
+    border-radius: 999px;
+
+    background:
+        rgba(255,255,255,.10);
+
+    cursor: pointer;
+}
+
+.settings-switch > span::after {
+    content: "";
+
+    position: absolute;
+
+    top: 3px;
+    left: 3px;
+
+    width: 15px;
+    height: 15px;
+
+    border-radius: 50%;
+
+    background:
+        rgba(255,255,255,.76);
+
+    transition:
+        transform .14s ease,
+        background .14s ease;
+}
+
+.settings-switch input:checked + span {
+    border-color:
+        rgba(var(--settings-accent-rgb), .40);
+
+    background:
+        rgba(var(--settings-accent-rgb), .72);
+}
+
+.settings-switch input:checked + span::after {
+    transform:
+        translateX(19px);
+
+    background: white;
+}
+
+/* Anarchy ignores provider branding: each chaos switch runs on its own neon
+ * color channel while this page is open. */
+.settings-switch-anarchy > span {
+    transition:
+        border-color .10s linear,
+        background .10s linear,
+        box-shadow .10s linear;
+}
+
+.settings-switch-anarchy-playback > span {
+    border-color: rgba(var(--anarchy-playback-rgb, 255, 0, 255), .38);
+    box-shadow: 0 0 12px rgba(var(--anarchy-playback-rgb, 255, 0, 255), .10);
+}
+
+.settings-switch-anarchy-subtitles > span {
+    border-color: rgba(var(--anarchy-subtitle-rgb, 0, 255, 255), .38);
+    box-shadow: 0 0 12px rgba(var(--anarchy-subtitle-rgb, 0, 255, 255), .10);
+}
+
+.settings-switch-anarchy-dvd > span {
+    border-color: rgba(var(--anarchy-dvd-rgb, 255, 214, 0), .38);
+    box-shadow: 0 0 12px rgba(var(--anarchy-dvd-rgb, 255, 214, 0), .10);
+}
+
+.settings-switch-anarchy-playback input:checked + span {
+    border-color: rgb(var(--anarchy-playback-rgb, 255, 0, 255));
+    background: rgba(var(--anarchy-playback-rgb, 255, 0, 255), .78);
+    box-shadow: 0 0 18px rgba(var(--anarchy-playback-rgb, 255, 0, 255), .32);
+}
+
+.settings-switch-anarchy-subtitles input:checked + span {
+    border-color: rgb(var(--anarchy-subtitle-rgb, 0, 255, 255));
+    background: rgba(var(--anarchy-subtitle-rgb, 0, 255, 255), .78);
+    box-shadow: 0 0 18px rgba(var(--anarchy-subtitle-rgb, 0, 255, 255), .32);
+}
+
+.settings-switch-anarchy-dvd input:checked + span {
+    border-color: rgb(var(--anarchy-dvd-rgb, 255, 214, 0));
+    background: rgba(var(--anarchy-dvd-rgb, 255, 214, 0), .78);
+    box-shadow: 0 0 18px rgba(var(--anarchy-dvd-rgb, 255, 214, 0), .32);
+}
+
+.settings-content-anarchy .settings-group-heading h2 {
+    width: fit-content;
+    background: linear-gradient(
+        90deg,
+        rgb(var(--anarchy-playback-rgb, 255, 0, 255)),
+        rgb(var(--anarchy-subtitle-rgb, 0, 255, 255)),
+        rgb(var(--anarchy-dvd-rgb, 255, 214, 0))
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    filter: drop-shadow(0 0 8px rgba(var(--anarchy-playback-rgb, 255, 0, 255), .18));
+}
+
+.settings-content-anarchy .settings-subgroup:nth-child(1) .settings-subgroup-heading h3 {
+    color: rgb(var(--anarchy-playback-rgb, 255, 0, 255));
+}
+
+.settings-content-anarchy .settings-subgroup:nth-child(2) .settings-subgroup-heading h3 {
+    color: rgb(var(--anarchy-subtitle-rgb, 0, 255, 255));
+}
+
+.settings-content-anarchy .settings-subgroup:nth-child(3) .settings-subgroup-heading h3 {
+    color: rgb(var(--anarchy-dvd-rgb, 255, 214, 0));
+}
+
+.settings-select,
+.settings-number {
+    min-height: 38px;
+
+    border:
+        1px solid
+        rgba(255,255,255,.12);
+
+    border-radius: 10px;
+
+    outline: none;
+
+    background:
+        rgba(4,6,10,.80);
+
+    color:
+        rgba(255,255,255,.86);
+
+    font: inherit;
+    font-size: 13px;
+}
+
+.settings-select {
+    min-width: 210px;
+
+    padding:
+        0 34px 0 12px;
+}
+
+.settings-number-wrap {
+    flex: 0 0 auto;
+
+    display: inline-flex;
+    align-items: center;
+
+    gap: 8px;
+
+    color:
+        rgba(255,255,255,.43);
+
+    font-size: 12px;
+}
+
+.settings-number {
+    width: 78px;
+
+    padding:
+        0 10px;
+}
+
+.settings-range-wrap {
+    min-width: 320px;
+
+    flex: 0 0 min(44%, 430px);
+
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) 64px;
+    align-items: center;
+
+    gap: 14px;
+}
+
+.settings-range {
+    width: 100%;
+
+    accent-color:
+        rgb(var(--settings-accent-rgb));
+
+    cursor: pointer;
+}
+
+.settings-range-wrap output {
+    min-height: 34px;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 0 10px;
+
+    border:
+        1px solid
+        rgba(var(--settings-accent-rgb), .24);
+
+    border-radius: 10px;
+
+    background:
+        rgba(var(--settings-accent-rgb), .08);
+
+    color:
+        rgba(255,255,255,.88);
+
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.settings-select:focus,
+.settings-number:focus {
+    border-color:
+        rgba(var(--settings-accent-rgb), .52);
+
+    box-shadow:
+        0 0 0 3px
+        rgba(var(--settings-accent-rgb), .08);
+}
+
+
+.settings-subgroups {
+    display: flex;
+    flex-direction: column;
+
+    gap: 18px;
+}
+
+.settings-subgroups.settings-layout-two,
+.settings-subgroups.settings-layout-three,
+.settings-subgroups.settings-layout-columns-three {
+    display: grid;
+    align-items: start;
+
+    gap: 18px;
+}
+
+.settings-subgroups.settings-layout-two {
+    grid-template-columns:
+        repeat(2, minmax(0, 1fr));
+}
+
+.settings-subgroups.settings-layout-three,
+.settings-subgroups.settings-layout-columns-three {
+    grid-template-columns:
+        repeat(3, minmax(0, 1fr));
+}
+
+.settings-column {
+    min-width: 0;
+
+    display: flex;
+    flex-direction: column;
+
+    gap: 18px;
+}
+
+.settings-subgroup {
+    min-width: 0;
+}
+
+.settings-subgroup-heading {
+    margin:
+        0 4px 8px;
+}
+
+.settings-subgroup-heading h3 {
+    margin: 0;
+
+    color:
+        rgba(255,255,255,.72);
+
+    font-size: 13px;
+    font-weight: 700;
+
+    letter-spacing: .055em;
+    text-transform: uppercase;
+}
+
+.settings-subgroup-heading p {
+    margin:
+        4px 0 0;
+
+    color:
+        rgba(255,255,255,.36);
+
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.settings-subgroup .settings-group-rows {
+    border-radius: 14px;
+}
+
+.settings-subgroup .setting-row {
+    min-height: 58px;
+
+    padding:
+        11px 16px 11px 22px;
+}
+
+.setting-row-segmented {
+    align-items: center;
+}
+
+.settings-segmented {
+    min-width: 260px;
+
+    flex: 0 0 auto;
+
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(112px, 1fr);
+
+    gap: 5px;
+
+    padding: 4px;
+
+    border:
+        1px solid
+        rgba(255,255,255,.10);
+
+    border-radius: 12px;
+
+    background:
+        rgba(4,6,10,.74);
+}
+
+.settings-segmented-option {
+    position: relative;
+
+    min-width: 0;
+}
+
+.settings-segmented-option input {
+    position: absolute;
+
+    width: 1px;
+    height: 1px;
+
+    opacity: 0;
+}
+
+.settings-segmented-option span {
+    min-height: 34px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding:
+        0 15px;
+
+    border:
+        1px solid
+        transparent;
+
+    border-radius: 9px;
+
+    color:
+        rgba(255,255,255,.52);
+
+    font-size: 12px;
+    font-weight: 660;
+
+    cursor: pointer;
+
+    user-select: none;
+}
+
+.settings-segmented-option:hover span {
+    color:
+        rgba(255,255,255,.82);
+
+    background:
+        rgba(255,255,255,.05);
+}
+
+.settings-segmented-option input:checked + span {
+    color: white;
+
+    border-color:
+        rgba(var(--settings-accent-rgb), .32);
+
+    background:
+        rgba(var(--settings-accent-rgb), .72);
+}
+
+.settings-segmented-option input:focus-visible + span {
+    box-shadow:
+        0 0 0 3px
+        rgba(var(--settings-accent-rgb), .12);
+}
+
+.settings-empty-state {
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+
+    text-align: center;
+}
+
+.settings-empty-state img {
+    width: 58px;
+    height: 58px;
+
+    margin-bottom: 18px;
+
+    opacity: .82;
+}
+
+.settings-empty-state h2 {
+    margin: 0;
+
+    color:
+        rgba(255,255,255,.88);
+
+    font-size: 23px;
+    font-weight: 620;
+}
+
+.settings-empty-state p {
+    max-width: 460px;
+
+    margin:
+        9px 0 0;
+
+    color:
+        rgba(255,255,255,.43);
+
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+
+
+
+/*
+ * ============================================================
+ * SETTINGS SEARCH
+ * ============================================================
+ */
+
+.settings-section-search {
+    position: relative;
+    margin-bottom: 10px;
+}
+
+.settings-section-search::after {
+    content: "";
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: -6px;
+    height: 1px;
+    background: rgba(255,255,255,.07);
+    pointer-events: none;
+}
+
+.settings-search-page {
+    max-width: none;
+}
+
+.settings-search-box {
+    width: min(100%, 860px);
+    height: 52px;
+
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    padding: 0 16px;
+    margin-bottom: 20px;
+
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 14px;
+
+    background: rgba(255,255,255,.035);
+
+    transition:
+        border-color .15s ease,
+        background .15s ease,
+        box-shadow .15s ease;
+}
+
+.settings-search-box:focus-within {
+    border-color: rgba(var(--settings-accent-rgb), .48);
+    background: rgba(var(--settings-accent-rgb), .055);
+    box-shadow: 0 0 0 3px rgba(var(--settings-accent-rgb), .08);
+}
+
+.settings-search-box svg {
+    width: 19px;
+    height: 19px;
+    flex: 0 0 auto;
+
+    fill: none;
+    stroke: rgba(255,255,255,.48);
+    stroke-width: 1.8;
+    stroke-linecap: round;
+}
+
+.settings-search-input {
+    width: 100%;
+    min-width: 0;
+
+    border: 0;
+    outline: 0;
+
+    background: transparent;
+    color: rgba(255,255,255,.92);
+
+    font: inherit;
+    font-size: 15px;
+    font-weight: 540;
+}
+
+.settings-search-input::placeholder {
+    color: rgba(255,255,255,.30);
+}
+
+.settings-search-results {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.settings-search-result {
+    min-width: 0;
+    min-height: 68px;
+
+    display: flex;
+    align-items: center;
+    gap: 14px;
+
+    padding: 13px 16px;
+
+    border: 1px solid rgba(255,255,255,.085);
+    border-radius: 13px;
+
+    background: rgba(255,255,255,.022);
+    color: inherit;
+
+    text-align: left;
+    cursor: pointer;
+
+    transition:
+        border-color .14s ease,
+        background .14s ease,
+        transform .14s ease;
+}
+
+.settings-search-result:hover {
+    border-color: rgba(var(--settings-accent-rgb), .32);
+    background: rgba(var(--settings-accent-rgb), .065);
+    transform: translateY(-1px);
+}
+
+.settings-search-result-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.settings-search-result-copy strong {
+    overflow: hidden;
+    color: rgba(255,255,255,.90);
+    font-size: 14px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-search-result-copy span {
+    overflow: hidden;
+    color: rgba(255,255,255,.39);
+    font-size: 11px;
+    font-weight: 520;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-transform: capitalize;
+}
+
+.settings-search-result-arrow {
+    margin-left: auto;
+    flex: 0 0 auto;
+
+    color: rgba(var(--settings-accent-rgb), .78);
+    font-size: 27px;
+    font-weight: 300;
+    line-height: 1;
+}
+
+.settings-search-empty {
+    grid-column: 1 / -1;
+
+    min-height: 180px;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+
+    border: 1px dashed rgba(255,255,255,.09);
+    border-radius: 16px;
+
+    color: rgba(255,255,255,.36);
+    text-align: center;
+}
+
+.settings-search-empty strong {
+    color: rgba(255,255,255,.70);
+    font-size: 15px;
+    font-weight: 650;
+}
+
+.settings-search-empty span {
+    max-width: 520px;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+
+
+/* Diagnostics covers the complete settings workspace below the provider header.
+ * Do not keep painting hundreds of hidden settings controls underneath it. */
+.settings-center.diagnostics-open .settings-shell {
+    visibility: hidden;
+    content-visibility: hidden;
+}
+
+/*
+ * ============================================================
+ * SETTINGS DIAGNOSTICS OVERLAY
+ * ============================================================
+ */
+
+.settings-diagnostics-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 74px;
+    bottom: 0;
+    z-index: 40;
+
+    overflow: hidden;
+
+    /* Performance-first diagnostics veil: no full-workspace backdrop blur. */
+    background:
+        linear-gradient(
+            145deg,
+            rgba(var(--settings-accent-rgb), .035),
+            rgba(2,4,8,.76) 34%,
+            rgba(2,4,8,.84)
+        );
+
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+
+    transition:
+        opacity .18s ease,
+        visibility 0s linear .22s;
+}
+
+.settings-diagnostics-overlay.visible {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition-delay: 0s;
+}
+
+.settings-diagnostics-overlay[hidden] {
+    display: none !important;
+}
+
+.settings-diagnostics-dialog {
+    position: absolute;
+    left: 44px;
+    right: 44px;
+    top: 30px;
+    bottom: 44px;
+
+    min-width: 0;
+    min-height: 0;
+
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+
+    overflow: hidden;
+
+    border: 1px solid rgba(255,255,255,.15);
+    border-radius: 20px;
+
+    background:
+        linear-gradient(
+            145deg,
+            rgba(var(--settings-accent-rgb), .055),
+            rgba(8,10,14,.965) 26%,
+            rgba(5,7,10,.975)
+        );
+
+    box-shadow:
+        0 30px 90px rgba(0,0,0,.58),
+        0 0 0 1px rgba(0,0,0,.45);
+
+    opacity: 0;
+    transform-origin: top right;
+    transform: translate(14px, -10px) scale(.965, .94);
+
+    contain: layout paint;
+
+    transition:
+        opacity .16s ease,
+        transform .22s cubic-bezier(.2,.78,.22,1);
+}
+
+.settings-diagnostics-overlay.visible .settings-diagnostics-dialog {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+}
+
+.settings-diagnostics-header {
+    min-width: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+
+    padding: 14px 16px;
+
+    border-bottom: 1px solid rgba(255,255,255,.09);
+
+    background: rgba(255,255,255,.018);
+}
+
+.settings-diagnostics-kicker {
+    display: block;
+    margin-bottom: 4px;
+
+    color: rgba(var(--settings-accent-rgb), .84);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .16em;
+}
+
+.settings-diagnostics-header h2 {
+    margin: 0;
+
+    color: rgba(255,255,255,.94);
+    font-size: 20px;
+    font-weight: 680;
+}
+
+.settings-diagnostics-header p {
+    margin: 3px 0 0;
+
+    color: rgba(255,255,255,.40);
+    font-size: 11px;
+}
+
+.settings-diagnostics-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-diagnostics-status {
+    min-width: 0;
+    max-width: 180px;
+    margin-right: 2px;
+
+    overflow: hidden;
+
+    color: rgba(255,255,255,.42);
+    font-size: 11px;
+    font-weight: 620;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-diagnostics-close {
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    font-size: 24px;
+}
+
+.settings-diagnostics-content {
+    min-width: 0;
+    min-height: 0;
+
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    contain: layout paint;
+
+    padding: 14px 16px 22px;
+
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,.15) transparent;
+}
+
+/* 0.11.13 — Diagnostics information hierarchy. */
+.settings-diagnostics-section {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+
+    /* Skip layout/paint for the long Diagnostics sections while off-screen. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 440px;
+}
+
+.settings-diagnostics-section + .settings-diagnostics-section {
+    padding-top: 15px;
+    border-top: 1px solid rgba(255,255,255,.075);
+}
+
+.settings-diagnostics-section-heading {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    padding: 0 1px;
+}
+
+.settings-diagnostics-section-heading > span {
+    padding-top: 3px;
+    color: rgba(var(--settings-accent-rgb), .64);
+    font-size: 9px;
+    font-weight: 820;
+    letter-spacing: .13em;
+}
+
+.settings-diagnostics-section-heading h2 {
+    margin: 0;
+    color: rgba(255,255,255,.86);
+    font-size: 13px;
+    font-weight: 760;
+    letter-spacing: .025em;
+}
+
+.settings-diagnostics-section-heading p {
+    margin: 3px 0 0;
+    color: rgba(255,255,255,.34);
+    font-size: 10px;
+    line-height: 1.4;
+}
+
+.settings-diagnostics-section-grid {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-auto-rows: max-content;
+    align-items: start;
+    gap: 9px;
+}
+
+/* 0.12.3 — dense cockpit layouts. Keep all diagnostics data, spend space where it matters. */
+.settings-diagnostics-layout-overview .settings-diagnostics-section-grid,
+.settings-diagnostics-layout-system .settings-diagnostics-section-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.settings-diagnostics-layout-active .settings-diagnostics-section-grid {
+    grid-template-columns: minmax(0, 1.55fr) minmax(250px, .78fr) minmax(300px, 1.12fr);
+}
+
+.settings-diagnostics-layout-playback .settings-diagnostics-section-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-diagnostics-layout-features .settings-diagnostics-section-grid {
+    grid-template-columns: minmax(260px, .72fr) minmax(0, 2.28fr);
+}
+
+.settings-diagnostics-layout-timeline .settings-diagnostics-section-grid {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-diagnostics-layout-raw .settings-diagnostics-section-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.settings-diagnostics-layout-raw .settings-diagnostics-raw-card {
+    grid-column: span 2;
+}
+
+.settings-diagnostics-layout-features .settings-diagnostics-card-wide,
+.settings-diagnostics-layout-timeline .settings-diagnostics-card-wide {
+    grid-column: auto;
+}
+
+.settings-diagnostics-provider-state-card .settings-diagnostics-value {
+    max-width: 70%;
+}
+
+.settings-diagnostics-action-card .settings-diagnostics-card-heading p {
+    line-height: 1.3;
+}
+
+.settings-diagnostics-card {
+    min-width: 0;
+    width: 100%;
+    height: max-content;
+    align-self: start;
+
+    border: 1px solid rgba(255,255,255,.085);
+    border-radius: 11px;
+
+    background: rgba(255,255,255,.024);
+
+    overflow: hidden;
+    contain: layout paint style;
+}
+
+.settings-diagnostics-card-heading {
+    padding: 9px 11px 8px;
+
+    border-bottom: 1px solid rgba(255,255,255,.065);
+
+    background: rgba(255,255,255,.018);
+}
+
+.settings-diagnostics-card-heading h3 {
+    margin: 0;
+
+    color: rgba(255,255,255,.82);
+    font-size: 12px;
+    font-weight: 760;
+    letter-spacing: .045em;
+    text-transform: uppercase;
+}
+
+.settings-diagnostics-card-heading p {
+    margin: 3px 0 0;
+
+    color: rgba(255,255,255,.36);
+    font-size: 9px;
+}
+
+.settings-diagnostics-rows {
+    display: flex;
+    flex-direction: column;
+}
+
+.settings-diagnostics-row {
+    min-width: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 11px;
+
+    padding: 7px 11px;
+
+    border-top: 1px solid rgba(255,255,255,.045);
+}
+
+.settings-diagnostics-row:first-child {
+    border-top: 0;
+}
+
+.settings-diagnostics-row > span {
+    min-width: 0;
+
+    color: rgba(255,255,255,.47);
+    font-size: 10px;
+    font-weight: 540;
+}
+
+.settings-diagnostics-value {
+    min-width: 0;
+    max-width: 64%;
+
+    overflow: hidden;
+
+    color: rgba(255,255,255,.74);
+    font-size: 10px;
+    font-weight: 690;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-diagnostics-value.good {
+    color: rgb(96, 224, 155);
+}
+
+.settings-diagnostics-value.bad {
+    color: rgb(255, 101, 117);
+}
+
+.settings-diagnostics-value.neutral {
+    color: rgba(255,255,255,.68);
+}
+
+.settings-diagnostics-footer {
+    padding: 11px 20px 12px;
+
+    border-top: 1px solid rgba(255,255,255,.075);
+
+    color: rgba(255,255,255,.30);
+    font-size: 10px;
+    line-height: 1.4;
+}
+
+.settings-diagnostics-loading {
+    width: 100%;
+
+    min-height: 240px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+
+    color: rgba(255,255,255,.56);
+}
+
+.settings-diagnostics-spinner {
+    width: 18px;
+    height: 18px;
+
+    border: 2px solid rgba(255,255,255,.14);
+    border-top-color: rgb(var(--settings-accent-rgb));
+    border-radius: 50%;
+
+    animation: settings-diagnostics-spin .7s linear infinite;
+}
+
+.settings-diagnostics-error {
+    color: rgb(255, 116, 128);
+}
+
+@keyframes settings-diagnostics-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+
+@media (max-width: 900px) {
+    .setting-row-range {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .settings-range-wrap {
+        min-width: 0;
+        width: 100%;
+        flex-basis: auto;
+    }
+}
+
+
+@media (max-width: 1500px) {
+    .settings-center {
+        left: 42px;
+        right: 42px;
+        top: 42px;
+        bottom: 34px;
+    }
+
+    .settings-shell {
+        grid-template-columns:
+            190px minmax(0, 1fr);
+    }
+
+    .settings-diagnostics-dialog {
+        left: 30px;
+        right: 30px;
+        top: 24px;
+        bottom: 30px;
+    }
+
+    .settings-diagnostics-section-grid,
+    .settings-diagnostics-layout-overview .settings-diagnostics-section-grid,
+    .settings-diagnostics-layout-system .settings-diagnostics-section-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .settings-diagnostics-layout-active .settings-diagnostics-section-grid {
+        grid-template-columns: minmax(0, 1fr) minmax(260px, .72fr);
+    }
+
+    .settings-diagnostics-layout-active .settings-diagnostics-targeted-repair-card {
+        grid-column: 1 / -1;
+    }
+
+    .settings-diagnostics-layout-playback .settings-diagnostics-section-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .settings-diagnostics-layout-features .settings-diagnostics-section-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .settings-diagnostics-layout-raw .settings-diagnostics-section-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .settings-diagnostics-layout-raw .settings-diagnostics-raw-card {
+        grid-column: auto;
+    }
+
+    .settings-provider-tab {
+        padding:
+            0 14px;
+    }
+
+    .settings-subgroups.settings-layout-three,
+    .settings-subgroups.settings-layout-columns-three {
+        grid-template-columns:
+            repeat(2, minmax(0, 1fr));
+    }
+}
+
+@media (max-width: 1180px) {
+    .settings-center {
+        left: 30px;
+        right: 30px;
+        top: 30px;
+        bottom: 30px;
+    }
+
+    .settings-search-results {
+        grid-template-columns:
+            minmax(0, 1fr);
+    }
+
+    .settings-diagnostics-dialog {
+        left: 28px;
+        right: 28px;
+        top: 20px;
+        bottom: 28px;
+    }
+
+    .settings-diagnostics-section-grid,
+    .settings-diagnostics-layout-overview .settings-diagnostics-section-grid,
+    .settings-diagnostics-layout-active .settings-diagnostics-section-grid,
+    .settings-diagnostics-layout-playback .settings-diagnostics-section-grid,
+    .settings-diagnostics-layout-features .settings-diagnostics-section-grid,
+    .settings-diagnostics-layout-system .settings-diagnostics-section-grid,
+    .settings-diagnostics-layout-raw .settings-diagnostics-section-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .settings-diagnostics-layout-active .settings-diagnostics-targeted-repair-card,
+    .settings-diagnostics-layout-raw .settings-diagnostics-raw-card {
+        grid-column: auto;
+    }
+
+    .settings-provider-tab span {
+        display: none;
+    }
+
+    .settings-subgroups.settings-layout-two,
+    .settings-subgroups.settings-layout-three,
+    .settings-subgroups.settings-layout-columns-three {
+        grid-template-columns:
+            minmax(0, 1fr);
+    }
+
+    .settings-segmented {
+        min-width: 220px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .brand-line,
+    .contextual-slot,
+    .brand-area,
+    .provider-wordmark,
+    .provider-selector,
+    .dashboard-footer,
+    .settings-center,
+    .settings-diagnostics-overlay,
+    .settings-diagnostics-dialog {
+        transition-duration: .01ms !important;
+    }
+}
+
+
+.settings-segmented-buttons {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.settings-segmented-button {
+    min-width: 0;
+    height: 34px;
+    padding: 0 9px;
+
+    border: 1px solid rgba(255,255,255,.09);
+    background: rgba(255,255,255,.035);
+    color: rgba(255,255,255,.56);
+
+    font: inherit;
+    font-size: 11px;
+    font-weight: 650;
+    cursor: pointer;
+
+    transition: color .14s ease, background .14s ease, border-color .14s ease;
+}
+
+.settings-segmented-button:first-child {
+    border-radius: 9px 0 0 9px;
+}
+
+.settings-segmented-button:last-child {
+    border-radius: 0 9px 9px 0;
+}
+
+.settings-segmented-button + .settings-segmented-button {
+    margin-left: -1px;
+}
+
+.settings-segmented-button:hover {
+    color: rgba(255,255,255,.86);
+    background: rgba(255,255,255,.07);
+}
+
+.settings-segmented-button.active {
+    position: relative;
+    z-index: 1;
+    color: white;
+    border-color: rgba(var(--settings-accent-rgb), .52);
+    background: rgba(var(--settings-accent-rgb), .18);
+}
+
+@media (max-width: 1250px) {
+    .settings-header-action { display: none; }
+    .settings-io-status { display: none; }
+    .settings-segmented-buttons { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+/* 0.10.52 — Sleep timer is a full-width control inside its subgroup. */
+.setting-row-sleep {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 10px;
+}
+
+.setting-row-sleep .setting-copy {
+    min-width: 0;
+    width: 100%;
+    max-width: none;
+}
+
+.setting-row-sleep .settings-segmented {
+    width: 100%;
+    min-width: 0;
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+}
+
+.setting-row-sleep .settings-segmented-buttons {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+@media (max-width: 1250px) {
+    .setting-row-sleep .settings-segmented-buttons {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+
+.settings-diagnostics-card-wide {
+    grid-column: 1 / -1;
+}
+
+.settings-diagnostics-matrix-wrap {
+    min-width: 0;
+    overflow-x: auto;
+}
+
+.settings-diagnostics-matrix {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.settings-diagnostics-matrix th,
+.settings-diagnostics-matrix td {
+    padding: 7px 8px;
+    border-top: 1px solid rgba(255,255,255,.045);
+    color: rgba(255,255,255,.52);
+    font-size: 10px;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.settings-diagnostics-matrix thead th {
+    border-top: 0;
+    color: rgba(255,255,255,.34);
+    font-weight: 760;
+    letter-spacing: .045em;
+    text-transform: uppercase;
+}
+
+.settings-diagnostics-matrix tbody th {
+    color: rgba(255,255,255,.72);
+    font-size: 11px;
+    font-weight: 680;
+    text-align: left;
+}
+
+.settings-diagnostics-cap {
+    display: inline-flex;
+    min-width: 42px;
+    justify-content: center;
+    font-weight: 760;
+}
+
+.settings-diagnostics-cap.good {
+    color: rgb(96, 224, 155);
+}
+
+.settings-diagnostics-cap.bad {
+    color: rgb(255, 150, 112);
+}
+
+.settings-diagnostics-cap.neutral {
+    color: rgba(255,255,255,.48);
+}
+
+
+/* 0.11.12 — Diagnostics session flight recorder timeline. */
+.settings-diagnostics-timeline {
+    max-height: 360px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,255,255,.15) transparent;
+}
+
+.settings-diagnostics-event {
+    display: grid;
+    grid-template-columns: 82px 82px minmax(0, 1fr);
+    align-items: start;
+    gap: 9px;
+    padding: 7px 11px;
+    border-top: 1px solid rgba(255,255,255,.045);
+}
+
+.settings-diagnostics-event:first-child {
+    border-top: 0;
+}
+
+.settings-diagnostics-event time {
+    color: rgba(255,255,255,.34);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.settings-diagnostics-event-provider {
+    overflow: hidden;
+    color: rgba(255,255,255,.52);
+    font-size: 10px;
+    font-weight: 680;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-diagnostics-event-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.settings-diagnostics-event-copy strong {
+    color: rgba(255,255,255,.76);
+    font-size: 11px;
+    font-weight: 690;
+}
+
+.settings-diagnostics-event-copy span {
+    overflow: hidden;
+    color: rgba(255,255,255,.38);
+    font-size: 10px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.settings-diagnostics-event.warn .settings-diagnostics-event-copy strong {
+    color: rgb(255, 190, 110);
+}
+
+.settings-diagnostics-event.error .settings-diagnostics-event-copy strong {
+    color: rgb(255, 101, 117);
+}
+
+.settings-diagnostics-event-empty {
+    padding: 18px 14px;
+    color: rgba(255,255,255,.38);
+    font-size: 11px;
+}
+
+
+.settings-diagnostics-repair-card {
+    min-width: 0;
+}
+
+.settings-diagnostics-repair-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.settings-diagnostics-repair-row {
+    min-height: 54px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 11px;
+    border-top: 1px solid rgba(255,255,255,.065);
+}
+
+.settings-diagnostics-repair-row.recommended {
+    background: rgba(var(--settings-accent-rgb), .055);
+}
+
+.settings-diagnostics-repair-row.danger {
+    background: rgba(255, 94, 94, .025);
+}
+
+.settings-diagnostics-repair-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.settings-diagnostics-repair-copy strong {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    color: rgba(255,255,255,.9);
+    font-size: 11px;
+    font-weight: 680;
+}
+
+.settings-diagnostics-repair-copy > span {
+    color: rgba(255,255,255,.46);
+    font-size: 10px;
+    line-height: 1.35;
+}
+
+.settings-diagnostics-repair-badge {
+    padding: 2px 7px;
+    border: 1px solid rgba(var(--settings-accent-rgb), .28);
+    border-radius: 999px;
+    color: rgba(255,255,255,.72);
+    background: rgba(var(--settings-accent-rgb), .1);
+    font-size: 9px;
+    font-weight: 760;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+.settings-diagnostics-repair-badge.last-resort {
+    border-color: rgba(255, 108, 108, .2);
+    background: rgba(255, 108, 108, .07);
+}
+
+.settings-diagnostics-repair-button {
+    flex: 0 0 auto;
+    min-width: 58px;
+    height: 28px;
+    padding: 0 12px;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 9px;
+    color: rgba(255,255,255,.78);
+    background: rgba(255,255,255,.045);
+    font: inherit;
+    font-size: 11px;
+    font-weight: 650;
+    cursor: pointer;
+    transition: background .16s ease, border-color .16s ease, opacity .16s ease;
+}
+
+.settings-diagnostics-repair-button:hover:not(:disabled) {
+    border-color: rgba(var(--settings-accent-rgb), .32);
+    background: rgba(var(--settings-accent-rgb), .1);
+}
+
+.settings-diagnostics-repair-row.danger .settings-diagnostics-repair-button:hover:not(:disabled) {
+    border-color: rgba(255, 108, 108, .28);
+    background: rgba(255, 108, 108, .08);
+}
+
+.settings-diagnostics-repair-button:disabled {
+    opacity: .4;
+    cursor: wait;
+}
+
+.settings-diagnostics-repair-last {
+    margin: 0 15px 4px;
+    padding: 8px 10px;
+    border-radius: 9px;
+    background: rgba(255,255,255,.035);
+    color: rgba(255,255,255,.52);
+    font-size: 10px;
+}
+
+.settings-diagnostics-repair-last.good {
+    color: rgba(187, 255, 212, .68);
+}
+
+.settings-diagnostics-repair-last.bad {
+    color: rgba(255, 178, 178, .74);
+}
+
+@media (max-width: 1180px) {
+    .settings-diagnostics-event {
+        grid-template-columns: 82px 78px minmax(0, 1fr);
+    }
+}
+
+
+/*
+ * ============================================================
+ * COMPACT SHELL HOME · 16:10 / 2880x1800 @ 200% Windows scale
+ * ============================================================
+ * Compact uses the same physical rhythm as Wide. Chromium already exposes the
+ * 200%-scaled panel in logical pixels, so the familiar Wide measurements are
+ * halved here rather than scaled up again: 66 -> 33px edges, 28 -> 14px gaps,
+ * 108 -> 54px provider rows, etc.
+ */
+
+.compact-home-runtime-root {
+    display: none;
+}
+
+body[data-layout-profile="compact"] .dashboard {
+    --compact-edge-x: 28px;
+    --compact-edge-y: 29px;             /* Wide brand top 58px / 2 */
+    --compact-gap: 14px;                /* Wide provider gap 28px / 2 */
+    --compact-column-gap: 38px;
+    --compact-section-gap: 22px;
+    --compact-control-gap: 12px;
+    --compact-provider-width: 270px;
+    --compact-provider-row-height: 72px;
+    --compact-main-height: 416px;       /* 5 x 72px + 4 x 14px */
+    --compact-main-top: 210px;
+    --compact-bottom-height: 132px;
+    --compact-media-right: 12px;
+}
+
+body[data-layout-profile="compact"] .panorama-background {
+    left: 0;
+    right: 0;
+    width: 100%;
+    background-position: center center;
+}
+
+body[data-layout-profile="compact"] .dashboard-shade {
+    background:
+        linear-gradient(90deg, rgba(3,5,9,.68), rgba(3,5,9,.18) 48%, rgba(3,5,9,.34)),
+        linear-gradient(0deg, rgba(2,4,8,.82), transparent 40%);
+}
+
+body[data-layout-profile="compact"] .status-group,
+body[data-layout-profile="compact"] #reload-left-slot,
+body[data-layout-profile="compact"] .kill-action {
+    display: none !important;
+}
+
+/* Wide-equivalent physical sizing at 200% scale. */
+body[data-layout-profile="compact"] .brand-area {
+    top: var(--compact-edge-y);
+    left: var(--compact-edge-x);
+    width: 520px;
+    height: 112px;
+    display: flex;
+    align-items: center;
+}
+
+body[data-layout-profile="compact"] .brand-line {
+    align-self: center;
+    gap: 18px;
+    margin-bottom: 0;
+}
+
+body[data-layout-profile="compact"] .stream-shell-logo {
+    width: 92px;
+    height: 92px;
+    padding: 12px;
+    border-radius: 16px;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+body[data-layout-profile="compact"] .stream-shell-name {
+    font-size: 36px;
+    letter-spacing: .16em;
+}
+
+body[data-layout-profile="compact"] .clock,
+body[data-layout-profile="compact"] .date {
+    display: none !important;
+}
+
+/* Upper-right remains deliberately empty except for the active provider mark. */
+body[data-layout-profile="compact"] .provider-wordmark {
+    display: block;
+    top: var(--compact-edge-y);
+    right: var(--compact-media-right);
+    width: min(310px, 24vw);
+    height: 104px;
+    opacity: .20;
+    object-position: right center;
+}
+
+/* Five equal provider rows: YouTube -> Netflix -> Prime -> Disney -> CR. */
+body[data-layout-profile="compact"] .provider-selector {
+    top: var(--compact-main-top);
+    left: var(--compact-edge-x);
+    right: auto;
+    width: var(--compact-provider-width);
+    height: var(--compact-main-height);
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--compact-gap);
+    transform: none;
+}
+
+body[data-layout-profile="compact"] .provider-selector .provider-row {
+    display: contents;
+}
+
+body[data-layout-profile="compact"] .provider-selector .provider-card {
+    width: 100%;
+    min-width: 0;
+    height: var(--compact-provider-row-height);
+    min-height: var(--compact-provider-row-height);
+    flex: 0 0 var(--compact-provider-row-height);
+    padding: 0 28px;
+    justify-content: flex-start;
+    gap: 14px;
+    border-radius: 11px;
+    font-size: 16px;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+body[data-layout-profile="compact"] .provider-card img {
+    width: 36px;
+    height: 36px;
+    flex: 0 0 36px;
+}
+
+body[data-layout-profile="compact"] .provider-availability {
+    top: 50%;
+    right: 13px;
+    width: 20px;
+    height: 20px;
+    transform: translateY(-50%);
+    z-index: 2;
+}
+
+body[data-layout-profile="compact"] .provider-availability svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Playback owns the top-right corner, matching Wide. Availability stays
+ * vertically centered at the right edge so both signals remain readable. */
+body[data-layout-profile="compact"] .provider-card.now-playing-active::after {
+    top: 8px;
+    right: 8px;
+    width: 8px;
+    height: 8px;
+    z-index: 3;
+}
+
+body[data-layout-profile="compact"] .compact-home-runtime-root {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    pointer-events: none;
+}
+
+body[data-layout-profile="compact"] .compact-home-runtime-root > * {
+    pointer-events: auto;
+}
+
+body[data-layout-profile="compact"] .compact-runtime-placeholder {
+    display: none !important;
+}
+
+/* Watchlist/Search share row-1 top and row-5 bottom with provider stack. */
+body[data-layout-profile="compact"] .media-hub {
+    top: var(--compact-main-top);
+    left: calc(var(--compact-edge-x) + var(--compact-provider-width) + var(--compact-column-gap));
+    right: var(--compact-media-right);
+    width: auto;
+    height: var(--compact-main-height);
+}
+
+body[data-layout-profile="compact"] .media-hub-controls {
+    height: var(--compact-provider-row-height);
+    grid-template-columns: minmax(230px, .72fr) minmax(0, 1.82fr);
+    gap: var(--compact-control-gap);
+}
+
+body[data-layout-profile="compact"] .hub-control {
+    height: var(--compact-provider-row-height);
+    border-radius: 10px;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(6,8,12,.68);
+}
+
+body[data-layout-profile="compact"] .watchlist-control {
+    gap: 8px;
+    padding: 0 12px;
+    font-size: 15px;
+}
+
+body[data-layout-profile="compact"] .watchlist-count {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 5px;
+    font-size: 10px;
+}
+
+body[data-layout-profile="compact"] .search-control {
+    padding: 0 8px 0 11px;
+}
+
+body[data-layout-profile="compact"] .media-search-input {
+    padding: 0 30px 0 8px;
+    font-size: 15px;
+}
+
+body[data-layout-profile="compact"] .hub-control-icon {
+    width: 12px;
+    height: 12px;
+    flex-basis: 12px;
+}
+
+body[data-layout-profile="compact"] .media-search-clear {
+    right: 7px;
+    width: 22px;
+    height: 22px;
+    border-radius: 6px;
+    font-size: 16px;
+}
+
+body[data-layout-profile="compact"] .media-panel {
+    top: calc(var(--compact-provider-row-height) + var(--compact-gap));
+    left: 0;
+    right: 0;
+    width: auto;
+    height: calc(100% - var(--compact-provider-row-height) - var(--compact-gap));
+    border-radius: 10px;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(7,9,13,.80);
+}
+
+body[data-layout-profile="compact"] .media-panel[hidden] {
+    display: none;
+}
+
+body[data-layout-profile="compact"] .media-panel-header {
+    height: 47px;                      /* Wide 94px / 2 */
+    padding: 0 11px 0 14px;           /* Wide 22/28px / 2 */
+}
+
+body[data-layout-profile="compact"] .library-header-controls {
+    gap: 4px;
+}
+
+body[data-layout-profile="compact"] .library-tab {
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 6px;
+    font-size: 10px;
+}
+
+body[data-layout-profile="compact"] .library-icon-button {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+}
+
+body[data-layout-profile="compact"] .library-icon-button svg {
+    width: 10px;
+    height: 10px;
+}
+
+body[data-layout-profile="compact"] .search-header-title {
+    font-size: 13px;
+}
+
+body[data-layout-profile="compact"] .media-panel-heading {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+body[data-layout-profile="compact"] .media-panel-subtitle {
+    min-width: 0;
+    max-width: 260px;
+    margin: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 9px;
+    line-height: 1;
+}
+
+body[data-layout-profile="compact"] .library-header-controls,
+body[data-layout-profile="compact"] .search-header-title {
+    flex: 0 0 auto;
+}
+
+body[data-layout-profile="compact"] .media-panel-header-actions {
+    gap: 6px;
+}
+
+body[data-layout-profile="compact"] .watchlist-sort-wrapper {
+    gap: 5px;
+}
+
+body[data-layout-profile="compact"] .watchlist-sort-label {
+    font-size: 8px;
+}
+
+body[data-layout-profile="compact"] .watchlist-sort {
+    height: 24px;
+    min-width: 112px;
+    padding: 0 22px 0 8px;
+    border-radius: 7px;
+    font-size: 9px;
+}
+
+body[data-layout-profile="compact"] .media-panel-close {
+    width: 24px;
+    height: 24px;
+    border-radius: 7px;
+    font-size: 17px;
+}
+
+body[data-layout-profile="compact"] .media-panel-body {
+    height: calc(100% - 47px);
+}
+
+body[data-layout-profile="compact"] .media-list {
+    padding: 5px 7px 8px;
+}
+
+body[data-layout-profile="compact"] .media-item {
+    padding: 7px 8px 7px 6px;
+    margin-bottom: 5px;
+    border-radius: 9px;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+body[data-layout-profile="compact"] .media-item-title {
+    font-size: 13px;
+}
+
+/*
+ * Compact subscriptions are a bounded six-column table, not a full-width bar.
+ * Existing subscription DOM/data stays canonical; CSS only changes its host.
+ */
+body[data-layout-profile="compact"] .subscription-panel {
+    top: calc(var(--compact-main-top) + var(--compact-main-height) + var(--compact-section-gap));
+    left: var(--compact-edge-x);
+    right: var(--compact-media-right);
+    bottom: auto;
+    width: auto;
+    height: var(--compact-bottom-height);
+    padding: 10px 14px 11px;
+    border-radius: 11px;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: rgba(7,9,13,.76);
+}
+
+body[data-layout-profile="compact"] .subscription-panel-header {
+    min-height: 26px;
+    margin-bottom: 6px;
+}
+
+body[data-layout-profile="compact"] .subscription-panel-title {
+    font-size: 14px;
+}
+
+body[data-layout-profile="compact"] .subscription-sync-meta {
+    font-size: 11px;
+}
+
+body[data-layout-profile="compact"] .subscription-sync {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+}
+
+body[data-layout-profile="compact"] .subscription-sync svg {
+    width: 14px;
+    height: 14px;
+}
+
+body[data-layout-profile="compact"] .subscription-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 0;
+    align-items: stretch;
+}
+
+body[data-layout-profile="compact"] .subscription-item {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: 19px minmax(0, 1fr);
+    grid-template-rows: 24px 23px 23px;
+    align-items: center;
+    justify-items: start;
+    column-gap: 6px;
+    padding: 0 10px;
+    border-left: 1px solid rgba(255,255,255,.07);
+}
+
+body[data-layout-profile="compact"] .subscription-item:first-child {
+    border-left: 0;
+}
+
+body[data-layout-profile="compact"] .subscription-item img {
+    grid-column: 1;
+    grid-row: 1;
+    width: 17px;
+    height: 17px;
+}
+
+body[data-layout-profile="compact"] .subscription-name {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+    font-weight: 680;
+    text-align: left;
+}
+
+body[data-layout-profile="compact"] .subscription-status,
+body[data-layout-profile="compact"] .subscription-renewal {
+    grid-column: 1 / 3;
+    justify-self: stretch;
+    min-width: 0;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+body[data-layout-profile="compact"] .subscription-status {
+    grid-row: 2;
+    font-size: 11px;
+}
+
+body[data-layout-profile="compact"] .subscription-renewal {
+    grid-row: 3;
+    font-size: 11px;
+}
+
+/* Keep the panel visually full-width. If Now Playing is present it floats
+ * over the left end, while the table content reserves that footprint. */
+body[data-layout-profile="compact"] .dashboard:has(#now-playing-slot.visible) .subscription-panel {
+    padding-left: calc(var(--compact-provider-width) + var(--compact-column-gap));
+}
+
+body[data-layout-profile="compact"] .dashboard-footer {
+    left: var(--compact-edge-x);
+    right: auto;
+    top: calc(var(--compact-main-top) + var(--compact-main-height) + var(--compact-section-gap));
+    bottom: auto;
+    width: var(--compact-provider-width);
+    height: var(--compact-bottom-height);
+    padding: 0;
+    z-index: 7;
+    background: transparent;
+    border: 0;
+}
+
+body[data-layout-profile="compact"] #now-playing-slot,
+body[data-layout-profile="compact"] .now-playing {
+    width: 100%;
+    height: 100%;
+    max-width: none;
+}
+
+/* Compact settings header keeps all six settings tabs clear of
+ * Diagnostics / import-export / close actions. */
+body[data-layout-profile="compact"] .settings-header {
+    justify-content: flex-start;
+    padding: 0 204px 0 20px;
+}
+
+body[data-layout-profile="compact"] .settings-provider-tabs {
+    width: 100%;
+    max-width: none;
+    flex-basis: auto;
+}
+
+body[data-layout-profile="compact"] .settings-provider-tab {
+    gap: 6px;
+    padding: 0 7px;
+    font-size: 11.5px;
+}
+
+body[data-layout-profile="compact"] .settings-provider-tab img,
+body[data-layout-profile="compact"] .settings-provider-tab svg {
+    width: 18px;
+    height: 18px;
+}
+
+body[data-layout-profile="compact"] .settings-provider-tab + .settings-provider-tab::before {
+    top: 20px;
+    bottom: 20px;
+}
+
+body[data-layout-profile="compact"] .settings-center {
+    inset: var(--compact-edge-y) var(--compact-edge-x);
+    width: auto;
+    height: auto;
+    border-radius: 12px;
+}
+
+body[data-layout-profile="compact"] .settings-diagnostics-overlay {
+    left: 0;
+    right: 0;
+    top: 74px;
+    bottom: 0;
+}
+
+body[data-layout-profile="compact"] .settings-diagnostics-dialog {
+    left: 18px;
+    right: 18px;
+    top: 12px;
+    bottom: 18px;
+}
+
+body[data-layout-profile="compact"] .settings-diagnostics-layout-overview .settings-diagnostics-section-grid,
+body[data-layout-profile="compact"] .settings-diagnostics-layout-system .settings-diagnostics-section-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+body[data-layout-profile="compact"] .settings-diagnostics-layout-active .settings-diagnostics-section-grid {
+    grid-template-columns: minmax(0, 1.5fr) minmax(190px, .72fr) minmax(220px, .95fr) !important;
+}
+
+body[data-layout-profile="compact"] .settings-diagnostics-layout-active .settings-diagnostics-targeted-repair-card {
+    grid-column: auto;
+}
+
+body[data-layout-profile="compact"] .settings-diagnostics-layout-playback .settings-diagnostics-section-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+body[data-layout-profile="compact"] .settings-diagnostics-layout-features .settings-diagnostics-section-grid {
+    grid-template-columns: minmax(220px, .68fr) minmax(0, 2.32fr) !important;
+}
+
+body[data-layout-profile="compact"] .settings-diagnostics-layout-raw .settings-diagnostics-section-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+}
+
+body[data-layout-profile="compact"] .settings-diagnostics-layout-raw .settings-diagnostics-raw-card {
+    grid-column: span 2;
+}
+
+body[data-layout-profile="compact"].settings-open .compact-home-runtime-root,
+body[data-layout-profile="compact"].settings-open .provider-selector {
+    opacity: 0;
+    pointer-events: none;
+}
+
+@media (max-height: 760px) {
+    body[data-layout-profile="compact"] .dashboard {
+        --compact-edge-y: 22px;
+        --compact-main-top: 170px;
+        --compact-provider-row-height: 60px;
+        --compact-gap: 12px;
+        --compact-main-height: 348px;
+        --compact-bottom-height: 118px;
+        --compact-section-gap: 18px;
+    }
+
+    body[data-layout-profile="compact"] .clock {
+        font-size: 38px;
+    }
+
+    body[data-layout-profile="compact"] .date {
+        margin-top: 4px;
+    }
+}

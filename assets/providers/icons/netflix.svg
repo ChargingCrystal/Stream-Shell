@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 495 899">
+  <title>Netflix N symbol</title>
+  <defs>
+    <clipPath id="leftStem"><path d="M0 0h177v899H0z"/></clipPath>
+    <clipPath id="rightStem"><path d="M317 0h178v899H317z"/></clipPath>
+    <filter id="leftShadow" x="-30%" y="-10%" width="170%" height="120%"><feGaussianBlur stdDeviation="12"/></filter>
+    <filter id="rightShadow" x="-30%" y="-10%" width="170%" height="120%"><feGaussianBlur stdDeviation="12"/></filter>
+  </defs>
+  <path fill="#B1060F" d="M0 0h177v899H0z"/>
+  <path fill="#B1060F" d="M317 0h178v899H317z"/>
+  <g clip-path="url(#leftStem)" opacity=".56" filter="url(#leftShadow)"><path fill="#000" d="M-18 -10L178 -10 341 457 178 522z"/></g>
+  <g clip-path="url(#rightStem)" opacity=".46" filter="url(#rightShadow)"><path fill="#000" d="M151 379L333 368 513 908 333 908z"/></g>
+  <path fill="#E50914" d="M176.523 0H.039L312.551 883.598C400.371 885.812 494.316 898.539 494.316 898.539L176.523 0z"/>
+</svg>

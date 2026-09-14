@@ -1,0 +1,91 @@
+/*
+ * ============================================================
+ * STREAM SHELL — YOUTUBE BACKGROUND THEME
+ * ============================================================
+ *
+ * Based on the wallpaper/background technique proven by the supplied
+ * YouTube Stylish theme. Only wallpaper-relevant rules are retained;
+ * the RetroWave skin's logo, controls, neon colors and other UI
+ * modifications are intentionally not imported.
+ *
+ * The selectors are gated by the managed-window marker plus the
+ * persisted YouTube theme marker from the Dashboard settings center.
+ */
+
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] {
+    --stream-shell-provider-wallpaper:
+        url("chrome-extension://__MSG_@@extension_id__/assets/backgrounds/youtube_wide.png");
+    --stream-shell-provider-wallpaper-position: left center;
+    --stream-shell-provider-wallpaper-size: max(200.084602vw, 355.639098vh) auto;
+}
+
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"][data-stream-shell-layout-profile="compact"] {
+    --stream-shell-provider-wallpaper:
+        url("chrome-extension://__MSG_@@extension_id__/assets/backgrounds/youtube_compact.png");
+    --stream-shell-provider-wallpaper-position: center center;
+    --stream-shell-provider-wallpaper-size: cover;
+}
+
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"],
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] body {
+    background-color: #050505 !important;
+}
+
+/*
+ * Stylish's working theme paints the background on both body and
+ * ytd-app. Doing the same here keeps the wallpaper alive across
+ * YouTube's SPA navigation and theme variants.
+ */
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] body,
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] ytd-app,
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] ytd-app[darker-dark-theme] {
+    background-color: transparent !important;
+    background-image:
+        linear-gradient(
+            90deg,
+            rgba(3, 5, 9, 0.04) 30%,
+            rgba(3, 5, 9, 0.20) 66%,
+            rgba(3, 5, 9, 0.70) 100%
+        ),
+        linear-gradient(
+            0deg,
+            rgba(2, 4, 8, 0.76) 0%,
+            transparent 32%
+        ),
+        var(--stream-shell-provider-wallpaper) !important;
+
+    background-repeat: no-repeat !important;
+    background-attachment: fixed !important;
+    background-position: center center, center center, var(--stream-shell-provider-wallpaper-position) !important;
+    background-size: cover, cover, var(--stream-shell-provider-wallpaper-size) !important;
+}
+
+/*
+ * YouTube normally paints opaque application surfaces via variables.
+ * The supplied Stylish theme clears these same families of variables;
+ * keep them transparent so Stream Shell's wallpaper can show through.
+ */
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] {
+    --yt-spec-base-background: transparent !important;
+    --yt-spec-brand-background-solid: transparent !important;
+    --yt-spec-brand-background-primary: transparent !important;
+    --yt-spec-brand-background-secondary: transparent !important;
+    --yt-spec-general-background-a: transparent !important;
+    --yt-spec-general-background-b: transparent !important;
+    --yt-spec-general-background-c: transparent !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] #guide-content.ytd-app,
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] #contentContainer.app-drawer,
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] ytd-mini-guide-renderer,
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] ytd-browse[page-subtype="channels"],
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] #channel-header.ytd-c4-tabbed-header-renderer,
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] #primary.ytd-two-column-browse-results-renderer {
+    background-color: transparent !important;
+}
+
+/* Keep the fixed top bar readable on bright artwork. */
+html[data-stream-shell="true"][data-stream-shell-youtube-theme="true"] #container.ytd-masthead {
+    background: rgba(5, 5, 5, 0.62) !important;
+    backdrop-filter: blur(10px);
+}

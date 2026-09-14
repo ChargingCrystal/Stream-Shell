@@ -1,0 +1,77 @@
+/*
+ * ============================================================
+ * STREAM SHELL — NETFLIX BACKGROUND THEME
+ * ============================================================
+ *
+ * The supplied Netflix Stylish block proves that Netflix accepts the
+ * wallpaper directly on body. Stream Shell therefore uses that simpler
+ * path instead of the old body::before POC.
+ *
+ * Safety rules:
+ * 1. Only managed Stream Shell windows match data-stream-shell="true".
+ * 2. netflix.js disables the wallpaper attribute on /watch/* routes.
+ * 3. Only broad page canvases are cleared; cards/dialogs/player UI are
+ *    intentionally left to Netflix.
+ */
+
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper] {
+    --stream-shell-provider-wallpaper:
+        url("chrome-extension://__MSG_@@extension_id__/assets/backgrounds/netflix_wide.png");
+    --stream-shell-provider-wallpaper-position: left center;
+    --stream-shell-provider-wallpaper-size: max(200.084602vw, 355.639098vh) auto;
+}
+
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper][data-stream-shell-layout-profile="compact"] {
+    --stream-shell-provider-wallpaper:
+        url("chrome-extension://__MSG_@@extension_id__/assets/backgrounds/netflix_compact.png");
+    --stream-shell-provider-wallpaper-position: center center;
+    --stream-shell-provider-wallpaper-size: cover;
+}
+
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper],
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper] body {
+    background-color: #050505 !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper] body,
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper] #appMountPoint {
+    background-image:
+        linear-gradient(
+            90deg,
+            rgba(3, 5, 9, 0.04) 30%,
+            rgba(3, 5, 9, 0.20) 66%,
+            rgba(3, 5, 9, 0.70) 100%
+        ),
+        linear-gradient(
+            0deg,
+            rgba(2, 4, 8, 0.76) 0%,
+            transparent 32%
+        ),
+        var(--stream-shell-provider-wallpaper) !important;
+
+    background-repeat: no-repeat !important;
+    background-position: center center, center center, var(--stream-shell-provider-wallpaper-position) !important;
+    background-size: cover, cover, var(--stream-shell-provider-wallpaper-size) !important;
+    background-attachment: fixed !important;
+}
+
+/* Large Netflix page surfaces that otherwise cover body. */
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper] #appMountPoint > div,
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper] .basicLayout,
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper] .bd,
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper] .mainView,
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper] .lolomo {
+    background-color: transparent !important;
+}
+
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper]
+:is(.basicLayout, .bd, .mainView, .lolomo) {
+    background-image: none !important;
+}
+
+/* Keep Netflix navigation readable over the artwork. */
+html[data-stream-shell="true"][data-stream-shell-netflix-wallpaper]
+.pinning-header-container {
+    background-color: rgba(5, 5, 5, 0.46) !important;
+    backdrop-filter: blur(8px);
+}

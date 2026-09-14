@@ -1,0 +1,26 @@
+/* Shared subtitle overrides. Crunchyroll is intentionally excluded: its
+   current subtitle renderer is not a normal page-text surface. */
+html[data-stream-shell-subtitle-override][data-stream-shell-subtitle-provider="youtube"] .ytp-caption-segment {
+    color: var(--stream-shell-subtitle-color, #fff) !important;
+    zoom: var(--stream-shell-subtitle-scale, 1) !important;
+}
+
+html[data-stream-shell-subtitle-override][data-stream-shell-subtitle-provider="netflix"] .player-timedtext-text-container span {
+    color: var(--stream-shell-subtitle-color, #fff) !important;
+    zoom: var(--stream-shell-subtitle-scale, 1) !important;
+}
+
+html[data-stream-shell-subtitle-override][data-stream-shell-subtitle-provider="disney"] span.dss-subtitle-renderer-cue,
+html[data-stream-shell-subtitle-override][data-stream-shell-subtitle-provider="disney"] .dss-subtitle-renderer-cue-window,
+html[data-stream-shell-subtitle-override][data-stream-shell-subtitle-provider="disney"] .dss-subtitle-renderer-line {
+    color: var(--stream-shell-subtitle-color, #fff) !important;
+    zoom: var(--stream-shell-subtitle-scale, 1) !important;
+}
+
+html[data-stream-shell-subtitle-override][data-stream-shell-subtitle-font-override][data-stream-shell-subtitle-provider="youtube"] .ytp-caption-segment,
+html[data-stream-shell-subtitle-override][data-stream-shell-subtitle-font-override][data-stream-shell-subtitle-provider="netflix"] .player-timedtext-text-container span,
+html[data-stream-shell-subtitle-override][data-stream-shell-subtitle-font-override][data-stream-shell-subtitle-provider="disney"] span.dss-subtitle-renderer-cue,
+html[data-stream-shell-subtitle-override][data-stream-shell-subtitle-font-override][data-stream-shell-subtitle-provider="disney"] .dss-subtitle-renderer-cue-window,
+html[data-stream-shell-subtitle-override][data-stream-shell-subtitle-font-override][data-stream-shell-subtitle-provider="disney"] .dss-subtitle-renderer-line {
+    font-family: var(--stream-shell-subtitle-font) !important;
+}
