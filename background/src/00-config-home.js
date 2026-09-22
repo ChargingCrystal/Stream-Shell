@@ -135,7 +135,7 @@ const TITLEBAR_NATIVE_HOST =
     "com.streamshell.titlebar";
 
 const TITLEBAR_PROTOCOL_VERSION =
-    3;
+    4;
 
 const TITLEBAR_RECONCILE_INTERVAL_MS =
     1500;
@@ -180,6 +180,12 @@ let titlebarSettingsOpen =
 let titlebarVolumeActive =
     false;
 
+let titlebarFullscreenActive =
+    false;
+
+let titlebarFullscreenWindowId =
+    null;
+
 /*
  * Managed browser windows can exist before Chromium publishes their first real
  * page title. Retry plans are idempotent and may overlap; this generation only
@@ -213,6 +219,9 @@ async function openShellHome() {
 
     const compact = displayProfile?.mode === "compact";
 
+    titlebarFullscreenActive = false;
+    titlebarFullscreenWindowId = null;
+
     await deactivateTwitchForRightSurface({
         forceMinimize: compact
     });
@@ -241,6 +250,7 @@ async function openShellHome() {
     for (const [providerName, windowId] of Object.entries(providerWindows)) {
         await setWindowMuted(windowId, true);
         await safelyMinimizeWindow(windowId);
+        await parkWindowOffscreen(windowId, LEFT);
         await chrome.storage.local.remove(`streamShellNowPlaying_${providerName}`);
     }
 
@@ -296,9 +306,10 @@ async function openShellWarmLastProvider() {
         stored.activeProvider;
 
     /*
-     * The visible shell always starts on Landing. activeProvider is only a
-     * persistent hint for which service should be warm in the background;
-     * leftMode remains the source of truth for what is actually visible.
+     * The visible shell always starts on its Home surface (Landing in Wide,
+     * Dashboard in Compact). activeProvider is only a persistent hint for
+     * which service should be warm in the background; leftMode remains the
+     * source of truth for what is actually visible.
      */
     await openShellHome();
 
@@ -313,7 +324,8 @@ async function openShellWarmLastProvider() {
 
     const windowId =
         await ensureProviderWindow(
-            providerName
+            providerName,
+            { parked: true }
         );
 
     if (
@@ -331,6 +343,11 @@ async function openShellWarmLastProvider() {
         windowId
     );
 
+    await parkWindowOffscreen(
+        windowId,
+        LEFT
+    );
+
     await chrome.storage.local.remove(
         `streamShellNowPlaying_${providerName}`
     );
@@ -338,7 +355,7 @@ async function openShellWarmLastProvider() {
     /*
      * Reassert the visual state after the warm-up window was created. The
      * remembered provider must never make its titlebar button look selected
-     * while it is minimized behind Landing.
+     * while it is parked behind the current Home surface.
      */
     const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
     await chrome.storage.local.set({

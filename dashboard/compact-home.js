@@ -20,14 +20,12 @@
 
     // These media helpers used to belong exclusively to Landing. Load them only
     // for Compact so Wide Dashboard keeps its pre-0.14 runtime/CSS surface.
-    for (const path of [
+    await Promise.all([
         "media/watchlist.js",
         "media/direct-links.js",
         "media/continue-watching.js",
         "media/availability.js",
-    ]) {
-        await loadCompactHomeScript(path);
-    }
+    ].map(loadCompactHomeScript));
 const PROVIDERS =
     new Set([
         "youtube",

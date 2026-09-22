@@ -382,7 +382,7 @@ const TITLEBAR_NATIVE_HOST =
     "com.streamshell.titlebar";
 
 const TITLEBAR_PROTOCOL_VERSION =
-    3;
+    4;
 
 const TITLEBAR_RECONCILE_INTERVAL_MS =
     1500;
@@ -427,6 +427,12 @@ let titlebarSettingsOpen =
 let titlebarVolumeActive =
     false;
 
+let titlebarFullscreenActive =
+    false;
+
+let titlebarFullscreenWindowId =
+    null;
+
 /*
  * Managed browser windows can exist before Chromium publishes their first real
  * page title. Retry plans are idempotent and may overlap; this generation only
@@ -460,6 +466,9 @@ async function openShellHome() {
 
     const compact = displayProfile?.mode === "compact";
 
+    titlebarFullscreenActive = false;
+    titlebarFullscreenWindowId = null;
+
     await deactivateTwitchForRightSurface({
         forceMinimize: compact
     });
@@ -488,6 +497,7 @@ async function openShellHome() {
     for (const [providerName, windowId] of Object.entries(providerWindows)) {
         await setWindowMuted(windowId, true);
         await safelyMinimizeWindow(windowId);
+        await parkWindowOffscreen(windowId, LEFT);
         await chrome.storage.local.remove(`streamShellNowPlaying_${providerName}`);
     }
 
@@ -543,9 +553,10 @@ async function openShellWarmLastProvider() {
         stored.activeProvider;
 
     /*
-     * The visible shell always starts on Landing. activeProvider is only a
-     * persistent hint for which service should be warm in the background;
-     * leftMode remains the source of truth for what is actually visible.
+     * The visible shell always starts on its Home surface (Landing in Wide,
+     * Dashboard in Compact). activeProvider is only a persistent hint for
+     * which service should be warm in the background; leftMode remains the
+     * source of truth for what is actually visible.
      */
     await openShellHome();
 
@@ -560,7 +571,8 @@ async function openShellWarmLastProvider() {
 
     const windowId =
         await ensureProviderWindow(
-            providerName
+            providerName,
+            { parked: true }
         );
 
     if (
@@ -578,6 +590,11 @@ async function openShellWarmLastProvider() {
         windowId
     );
 
+    await parkWindowOffscreen(
+        windowId,
+        LEFT
+    );
+
     await chrome.storage.local.remove(
         `streamShellNowPlaying_${providerName}`
     );
@@ -585,7 +602,7 @@ async function openShellWarmLastProvider() {
     /*
      * Reassert the visual state after the warm-up window was created. The
      * remembered provider must never make its titlebar button look selected
-     * while it is minimized behind Landing.
+     * while it is parked behind the current Home surface.
      */
     const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
     await chrome.storage.local.set({
@@ -1273,6 +1290,67 @@ async function restoreWindow(
 }
 
 
+async function getStreamShellParkingBounds(
+    referenceBounds = LEFT
+) {
+    let displays = [];
+
+    try {
+        displays = await chrome.system.display.getInfo();
+    } catch {
+    }
+
+    const rects = (Array.isArray(displays) ? displays : [])
+        .map(display => display?.bounds)
+        .filter(bounds =>
+            Number.isFinite(Number(bounds?.left)) &&
+            Number.isFinite(Number(bounds?.top)) &&
+            Number(bounds?.width) > 0 &&
+            Number(bounds?.height) > 0
+        );
+
+    const virtualBottom = rects.length
+        ? Math.max(...rects.map(bounds => Number(bounds.top) + Number(bounds.height)))
+        : Number(referenceBounds?.top || 0) + Number(referenceBounds?.height || 1080);
+
+    const width = Math.max(320, Number(referenceBounds?.width) || 960);
+    const height = Math.max(240, Number(referenceBounds?.height) || 540);
+
+    return {
+        left: Number(referenceBounds?.left) || 0,
+        top: virtualBottom + 240,
+        width,
+        height
+    };
+}
+
+
+async function parkWindowOffscreen(
+    windowId,
+    referenceBounds = LEFT
+) {
+    if (
+        shuttingDown ||
+        !Number.isInteger(windowId)
+    ) {
+        return;
+    }
+
+    try {
+        const bounds = await getStreamShellParkingBounds(referenceBounds);
+
+        await chrome.windows.update(windowId, {
+            left: bounds.left,
+            top: bounds.top,
+            width: bounds.width,
+            height: bounds.height,
+            focused: false
+        });
+    } catch {
+    }
+}
+
+
 async function safelyMinimizeWindow(
     windowId
 ) {
@@ -1342,7 +1420,8 @@ async function saveProviderWindows(
 
 
 async function ensureProviderWindow(
-    providerName
+    providerName,
+    options = null
 ) {
     if (
         shuttingDown
@@ -1364,7 +1443,8 @@ async function ensureProviderWindow(
 
     const promise =
         _ensureProviderWindow(
-            providerName
+            providerName,
+            options
         )
             .finally(
                 () => {
@@ -1384,7 +1464,8 @@ async function ensureProviderWindow(
 
 
 async function _ensureProviderWindow(
-    providerName
+    providerName,
+    options = null
 ) {
     if (
         shuttingDown
@@ -1443,32 +1524,29 @@ async function _ensureProviderWindow(
         );
     }
 
-    const win =
-        await chrome.windows.create({
-            type:
-                "popup",
+    const parkedCreation =
+        options?.parked === true;
 
-            state:
-                "normal",
+    const createData = {
+        type: "popup",
+        state: parkedCreation ? "minimized" : "normal",
+        focused: false,
+        url: provider.url
+    };
 
-            focused:
-                false,
-
-            left:
-                LEFT.left,
-
-            top:
-                LEFT.top,
-
-            width:
-                LEFT.width,
-
-            height:
-                LEFT.height,
-
-            url:
-                provider.url
+    if (!parkedCreation) {
+        Object.assign(createData, {
+            left: LEFT.left,
+            top: LEFT.top,
+            width: LEFT.width,
+            height: LEFT.height
         });
+    }
+
+    const win =
+        await chrome.windows.create(
+            createData
+        );
 
     if (
         shuttingDown
@@ -1511,6 +1589,11 @@ async function _ensureProviderWindow(
         true
     );
 
+    if (parkedCreation) {
+        await safelyMinimizeWindow(windowId);
+        await parkWindowOffscreen(windowId, LEFT);
+    }
+
     recordFlightEvent({
         source: "background",
         category: "provider-window",
@@ -1541,6 +1624,9 @@ async function switchProvider(
             `Unknown provider: ${providerName}`
         );
     }
+
+    titlebarFullscreenActive = false;
+    titlebarFullscreenWindowId = null;
 
     await stopVolumeCaptureForProviderChange(
         providerName
@@ -3448,11 +3534,14 @@ async function connectTitlebarNative() {
             volumeActive:
                 titlebarVolumeActive,
 
+            fullscreenActive:
+                titlebarFullscreenActive,
+
             volumeShortcut
         });
 
         titlebarLastStateKey =
-            `${state.leftMode || "landing"}|${state.rightMode || "dashboard"}|${visibilityMode}|${streamShellDisplayProfileCache?.mode || "wide"}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
+            `${state.leftMode || "landing"}|${state.rightMode || "dashboard"}|${visibilityMode}|${streamShellDisplayProfileCache?.mode || "wide"}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
 
         startTitlebarReconcileLoop();
     } catch {
@@ -3482,6 +3571,12 @@ function stopTitlebarNative() {
 
     titlebarVolumeActive =
         false;
+
+    titlebarFullscreenActive =
+        false;
+
+    titlebarFullscreenWindowId =
+        null;
 
     stopTitlebarReconcileLoop();
 
@@ -3666,18 +3761,15 @@ async function claimFocusedTitlebarSurface(
                 return false;
             }
         } else {
-            const browserWindows =
-                await chrome.windows.getAll({
+            focusedWindow =
+                await chrome.windows.getLastFocused({
                     populate:
                         true
                 });
 
-            focusedWindow =
-                browserWindows.find(
-                    window =>
-                        window.focused
-                ) ||
-                null;
+            if (focusedWindow?.focused !== true) {
+                return false;
+            }
         }
 
         if (
@@ -4000,7 +4092,7 @@ function sendTitlebarState(
         streamShellDisplayProfileCache?.mode || "wide";
 
     const key =
-        `${nextLeft}|${nextRight}|${nextVisibility}|${layoutProfile}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
+        `${nextLeft}|${nextRight}|${nextVisibility}|${layoutProfile}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
 
     if (
         key ===
@@ -4033,6 +4125,9 @@ function sendTitlebarState(
 
             volumeActive:
                 titlebarVolumeActive,
+
+            fullscreenActive:
+                titlebarFullscreenActive,
 
             left:
                 LEFT.left,
@@ -7082,6 +7177,46 @@ chrome.runtime.onMessage.addListener(
 
         if (
             message.type ===
+                "provider-fullscreen-state"
+        ) {
+            if (
+                !sender.tab ||
+                !Number.isInteger(sender.tab.windowId)
+            ) {
+                sendResponse({ ok: false });
+                return;
+            }
+
+            isManagedProviderWindow(sender.tab.windowId)
+                .then(async managed => {
+                    if (!managed) {
+                        sendResponse({ ok: false });
+                        return;
+                    }
+
+                    const active = message.active === true;
+
+                    if (active) {
+                        titlebarFullscreenWindowId = sender.tab.windowId;
+                        titlebarFullscreenActive = true;
+                    } else if (
+                        titlebarFullscreenWindowId === sender.tab.windowId
+                    ) {
+                        titlebarFullscreenWindowId = null;
+                        titlebarFullscreenActive = false;
+                    }
+
+                    await syncConnectedTitlebarNative().catch(() => {});
+                    sendResponse({ ok: true });
+                })
+                .catch(() => sendResponse({ ok: false }));
+
+            return true;
+        }
+
+
+        if (
+            message.type ===
                 "provider-volume-fullscreen-bridge"
         ) {
             if (
@@ -9141,6 +9276,15 @@ chrome.windows.onFocusChanged.addListener(
             return;
         }
 
+        if (
+            titlebarFullscreenActive &&
+            Number.isInteger(titlebarFullscreenWindowId) &&
+            focusedWindowId !== titlebarFullscreenWindowId
+        ) {
+            titlebarFullscreenActive = false;
+            titlebarFullscreenWindowId = null;
+        }
+
         Promise.resolve()
             .then(
                 async () => {
@@ -9229,6 +9373,11 @@ chrome.windows.onRemoved.addListener(
             shuttingDown
         ) {
             return;
+        }
+
+        if (removedWindowId === titlebarFullscreenWindowId) {
+            titlebarFullscreenActive = false;
+            titlebarFullscreenWindowId = null;
         }
 
         const stored =

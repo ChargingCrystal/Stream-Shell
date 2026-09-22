@@ -35,6 +35,24 @@ ytd-browse[page-subtype="home"] ytd-rich-section-renderer:has(.badge-style-type-
     display: none !important;
 }
 
+/*
+ * YouTube Playables / instant games. The shelf wrapper has changed names a
+ * few times, but the actual cards/navigation consistently link into /playables.
+ * Hide the owning section so no empty header or Show more row is left behind.
+ */
+html[data-stream-shell="true"][data-stream-shell-yt-hide-playables]
+ytd-rich-section-renderer:has(a[href^="/playables"]),
+html[data-stream-shell="true"][data-stream-shell-yt-hide-playables]
+ytd-rich-shelf-renderer:has(a[href^="/playables"]),
+html[data-stream-shell="true"][data-stream-shell-yt-hide-playables]
+ytd-item-section-renderer:has(a[href^="/playables"]),
+html[data-stream-shell="true"][data-stream-shell-yt-hide-playables]
+ytd-guide-entry-renderer a[href^="/playables"],
+html[data-stream-shell="true"][data-stream-shell-yt-hide-playables]
+ytd-mini-guide-entry-renderer a[href^="/playables"] {
+    display: none !important;
+}
+
 html[data-stream-shell="true"][data-stream-shell-yt-hide-video-sidebar]
 ytd-watch-flexy #secondary {
     display: none !important;

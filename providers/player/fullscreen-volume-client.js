@@ -3,6 +3,23 @@
     const REQUEST_EVENT = "stream-shell-volume-fullscreen-request";
     const RESPONSE_EVENT = "stream-shell-volume-fullscreen-response";
 
+    const publishFullscreenState = () => {
+        if (window !== window.top) return;
+
+        const active = Boolean(
+            document.fullscreenElement ||
+            document.webkitFullscreenElement
+        );
+
+        chrome.runtime.sendMessage({
+            type: "provider-fullscreen-state",
+            active
+        }).catch(() => {});
+    };
+
+    document.addEventListener("fullscreenchange", publishFullscreenState, true);
+    document.addEventListener("webkitfullscreenchange", publishFullscreenState, true);
+
     document.addEventListener(REQUEST_EVENT, event => {
         const detail = event?.detail;
         const requestId = String(detail?.requestId || "");

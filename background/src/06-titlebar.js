@@ -320,11 +320,14 @@ async function connectTitlebarNative() {
             volumeActive:
                 titlebarVolumeActive,
 
+            fullscreenActive:
+                titlebarFullscreenActive,
+
             volumeShortcut
         });
 
         titlebarLastStateKey =
-            `${state.leftMode || "landing"}|${state.rightMode || "dashboard"}|${visibilityMode}|${streamShellDisplayProfileCache?.mode || "wide"}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
+            `${state.leftMode || "landing"}|${state.rightMode || "dashboard"}|${visibilityMode}|${streamShellDisplayProfileCache?.mode || "wide"}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
 
         startTitlebarReconcileLoop();
     } catch {
@@ -354,6 +357,12 @@ function stopTitlebarNative() {
 
     titlebarVolumeActive =
         false;
+
+    titlebarFullscreenActive =
+        false;
+
+    titlebarFullscreenWindowId =
+        null;
 
     stopTitlebarReconcileLoop();
 
@@ -538,18 +547,15 @@ async function claimFocusedTitlebarSurface(
                 return false;
             }
         } else {
-            const browserWindows =
-                await chrome.windows.getAll({
+            focusedWindow =
+                await chrome.windows.getLastFocused({
                     populate:
                         true
                 });
 
-            focusedWindow =
-                browserWindows.find(
-                    window =>
-                        window.focused
-                ) ||
-                null;
+            if (focusedWindow?.focused !== true) {
+                return false;
+            }
         }
 
         if (
@@ -872,7 +878,7 @@ function sendTitlebarState(
         streamShellDisplayProfileCache?.mode || "wide";
 
     const key =
-        `${nextLeft}|${nextRight}|${nextVisibility}|${layoutProfile}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
+        `${nextLeft}|${nextRight}|${nextVisibility}|${layoutProfile}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
 
     if (
         key ===
@@ -905,6 +911,9 @@ function sendTitlebarState(
 
             volumeActive:
                 titlebarVolumeActive,
+
+            fullscreenActive:
+                titlebarFullscreenActive,
 
             left:
                 LEFT.left,

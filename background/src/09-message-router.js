@@ -188,6 +188,46 @@ chrome.runtime.onMessage.addListener(
 
         if (
             message.type ===
+                "provider-fullscreen-state"
+        ) {
+            if (
+                !sender.tab ||
+                !Number.isInteger(sender.tab.windowId)
+            ) {
+                sendResponse({ ok: false });
+                return;
+            }
+
+            isManagedProviderWindow(sender.tab.windowId)
+                .then(async managed => {
+                    if (!managed) {
+                        sendResponse({ ok: false });
+                        return;
+                    }
+
+                    const active = message.active === true;
+
+                    if (active) {
+                        titlebarFullscreenWindowId = sender.tab.windowId;
+                        titlebarFullscreenActive = true;
+                    } else if (
+                        titlebarFullscreenWindowId === sender.tab.windowId
+                    ) {
+                        titlebarFullscreenWindowId = null;
+                        titlebarFullscreenActive = false;
+                    }
+
+                    await syncConnectedTitlebarNative().catch(() => {});
+                    sendResponse({ ok: true });
+                })
+                .catch(() => sendResponse({ ok: false }));
+
+            return true;
+        }
+
+
+        if (
+            message.type ===
                 "provider-volume-fullscreen-bridge"
         ) {
             if (

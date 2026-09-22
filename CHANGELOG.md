@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.0
+
+- Added a default-on YouTube cleanup switch for Playables / instant-game shelves and navigation.
+- Fixed Compact native titlebar chrome remaining visible during true provider fullscreen.
+- Reduced Compact/native hot-path work by trusting claimed HWND mappings, throttling Alt+Tab presentation repair and avoiding full browser-window enumeration during claim heartbeats.
+- Parallelized independent Compact Home media helper loading.
+- Warm-start providers are created offscreen before minimization so Compact no longer flashes the remembered provider across the full display at launch.
+
 This is not a complete history of every private build. It records the recent public baseline and the refactors/fixes immediately leading into it.
 
 ## 0.17.12

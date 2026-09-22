@@ -180,3 +180,13 @@ video during Chromium's fullscreen style transition. Normal ownership is
 re-established automatically when fullscreen ends. Re-run
 install-titlebar-helper.cmd after upgrading because StreamShellTitlebarHost.cs
 changed.
+
+0.18.0 Compact fullscreen / performance pass
+---------------------------------------------
+Compact now receives an explicit provider Fullscreen API signal from the browser
+bridge over native protocol v4, so the custom titlebar/backdrop is hidden during true fullscreen and
+restored immediately afterwards. The mapped Compact HWND remains authoritative
+after its initial claim, and Alt+Tab caption/icon reassertion is throttled to a
+5-second drift audit instead of rewriting Opera every 500 ms. Re-run
+install-titlebar-helper.cmd after upgrading because StreamShellTitlebarHost.cs
+changed.

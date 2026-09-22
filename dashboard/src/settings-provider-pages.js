@@ -257,6 +257,7 @@ function renderYouTubeSettings(section) {
                     [
                         ["streamShellYoutubeCleanupHideHomeFeed", "Hide Home Feed", "Remove the homepage feed."],
                         ["streamShellYoutubeCleanupHideHomePromotions", "Hide Home Promotions", "Remove YouTube featured, statement and promotional hero banners from Home."],
+                        ["streamShellYoutubeCleanupHidePlayables", "Hide Playables", "Remove YouTube Playables / instant-game shelves and navigation entries."],
                         ["streamShellYoutubeCleanupHideVideoSidebar", "Hide Video Sidebar", "Remove the entire watch-page secondary column."],
                         ["streamShellYoutubeCleanupHideRecommended", "Hide Recommended", "Hide recommendation items beside videos."],
                         ["streamShellYoutubeCleanupHideMixes", "Hide Mixes", "Hide YouTube Mix / radio items."],

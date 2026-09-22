@@ -6,7 +6,7 @@
 
 Stream Shell is a personal Opera GX / Chromium extension that turns several streaming services into one managed desktop-style shell. It was built around my own Windows setup and workflow first; other setups may work, but compatibility is best-effort rather than a product promise.
 
-Current public version: **0.17.12**.
+Current public version: **0.18.0**.
 
 ## What it does
 

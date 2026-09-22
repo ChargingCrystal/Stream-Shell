@@ -112,6 +112,7 @@ const SETTINGS_DEFAULTS = {
 
     streamShellYoutubeCleanupHideHomeFeed: false,
     streamShellYoutubeCleanupHideHomePromotions: true,
+    streamShellYoutubeCleanupHidePlayables: true,
     streamShellYoutubeCleanupHideVideoSidebar: false,
     streamShellYoutubeCleanupHideRecommended: false,
     streamShellYoutubeCleanupHideLiveChat: false,
@@ -223,6 +224,7 @@ const SETTINGS_SEARCH_ITEMS = {
         ["auto-like", "Wait for ads to finish", "auto like ads"],
         ["cleanup", "Hide Home Feed", "cleanup home feed"],
         ["cleanup", "Hide Home Promotions", "cleanup home featured promo promotion banner statement youtube featured"],
+        ["cleanup", "Hide Playables", "cleanup playables games instant games youtube playables"],
         ["cleanup", "Hide Video Sidebar", "cleanup sidebar recommendations"],
         ["cleanup", "Hide Recommended", "cleanup recommendations"],
         ["cleanup", "Hide Live Chat", "cleanup live chat"],

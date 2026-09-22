@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -74,7 +74,7 @@ internal static class StreamShellTitlebarHost
     private const ushort VT_EMPTY = 0;
     private const ushort VT_LPWSTR = 31;
     private const string STREAM_SHELL_APP_ID = "SvenRieseler.StreamShell.Desktop";
-    private const int TITLEBAR_PROTOCOL_VERSION = 3;
+    private const int TITLEBAR_PROTOCOL_VERSION = 4;
     private const uint HEARTBEAT_TIMEOUT_MS = 6500;
 
     private static readonly IntPtr HWND_TOP = IntPtr.Zero;
@@ -103,6 +103,7 @@ internal static class StreamShellTitlebarHost
     private static string rightMode = "dashboard";
     private static bool settingsOpen = false;
     private static bool volumeActive = false;
+    private static bool fullscreenActive = false;
     private static string volumeShortcut = "Ctrl+Shift+8";
     private static string visibilityMode = "none";
     private static string pendingFocusSide = String.Empty;
@@ -194,6 +195,8 @@ internal static class StreamShellTitlebarHost
     private static IntPtr altTabRepresentative = IntPtr.Zero;
     private static string altTabLastMode = null;
     private static string altTabLayoutProfile = null;
+    private static int altTabLastPresentationTick = Environment.TickCount;
+    private static IntPtr altTabLastPresentationHandle = IntPtr.Zero;
 
     // Provider-tinted native chrome. Windows 11 exposes caption/border colors
     // through DWM. Opera may choose to client-draw parts of its frame, so the
@@ -1731,6 +1734,63 @@ internal static class StreamShellTitlebarHost
     }
 
 
+    private static bool ShouldSuppressChromeForCompactForeground(
+        TargetInfo target,
+        PaneBounds pane
+    )
+    {
+        if (target == null || target.Handle == IntPtr.Zero ||
+            !IsTrustedShellTarget(target) || !IsCompactForegroundTarget(target))
+        {
+            return false;
+        }
+
+        RECT rect;
+        if (!GetWindowRect(target.Handle, out rect))
+        {
+            return false;
+        }
+
+        IntPtr monitor = MonitorFromWindow(target.Handle, MONITOR_DEFAULTTONEAREST);
+        if (monitor == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        MONITORINFO info = new MONITORINFO();
+        info.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+        if (!GetMonitorInfo(monitor, ref info))
+        {
+            return false;
+        }
+
+        int tolerance = Math.Max(4, Scale(8, target.Dpi));
+        bool fillsMonitor =
+            rect.Left <= info.rcMonitor.Left + tolerance &&
+            rect.Top <= info.rcMonitor.Top + tolerance &&
+            rect.Right >= info.rcMonitor.Right - tolerance &&
+            rect.Bottom >= info.rcMonitor.Bottom - tolerance;
+
+        if (!fillsMonitor)
+        {
+            return false;
+        }
+
+        int paneRight = pane.Left + pane.Width;
+        int paneBottom = pane.Top + pane.Height;
+
+        // Normal Compact deliberately fills the work area. Treat geometry as
+        // fullscreen only when Chromium expands beyond that normal surface into
+        // the monitor area (typically over the taskbar). If work area == monitor,
+        // the explicit Fullscreen API signal remains the authoritative path.
+        return
+            rect.Left < pane.Left - tolerance ||
+            rect.Top < pane.Top - tolerance ||
+            rect.Right > paneRight + tolerance ||
+            rect.Bottom > paneBottom + tolerance;
+    }
+
+
     private static bool IsWindowAboveInZOrder(IntPtr candidate, IntPtr target)
     {
         if (candidate == IntPtr.Zero || target == IntPtr.Zero || candidate == target ||
@@ -1891,7 +1951,10 @@ internal static class StreamShellTitlebarHost
             return null;
         }
 
-        return TryBuildPaneTarget(hWnd, pane, false);
+        /* The initial Compact claim already proved geometry/title/foreground.
+         * After that, keep the exact mapped HWND authoritative just like Wide.
+         * This avoids repeating pane-scoring work on every 500 ms native tick. */
+        return TryBuildTrustedOperaTarget(hWnd);
     }
 
     private static TargetInfo FindWideSurfaceTarget(PaneBounds pane, string side, string mode)
@@ -2607,6 +2670,7 @@ internal static class StreamShellTitlebarHost
         string currentRightMode;
         string currentLeftMode;
         string currentLayoutProfile;
+        bool currentFullscreenActive;
         lock (StateLock)
         {
             left = new PaneBounds(leftPane.Left, leftPane.Top, leftPane.Width, leftPane.Height);
@@ -2615,6 +2679,7 @@ internal static class StreamShellTitlebarHost
             currentRightMode = rightMode;
             currentLeftMode = leftMode;
             currentLayoutProfile = layoutProfile;
+            currentFullscreenActive = fullscreenActive;
         }
 
         bool compactLayout = String.Equals(currentLayoutProfile, "compact", StringComparison.OrdinalIgnoreCase);
@@ -2682,9 +2747,18 @@ internal static class StreamShellTitlebarHost
             );
         }
 
+        bool explicitShellFullscreen =
+            currentFullscreenActive &&
+            String.Equals(effectiveVisibility, "shell", StringComparison.OrdinalIgnoreCase) &&
+            leftTarget != null &&
+            IsTrustedShellTarget(leftTarget) &&
+            IsCompactForegroundTarget(leftTarget);
+
         bool spanningShellFullscreen =
-            !compactLayout &&
-            ShouldSuppressChromeForSpanningForeground(effectiveVisibility, left, right);
+            explicitShellFullscreen ||
+            (compactLayout
+                ? ShouldSuppressChromeForCompactForeground(leftTarget, left)
+                : ShouldSuppressChromeForSpanningForeground(effectiveVisibility, left, right));
 
         if (spanningShellFullscreen)
         {
@@ -2697,8 +2771,10 @@ internal static class StreamShellTitlebarHost
 
         SyncWindowChromeTheme(effectiveVisibility);
 
-        // True fullscreen spans both panes. Hide our own custom chrome only;
-        // the provider window itself is never modified here.
+        // True fullscreen hides our own custom chrome only. Compact uses the
+        // explicit provider Fullscreen API signal; Wide keeps its geometry
+        // fallback for browser/provider edge cases. The provider HWND itself is
+        // never resized or restyled here.
         if (spanningShellFullscreen)
         {
             HideChromeBackdrop();
@@ -3494,9 +3570,22 @@ internal static class StreamShellTitlebarHost
             }
         }
 
-        // Chromium can rewrite the caption/icon after navigation, therefore
-        // the single representative is reasserted on every native sync.
-        ApplyAltTabPresentation(representative, mode);
+        // Chromium can rewrite the caption/icon after navigation, but forcing
+        // SetWindowText + WM_SETICON every 500 ms is needlessly expensive on
+        // Compact. Reassert immediately when representative/mode changes and
+        // keep a slow audit for Chromium drift afterwards.
+        int presentationTick = Environment.TickCount;
+        uint presentationAge = unchecked((uint)(presentationTick - altTabLastPresentationTick));
+        bool presentationChanged =
+            representative != altTabLastPresentationHandle ||
+            !String.Equals(altTabLastMode, mode, StringComparison.OrdinalIgnoreCase);
+
+        if (presentationChanged || presentationAge >= 5000)
+        {
+            ApplyAltTabPresentation(representative, mode);
+            altTabLastPresentationHandle = representative;
+            altTabLastPresentationTick = presentationTick;
+        }
         altTabLastMode = mode;
     }
 
@@ -3563,6 +3652,7 @@ internal static class StreamShellTitlebarHost
 
         altTabRepresentative = IntPtr.Zero;
         altTabLastMode = null;
+        altTabLastPresentationHandle = IntPtr.Zero;
     }
 
 
@@ -5713,6 +5803,7 @@ internal static class StreamShellTitlebarHost
         int pendingCount;
         int heartbeatTick;
         bool compatible;
+        bool nativeFullscreenActive;
         lock (StateLock)
         {
             profile = layoutProfile;
@@ -5722,6 +5813,7 @@ internal static class StreamShellTitlebarHost
             pendingCount = PendingSurfaceClaims.Count;
             heartbeatTick = lastHeartbeatTick;
             compatible = protocolCompatible;
+            nativeFullscreenActive = fullscreenActive;
 
             List<string> compactEntries = new List<string>();
             foreach (KeyValuePair<string, IntPtr> pair in CompactSurfaceWindows)
@@ -5759,7 +5851,8 @@ internal static class StreamShellTitlebarHost
             ",\"layoutProfile\":\"" + JsonEscape(profile ?? "unknown") +
             "\",\"browserVisibility\":\"" + JsonEscape(browserVisibility ?? "none") +
             "\",\"effectiveVisibility\":\"" + JsonEscape(lastEffectiveVisibility ?? "none") +
-            "\",\"heartbeatFresh\":" + (IsHeartbeatFresh() ? "true" : "false") +
+            "\",\"fullscreenActive\":" + (nativeFullscreenActive ? "true" : "false") +
+            ",\"heartbeatFresh\":" + (IsHeartbeatFresh() ? "true" : "false") +
             ",\"heartbeatAgeMs\":" + heartbeatAgeMs +
             ",\"compactSurfaces\":" + compactCount +
             ",\"compactSurfaceMap\":\"" + JsonEscape(compactMap) +
@@ -5855,6 +5948,7 @@ internal static class StreamShellTitlebarHost
                 visibilityMode = GetJsonString(json, "visibilityMode") ?? "none";
                 settingsOpen = GetJsonBool(json, "settingsOpen", false);
                 volumeActive = GetJsonBool(json, "volumeActive", false);
+                fullscreenActive = GetJsonBool(json, "fullscreenActive", false);
                 volumeShortcut = GetJsonString(json, "volumeShortcut") ?? "";
                 initialized = true;
             }
@@ -5915,6 +6009,7 @@ internal static class StreamShellTitlebarHost
                 if (!String.IsNullOrWhiteSpace(nextVisibility)) visibilityMode = nextVisibility;
                 settingsOpen = GetJsonBool(json, "settingsOpen", settingsOpen);
                 volumeActive = GetJsonBool(json, "volumeActive", volumeActive);
+                fullscreenActive = GetJsonBool(json, "fullscreenActive", fullscreenActive);
 
                 // Display-profile geometry can change while the native host
                 // remains connected (for example after docking and reopening

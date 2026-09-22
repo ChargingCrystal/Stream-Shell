@@ -307,6 +307,15 @@ chrome.windows.onFocusChanged.addListener(
             return;
         }
 
+        if (
+            titlebarFullscreenActive &&
+            Number.isInteger(titlebarFullscreenWindowId) &&
+            focusedWindowId !== titlebarFullscreenWindowId
+        ) {
+            titlebarFullscreenActive = false;
+            titlebarFullscreenWindowId = null;
+        }
+
         Promise.resolve()
             .then(
                 async () => {
@@ -395,6 +404,11 @@ chrome.windows.onRemoved.addListener(
             shuttingDown
         ) {
             return;
+        }
+
+        if (removedWindowId === titlebarFullscreenWindowId) {
+            titlebarFullscreenActive = false;
+            titlebarFullscreenWindowId = null;
         }
 
         const stored =

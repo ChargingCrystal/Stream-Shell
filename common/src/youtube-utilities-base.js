@@ -70,6 +70,9 @@
         streamShellYoutubeCleanupHideHomePromotions:
             "data-stream-shell-yt-hide-home-promotions",
 
+        streamShellYoutubeCleanupHidePlayables:
+            "data-stream-shell-yt-hide-playables",
+
         streamShellYoutubeCleanupHideVideoSidebar:
             "data-stream-shell-yt-hide-video-sidebar",
 
@@ -196,6 +199,9 @@
             false,
 
         streamShellYoutubeCleanupHideHomePromotions:
+            true,
+
+        streamShellYoutubeCleanupHidePlayables:
             true,
 
         streamShellYoutubeCleanupHideVideoSidebar:

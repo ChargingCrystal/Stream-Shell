@@ -22,7 +22,8 @@ async function saveProviderWindows(
 
 
 async function ensureProviderWindow(
-    providerName
+    providerName,
+    options = null
 ) {
     if (
         shuttingDown
@@ -44,7 +45,8 @@ async function ensureProviderWindow(
 
     const promise =
         _ensureProviderWindow(
-            providerName
+            providerName,
+            options
         )
             .finally(
                 () => {
@@ -64,7 +66,8 @@ async function ensureProviderWindow(
 
 
 async function _ensureProviderWindow(
-    providerName
+    providerName,
+    options = null
 ) {
     if (
         shuttingDown
@@ -123,32 +126,29 @@ async function _ensureProviderWindow(
         );
     }
 
-    const win =
-        await chrome.windows.create({
-            type:
-                "popup",
+    const parkedCreation =
+        options?.parked === true;
 
-            state:
-                "normal",
+    const createData = {
+        type: "popup",
+        state: parkedCreation ? "minimized" : "normal",
+        focused: false,
+        url: provider.url
+    };
 
-            focused:
-                false,
-
-            left:
-                LEFT.left,
-
-            top:
-                LEFT.top,
-
-            width:
-                LEFT.width,
-
-            height:
-                LEFT.height,
-
-            url:
-                provider.url
+    if (!parkedCreation) {
+        Object.assign(createData, {
+            left: LEFT.left,
+            top: LEFT.top,
+            width: LEFT.width,
+            height: LEFT.height
         });
+    }
+
+    const win =
+        await chrome.windows.create(
+            createData
+        );
 
     if (
         shuttingDown
@@ -191,6 +191,11 @@ async function _ensureProviderWindow(
         true
     );
 
+    if (parkedCreation) {
+        await safelyMinimizeWindow(windowId);
+        await parkWindowOffscreen(windowId, LEFT);
+    }
+
     recordFlightEvent({
         source: "background",
         category: "provider-window",
@@ -221,6 +226,9 @@ async function switchProvider(
             `Unknown provider: ${providerName}`
         );
     }
+
+    titlebarFullscreenActive = false;
+    titlebarFullscreenWindowId = null;
 
     await stopVolumeCaptureForProviderChange(
         providerName
