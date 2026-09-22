@@ -27,6 +27,15 @@ Run native\uninstall-titlebar-helper.ps1.
 
 The Discord native helper is separate and is not modified here.
 
+0.18.2 Compact monitor-edge clamp
+----------------------------------
+Maximized Chromium/Opera provider HWNDs can include an invisible resize frame
+outside the monitor work area. Compact chrome now clamps its backdrop and
+interactive toolbar to the visible work-area rectangle so the STREAM SHELL
+label and far-right action are no longer clipped at the monitor edges. Re-run
+install-titlebar-helper.cmd after updating because StreamShellTitlebarHost.cs
+changed.
+
 0.10.44: A provider volume-booster button now sits between Landing and YouTube.
 Its active tint mirrors the live tab-capture state. Clicking it again stops the
 capture and returns the provider to normal tab audio. The helper bridges the

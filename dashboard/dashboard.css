@@ -4109,12 +4109,12 @@ body[data-provider="crunchyroll"] {
 
 /*
  * ============================================================
- * COMPACT SHELL HOME · 16:10 / 2880x1800 @ 200% Windows scale
+ * COMPACT SHELL HOME · 16:9 + 16:10
  * ============================================================
- * Compact uses the same physical rhythm as Wide. Chromium already exposes the
- * 200%-scaled panel in logical pixels, so the familiar Wide measurements are
- * halved here rather than scaled up again: 66 -> 33px edges, 28 -> 14px gaps,
- * 108 -> 54px provider rows, etc.
+ * The base geometry remains the 16:10 / 2880x1800 @ 200% layout. Chromium
+ * exposes that panel in logical pixels, so the familiar Wide measurements are
+ * halved here rather than scaled up again. 16:9 adds a small aspect-specific
+ * sizing layer below without creating a separate Compact implementation.
  */
 
 .compact-home-runtime-root {
@@ -4133,7 +4133,7 @@ body[data-layout-profile="compact"] .dashboard {
     --compact-main-height: 416px;       /* 5 x 72px + 4 x 14px */
     --compact-main-top: 210px;
     --compact-bottom-height: 132px;
-    --compact-media-right: 12px;
+    --compact-media-right: var(--compact-edge-x);
 }
 
 body[data-layout-profile="compact"] .panorama-background {
@@ -4671,6 +4671,246 @@ body[data-layout-profile="compact"].settings-open .compact-home-runtime-root,
 body[data-layout-profile="compact"].settings-open .provider-selector {
     opacity: 0;
     pointer-events: none;
+}
+
+/*
+ * 16:9 Compact tuning.
+ *
+ * 16:10 keeps the original Compact geometry. A 16:9 target has less vertical
+ * canvas but substantially more useful horizontal room, so the primary stack
+ * grows slightly in both directions instead of leaving the lower half visually
+ * under-weighted. The media panel still shares the provider stack's exact
+ * bottom edge and the subscriptions panel follows that edge automatically.
+ */
+body[data-layout-profile="compact"][data-compact-target="16:9"] .dashboard {
+    --compact-edge-x: 34px;
+    --compact-edge-y: 34px;
+    --compact-gap: 16px;
+    --compact-column-gap: 48px;
+    --compact-section-gap: 32px;
+    --compact-control-gap: 14px;
+    --compact-provider-width: 304px;
+    --compact-provider-row-height: 84px;
+    --compact-main-height: 484px;       /* 5 x 84px + 4 x 16px */
+    --compact-main-top: 222px;
+    --compact-bottom-height: 188px;
+    --compact-media-right: var(--compact-edge-x);
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .brand-area {
+    width: 560px;
+    height: 120px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .brand-line {
+    gap: 20px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .stream-shell-logo {
+    width: 100px;
+    height: 100px;
+    padding: 12px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .stream-shell-name {
+    font-size: 40px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .provider-wordmark {
+    width: min(350px, 27vw);
+    height: 118px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .provider-selector .provider-card {
+    padding: 0 31px;
+    gap: 16px;
+    border-radius: 12px;
+    font-size: 18px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .provider-card img {
+    width: 40px;
+    height: 40px;
+    flex-basis: 40px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .media-hub-controls {
+    grid-template-columns: minmax(250px, .74fr) minmax(0, 1.9fr);
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .watchlist-control,
+body[data-layout-profile="compact"][data-compact-target="16:9"] .media-search-input {
+    font-size: 20px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .watchlist-count {
+    min-width: 24px;
+    height: 24px;
+    font-size: 12px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .hub-control-icon {
+    width: 15px;
+    height: 15px;
+    flex-basis: 15px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .media-panel-header {
+    height: 54px;
+    padding: 0 13px 0 16px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .media-panel-body {
+    height: calc(100% - 54px);
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .library-tab {
+    height: 26px;
+    padding: 0 9px;
+    font-size: 14px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .library-icon-button {
+    width: 26px;
+    height: 26px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .library-icon-button svg {
+    width: 13px;
+    height: 13px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .search-header-title {
+    font-size: 18px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .media-panel-subtitle {
+    font-size: 15px;
+    max-width: 520px;
+    line-height: 1.15;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .watchlist-sort-label {
+    font-size: 12px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .watchlist-sort {
+    height: 32px;
+    min-width: 148px;
+    padding: 0 28px 0 10px;
+    font-size: 14px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .media-panel-close {
+    width: 26px;
+    height: 26px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .media-list {
+    padding: 8px 10px 12px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .media-item {
+    padding: 8px 9px 8px 7px;
+    margin-bottom: 6px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .media-item-title {
+    font-size: 16px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .panel-message-inner {
+    gap: 10px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .panel-message-icon {
+    margin-bottom: 16px;
+    font-size: 42px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .panel-message-title {
+    font-size: 26px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .panel-message-text {
+    max-width: 720px;
+    margin-top: 12px;
+    font-size: 18px;
+    line-height: 1.5;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-panel {
+    padding: 14px 18px 16px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-grid {
+    height: calc(100% - 44px);
+    align-items: stretch;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-item {
+    position: relative;
+    grid-template-columns: 31px minmax(0, 1fr);
+    grid-template-rows: 36px 34px 34px;
+    align-content: center;
+    column-gap: 10px;
+    padding: 0 14px;
+    border-left: 0;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-item:not(:first-child)::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 8px;
+    bottom: 8px;
+    width: 1px;
+    background: rgba(255,255,255,.10);
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-item img {
+    width: 28px;
+    height: 28px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-panel-header {
+    min-height: 34px;
+    margin-bottom: 10px;
+    align-items: flex-start;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-panel-title {
+    font-size: 20px;
+    line-height: 1.15;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-sync-meta {
+    margin-top: 2px;
+    font-size: 14px;
+    line-height: 1.25;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-sync {
+    width: 30px;
+    height: 30px;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-name {
+    font-size: 18px;
+    font-weight: 680;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-status {
+    height: 26px;
+    padding: 0 9px;
+    font-size: 15px;
+    line-height: 24px;
+    letter-spacing: .035em;
+}
+
+body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-renewal {
+    font-size: 16px;
+    line-height: 1.25;
 }
 
 @media (max-height: 760px) {

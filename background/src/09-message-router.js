@@ -1606,6 +1606,9 @@ chrome.runtime.onMessage.addListener(
                             displayProfileOverride:
                                 displayProfile?.override || "auto",
 
+                            displayTarget:
+                                displayProfile?.targetDisplay?.referenceTarget || null,
+
                             landingExposed
                         });
                     }

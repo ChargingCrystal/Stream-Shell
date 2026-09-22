@@ -2455,7 +2455,8 @@ internal static class StreamShellTitlebarHost
             return
                 leftTarget != null &&
                 IsCompactKnownSurfaceHandle(leftTarget.Handle) &&
-                IsCompactForegroundTarget(leftTarget)
+                (IsCompactForegroundTarget(leftTarget) ||
+                 CanKeepCompactChromeWithForeignForeground(leftTarget))
                     ? "shell"
                     : "none";
         }
@@ -2586,6 +2587,55 @@ internal static class StreamShellTitlebarHost
          * sits above Stream Shell on the left.
          */
         return !HasForeignWindowAboveWideLeftChrome(leftTarget);
+    }
+
+    private static bool HasForeignWindowAboveCompactChrome(TargetInfo target)
+    {
+        if (target == null || target.Handle == IntPtr.Zero || !IsWindow(target.Handle))
+        {
+            return true;
+        }
+
+        bool occluded = false;
+
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            if (!IsWindowAboveInZOrder(hWnd, target.Handle))
+            {
+                return true;
+            }
+
+            if (MeaningfullyOverlapsWideLeftChrome(hWnd, target))
+            {
+                occluded = true;
+                return false;
+            }
+
+            return true;
+        }, IntPtr.Zero);
+
+        return occluded;
+    }
+
+    private static bool CanKeepCompactChromeWithForeignForeground(
+        TargetInfo target
+    )
+    {
+        if (target == null || target.Handle == IntPtr.Zero ||
+            !IsTrustedShellTarget(target) || !IsHeartbeatFresh() ||
+            !IsWindow(target.Handle) || !IsWindowVisible(target.Handle) ||
+            IsIconic(target.Handle))
+        {
+            return false;
+        }
+
+        /*
+         * Compact on 16:10/16:9 should keep the custom titlebar visible when
+         * Stream Shell remains visible but another application temporarily owns
+         * focus elsewhere. Match Wide's behavior by following actual occlusion
+         * of the top titlebar band instead of the foreground HWND alone.
+         */
+        return !HasForeignWindowAboveCompactChrome(target);
     }
 
 
@@ -5258,6 +5308,47 @@ internal static class StreamShellTitlebarHost
         }
     }
 
+    private static RECT GetVisibleChromePlacementRect(TargetInfo target, bool compactLayout)
+    {
+        RECT rect = target != null ? target.Rect : new RECT();
+        if (!compactLayout || target == null || target.Handle == IntPtr.Zero)
+        {
+            return rect;
+        }
+
+        IntPtr monitor = MonitorFromWindow(target.Handle, MONITOR_DEFAULTTONEAREST);
+        if (monitor == IntPtr.Zero)
+        {
+            return rect;
+        }
+
+        MONITORINFO info = new MONITORINFO();
+        info.cbSize = Marshal.SizeOf(typeof(MONITORINFO));
+        if (!GetMonitorInfo(monitor, ref info))
+        {
+            return rect;
+        }
+
+        /*
+         * Maximized Chromium windows can report the invisible resize frame a
+         * few pixels beyond the monitor work area. Using that raw rect for our
+         * TOPMOST chrome shifts STREAM SHELL and the far-right button partly
+         * off-screen. Compact never needs that invisible frame: fullscreen is
+         * suppressed before chrome placement, so clamp normal chrome to rcWork.
+         */
+        rect.Left = Math.Max(rect.Left, info.rcWork.Left);
+        rect.Top = Math.Max(rect.Top, info.rcWork.Top);
+        rect.Right = Math.Min(rect.Right, info.rcWork.Right);
+        rect.Bottom = Math.Min(rect.Bottom, info.rcWork.Bottom);
+
+        if (rect.Right <= rect.Left || rect.Bottom <= rect.Top)
+        {
+            return target.Rect;
+        }
+
+        return rect;
+    }
+
     private static void PositionChromeBackdrop(TargetInfo target)
     {
         if (leftChromeOverlay == IntPtr.Zero || target == null)
@@ -5267,10 +5358,17 @@ internal static class StreamShellTitlebarHost
         }
 
         int dpi = target.Dpi;
-        int width = Math.Max(1, target.Rect.Right - target.Rect.Left);
+        bool compactLayout;
+        lock (StateLock)
+        {
+            compactLayout = String.Equals(layoutProfile, "compact", StringComparison.OrdinalIgnoreCase);
+        }
+
+        RECT placementRect = GetVisibleChromePlacementRect(target, compactLayout);
+        int width = Math.Max(1, placementRect.Right - placementRect.Left);
         int height = Math.Max(Scale(28, dpi), target.TitlebarHeight + Scale(8, dpi));
-        int x = target.Rect.Left;
-        int y = target.Rect.Top;
+        int x = placementRect.Left;
+        int y = placementRect.Top;
 
         // Compact now uses the same TOPMOST placement strategy as Wide while
         // it is allowed to exist. The important difference is lifecycle, not
@@ -5278,11 +5376,6 @@ internal static class StreamShellTitlebarHost
         // target in SyncOverlays(), so an unrelated application causes this
         // window to be hidden/demoted instead of leaving a TOPMOST helper over
         // the desktop. This avoids the normal-z dead state seen in 0.14.8-.11.
-        bool compactLayout;
-        lock (StateLock)
-        {
-            compactLayout = String.Equals(layoutProfile, "compact", StringComparison.OrdinalIgnoreCase);
-        }
         bool ownershipChanged = false;
 
         bool visible = IsWindowVisible(leftChromeOverlay);
@@ -5512,6 +5605,13 @@ internal static class StreamShellTitlebarHost
         }
 
         int dpi = target.Dpi;
+        bool compactLayout;
+        lock (StateLock)
+        {
+            compactLayout = String.Equals(layoutProfile, "compact", StringComparison.OrdinalIgnoreCase);
+        }
+        RECT placementRect = GetVisibleChromePlacementRect(target, compactLayout);
+
         int gap = Scale(8, dpi);
         bool compactDiscord = false;
         if (!isLeft)
@@ -5529,12 +5629,12 @@ internal static class StreamShellTitlebarHost
         // The Stream Shell nav now owns the far-right edge of the left caption.
         // This intentionally sits over Opera's native caption buttons so they
         // are visually and interactively replaced by Stream Shell navigation.
-        int x = isLeft ? target.Rect.Right - navWidth : target.CaptionLeft - gap - width;
+        int x = isLeft ? placementRect.Right - navWidth : target.CaptionLeft - gap - width;
         int y = isLeft
-            ? target.Rect.Top
-            : target.Rect.Top + Math.Max(Scale(2, dpi), (target.TitlebarHeight - height) / 2) + Scale(4, dpi);
+            ? placementRect.Top
+            : placementRect.Top + Math.Max(Scale(2, dpi), (target.TitlebarHeight - height) / 2) + Scale(4, dpi);
 
-        if (x < target.Rect.Left + Scale(160, dpi))
+        if (x < placementRect.Left + Scale(160, dpi))
         {
             HideOverlay(overlay, isLeft);
             return;
@@ -5542,11 +5642,6 @@ internal static class StreamShellTitlebarHost
 
         if (isLeft) leftOwner = target.Handle; else rightOwner = target.Handle;
 
-        bool compactLayout;
-        lock (StateLock)
-        {
-            compactLayout = String.Equals(layoutProfile, "compact", StringComparison.OrdinalIgnoreCase);
-        }
         bool ownershipChanged = false;
 
         bool visible = IsWindowVisible(overlay);

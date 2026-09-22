@@ -755,7 +755,11 @@ async function getFlightRecorderSnapshot(limit = null) {
  * 0.13.x introduces the display-profile foundation for the two personal
  * target layouts:
  *   - wide    -> 3840x1080 / 32:9
- *   - compact -> 2880x1800 / 16:10
+ *   - compact -> 16:9 or 16:10 single-surface targets
+ *
+ * Auto target priority is deliberately opinionated:
+ *   32:9 > 16:9 > 16:10.
+ * 16:9 reuses Compact's exact titlebar and single-surface layout.
  *
  * Chromium exposes logical display bounds on desktop, so classification
  * intentionally uses aspect ratio; the native resolutions above are reference
@@ -768,8 +772,9 @@ async function getFlightRecorderSnapshot(limit = null) {
 const STREAM_SHELL_DISPLAY_MODE_KEY =
     "streamShellDisplayMode";
 
-const STREAM_SHELL_DISPLAY_PROFILE_VERSION = 1;
+const STREAM_SHELL_DISPLAY_PROFILE_VERSION = 2;
 const STREAM_SHELL_WIDE_ASPECT = 32 / 9;
+const STREAM_SHELL_STANDARD_ASPECT = 16 / 9;
 const STREAM_SHELL_COMPACT_ASPECT = 16 / 10;
 const STREAM_SHELL_ASPECT_TOLERANCE = 0.12;
 
@@ -809,11 +814,27 @@ function isWideDisplayCandidate(display) {
 }
 
 
-function isCompactDisplayCandidate(display) {
+function isStandardDisplayCandidate(display) {
+    return displayAspectDistance(
+        display,
+        STREAM_SHELL_STANDARD_ASPECT
+    ) <= STREAM_SHELL_ASPECT_TOLERANCE;
+}
+
+
+function isCompact16x10DisplayCandidate(display) {
     return displayAspectDistance(
         display,
         STREAM_SHELL_COMPACT_ASPECT
     ) <= STREAM_SHELL_ASPECT_TOLERANCE;
+}
+
+
+function isCompactDisplayCandidate(display) {
+    return (
+        isStandardDisplayCandidate(display) ||
+        isCompact16x10DisplayCandidate(display)
+    );
 }
 
 
@@ -846,11 +867,14 @@ function normalizeDisplayUnit(display) {
     };
 
     if (isWideDisplayCandidate(normalized)) {
-        normalized.targetClass = "wide";
-        normalized.referenceTarget = "3840x1080-32:9";
-    } else if (isCompactDisplayCandidate(normalized)) {
-        normalized.targetClass = "compact";
-        normalized.referenceTarget = "2880x1800-16:10";
+        normalized.targetClass = "wide-32:9";
+        normalized.referenceTarget = "32:9";
+    } else if (isStandardDisplayCandidate(normalized)) {
+        normalized.targetClass = "compact-16:9";
+        normalized.referenceTarget = "16:9";
+    } else if (isCompact16x10DisplayCandidate(normalized)) {
+        normalized.targetClass = "compact-16:10";
+        normalized.referenceTarget = "16:10";
     }
 
     return normalized;
@@ -881,6 +905,19 @@ function chooseDisplayForMode(displays, mode) {
     return [...candidates]
         .sort((a, b) => {
             if (mode === "compact") {
+                /*
+                 * 16:9 intentionally wins over 16:10 whenever both are
+                 * connected. Only compare internal/primary status after the
+                 * requested aspect priority has been resolved.
+                 */
+                const compactTargetPriority = display =>
+                    isStandardDisplayCandidate(display)
+                        ? 2
+                        : (isCompact16x10DisplayCandidate(display) ? 1 : 0);
+                const targetPriorityDelta =
+                    compactTargetPriority(b) - compactTargetPriority(a);
+                if (targetPriorityDelta) return targetPriorityDelta;
+
                 const internalDelta = Number(b.isInternal) - Number(a.isInternal);
                 if (internalDelta) return internalDelta;
             }
@@ -907,12 +944,22 @@ function chooseAutomaticDisplayProfile(displays) {
         };
     }
 
-    const compactCandidates = displays.filter(isCompactDisplayCandidate);
-    if (compactCandidates.length) {
+    const standardCandidates = displays.filter(isStandardDisplayCandidate);
+    if (standardCandidates.length) {
         return {
             mode: "compact",
-            target: chooseDisplayForMode(compactCandidates, "compact"),
-            reason: "auto-compact-present",
+            target: chooseDisplayForMode(standardCandidates, "compact"),
+            reason: "auto-16:9-present",
+            supportedTarget: true
+        };
+    }
+
+    const compact16x10Candidates = displays.filter(isCompact16x10DisplayCandidate);
+    if (compact16x10Candidates.length) {
+        return {
+            mode: "compact",
+            target: chooseDisplayForMode(compact16x10Candidates, "compact"),
+            reason: "auto-16:10-present",
             supportedTarget: true
         };
     }
@@ -8594,6 +8641,9 @@ chrome.runtime.onMessage.addListener(
 
                             displayProfileOverride:
                                 displayProfile?.override || "auto",
+
+                            displayTarget:
+                                displayProfile?.targetDisplay?.referenceTarget || null,
 
                             landingExposed
                         });

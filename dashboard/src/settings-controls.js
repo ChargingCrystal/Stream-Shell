@@ -141,16 +141,16 @@ function renderDisplaySettings() {
             settingSegmented(
                 "streamShellDisplayMode",
                 "Display mode",
-                "Auto prefers the 32:9 target whenever it is connected; otherwise it selects the 16:10 laptop target.",
+                "Auto priority: 32:9, then 16:9, then 16:10. Both 16:9 and 16:10 use the same Compact single-surface layout.",
                 [
                     ["auto", "Auto"],
                     ["wide", "Wide"],
                     ["compact", "Compact"]
                 ]
             ),
-            "Known targets: 3840×1080 (32:9) and 2880×1800 (16:10). The override is global, not provider-specific."
+            "Known aspect targets: 32:9, 16:9 and 16:10. The override is global, not provider-specific."
         ),
-        "Wide is anchored to the detected 32:9 display. Compact uses the detected 16:10 target as one full-screen Shell Home/provider surface; profile changes use the next clean shell open/reopen boundary."
+        "Wide is anchored to the detected 32:9 display. Compact uses either 16:9 or 16:10 as one full-screen Shell Home/provider surface with the same titlebar and layout; profile changes use the next clean shell open/reopen boundary."
     );
 }
 

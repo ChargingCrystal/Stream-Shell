@@ -73,6 +73,11 @@ function renderState(
             ? "compact"
             : (state.layoutProfile === "wide" ? "wide" : null);
 
+    const reportedDisplayTarget =
+        state.displayTarget === "16:9" || state.displayTarget === "16:10"
+            ? state.displayTarget
+            : null;
+
     /*
      * layoutProfile is session-stable for now (live dock reflow is explicitly
      * deferred). Only the initial get-state / explicit profile-bearing message
@@ -81,6 +86,13 @@ function renderState(
      */
     if (reportedLayoutProfile) {
         document.body.dataset.layoutProfile = reportedLayoutProfile;
+
+        if (reportedLayoutProfile === "compact" && reportedDisplayTarget) {
+            document.body.dataset.compactTarget = reportedDisplayTarget;
+        } else {
+            delete document.body.dataset.compactTarget;
+        }
+
         ensureCompactHomeRuntimeLoaded(reportedLayoutProfile).catch(() => {});
     }
 

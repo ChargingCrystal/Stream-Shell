@@ -14,7 +14,7 @@ Stream Shell currently integrates **Netflix, Prime Video, Disney+, Crunchyroll a
 
 Highlights include:
 
-- Wide and Compact window/layout profiles with provider-aware window management.
+- Automatic display targeting with 32:9 Wide plus 16:9/16:10 Compact single-surface layouts and provider-aware window management.
 - A unified Landing/Dashboard UI with Watchlist, Continue Watching, Recent and Direct entries.
 - TMDB metadata/search plus streaming availability through TMDB's watch-provider data.
 - Provider automations such as autoplay/skip helpers, playback utilities and provider-specific cleanup.
