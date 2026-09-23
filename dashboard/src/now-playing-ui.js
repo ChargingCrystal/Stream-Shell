@@ -509,33 +509,17 @@ function renderProviderPlaybackIndicators() {
 
 
                 /*
-                 * A provider may keep a valid player document alive while its
-                 * window is minimized underneath the currently selected one.
-                 * The dashboard indicator is intentionally about what is on
-                 * the left side NOW, not about stale/background player state.
+                 * Persistent Now Playing indication belongs to the provider
+                 * actually visible in Wide's left pane. Compact has no second
+                 * pane and therefore does not retain a background player state
+                 * on Shell Home.
                  */
-                const compactLayout =
-                    document.body?.dataset?.layoutProfile ===
-                        "compact";
-
-
                 const active =
-                    compactLayout
-                        ? Boolean(
-                            media?.title
-                        ) &&
-                        (
-                            state === "playing" ||
-                            state === "paused" ||
-                            state === "ready"
-                        )
-                        : (
-                            buttonProvider ===
-                                visibleProvider &&
-                            Boolean(
-                                media?.title
-                            )
-                        );
+                    buttonProvider ===
+                        visibleProvider &&
+                    Boolean(
+                        media?.title
+                    );
 
 
                 button.classList.toggle(

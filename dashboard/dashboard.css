@@ -4561,30 +4561,10 @@ body[data-layout-profile="compact"] .subscription-renewal {
     font-size: 11px;
 }
 
-/* Keep the panel visually full-width. If Now Playing is present it floats
- * over the left end, while the table content reserves that footprint. */
-body[data-layout-profile="compact"] .dashboard:has(#now-playing-slot.visible) .subscription-panel {
-    padding-left: calc(var(--compact-provider-width) + var(--compact-column-gap));
-}
-
+/* Now Playing is intentionally Wide-only. Compact 16:9 and 16:10 use one
+ * visible surface, so a persistent player card on Shell Home is redundant. */
 body[data-layout-profile="compact"] .dashboard-footer {
-    left: var(--compact-edge-x);
-    right: auto;
-    top: calc(var(--compact-main-top) + var(--compact-main-height) + var(--compact-section-gap));
-    bottom: auto;
-    width: var(--compact-provider-width);
-    height: var(--compact-bottom-height);
-    padding: 0;
-    z-index: 7;
-    background: transparent;
-    border: 0;
-}
-
-body[data-layout-profile="compact"] #now-playing-slot,
-body[data-layout-profile="compact"] .now-playing {
-    width: 100%;
-    height: 100%;
-    max-width: none;
+    display: none !important;
 }
 
 /* Compact settings header keeps all six settings tabs clear of

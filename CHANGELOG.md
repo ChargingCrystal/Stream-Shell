@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fixed Compact 16:9 subscription row sizing so enlarged subscription content no longer overlaps the Subscriptions / Updated header.
+- Removed the Now Playing card from Compact 16:9 and 16:10; Now Playing remains a Wide-only multiscreen feature.
+- Removed the Compact-only minimized-provider snapshot retention and background playback-indicator path that only supported that card.
+
 ## 0.18.6
 
 - Increased Compact 16:9 subscription provider icons and provider-name typography again for better balance with the rest of the dashboard.

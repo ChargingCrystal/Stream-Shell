@@ -132,21 +132,6 @@ async function reconcileProviderPlaybackWindows() {
     const providerWindows =
         await getProviderWindows();
 
-    const compactProfile =
-        streamShellDisplayProfileCache?.mode === "compact";
-
-    const shellState = compactProfile
-        ? await chrome.storage.local.get([
-            "leftMode",
-            "activeProvider"
-        ])
-        : null;
-
-    const compactDashboardVisible =
-        compactProfile &&
-        shellState?.leftMode === "dashboard";
-
-
     const keysToRemove =
         [];
 
@@ -168,21 +153,9 @@ async function reconcileProviderPlaybackWindows() {
                 window.state ===
                     "minimized"
             ) {
-                /*
-                 * Compact Dashboard deliberately minimizes the last provider
-                 * while still showing its Now Playing card. Preserve only that
-                 * provider's snapshot; all other minimized providers keep the
-                 * established cleanup behavior.
-                 */
-                const preserveCompactNowPlaying =
-                    compactDashboardVisible &&
-                    provider === shellState?.activeProvider;
-
-                if (!preserveCompactNowPlaying) {
-                    keysToRemove.push(
-                        `streamShellNowPlaying_${provider}`
-                    );
-                }
+                keysToRemove.push(
+                    `streamShellNowPlaying_${provider}`
+                );
             }
 
         } catch {
