@@ -280,14 +280,12 @@ chrome.windows.onFocusChanged.addListener(
             return;
         }
 
-        if (
-            titlebarFullscreenActive &&
-            Number.isInteger(titlebarFullscreenWindowId) &&
-            focusedWindowId !== titlebarFullscreenWindowId
-        ) {
-            titlebarFullscreenActive = false;
-            titlebarFullscreenWindowId = null;
-        }
+        /*
+         * Focus loss is not a fullscreen-exit signal. Chromium can keep a
+         * managed provider in true fullscreen while another application owns
+         * the foreground. The provider fullscreen event, provider/window
+         * teardown and explicit surface changes remain authoritative.
+         */
 
         Promise.resolve()
             .then(

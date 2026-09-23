@@ -2799,10 +2799,15 @@ internal static class StreamShellTitlebarHost
 
         bool explicitShellFullscreen =
             currentFullscreenActive &&
-            String.Equals(effectiveVisibility, "shell", StringComparison.OrdinalIgnoreCase) &&
             leftTarget != null &&
             IsTrustedShellTarget(leftTarget) &&
-            IsCompactForegroundTarget(leftTarget);
+            (
+                compactLayout ||
+                (
+                    String.Equals(effectiveVisibility, "shell", StringComparison.OrdinalIgnoreCase) &&
+                    IsCompactForegroundTarget(leftTarget)
+                )
+            );
 
         bool spanningShellFullscreen =
             explicitShellFullscreen ||
@@ -2821,9 +2826,10 @@ internal static class StreamShellTitlebarHost
 
         SyncWindowChromeTheme(effectiveVisibility);
 
-        // True fullscreen hides our own custom chrome only. Compact uses the
-        // explicit provider Fullscreen API signal; Wide keeps its geometry
-        // fallback for browser/provider edge cases. The provider HWND itself is
+        // True fullscreen hides our own custom chrome only. Compact treats the
+        // explicit provider Fullscreen API signal as authoritative even after
+        // focus moves to another application. Wide keeps its established
+        // foreground/geometry behavior unchanged. The provider HWND itself is
         // never resized or restyled here.
         if (spanningShellFullscreen)
         {
