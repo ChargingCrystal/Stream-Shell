@@ -1,0 +1,130 @@
+name: Bug report
+description: Report a reproducible Stream Shell regression or failure.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Stream Shell is a personal project, so detailed reproduction information is far more useful than a broad compatibility request.
+
+  - type: input
+    id: version
+    attributes:
+      label: Stream Shell version
+      description: Release/tag or commit hash.
+      placeholder: "0.18.6"
+    validations:
+      required: true
+
+  - type: input
+    id: opera
+    attributes:
+      label: Opera GX / Chromium version
+      placeholder: "Opera GX ..."
+    validations:
+      required: true
+
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      placeholder: "Windows 11 ..."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: display
+    attributes:
+      label: Display profile
+      options:
+        - Wide 32:9
+        - Compact 16:9
+        - Compact 16:10
+        - Other / unsupported fallback
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: surfaces
+    attributes:
+      label: Affected surface(s)
+      options:
+        - label: Dashboard / Landing / shared shell
+        - label: YouTube
+        - label: Netflix
+        - label: Prime Video / Amazon
+        - label: Disney+
+        - label: Crunchyroll
+        - label: Twitch
+        - label: Discord integration
+        - label: Native titlebar helper
+        - label: Volume / fullscreen bridge
+        - label: Diagnostics / settings
+        - label: Other
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Give the shortest sequence that reliably triggers the problem.
+      placeholder: |
+        1. Open Stream Shell
+        2. Switch to ...
+        3. Navigate to ...
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: dropdown
+    id: safe_mode
+    attributes:
+      label: Provider Safe Mode
+      description: If this is provider-specific, does the problem still occur with that provider's Safe Mode enabled?
+      options:
+        - Not applicable
+        - Still broken in Safe Mode
+        - Works in Safe Mode
+        - Not tested
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics / logs
+      description: Paste only relevant output. Review and redact anything you consider personal or sensitive first.
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional context
+      description: Screenshots, recent provider UI changes, regression range, or anything else that may help.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues for the same problem.
+          required: true
+        - label: I checked the relevant recent release notes when applicable.
+          required: true
+        - label: I removed secrets and sensitive account data from anything attached above.
+          required: true

@@ -1,0 +1,73 @@
+name: Feature request
+description: Suggest a concrete addition or workflow improvement.
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Stream Shell is maintained around real personal use cases rather than feature completeness. Concrete workflow problems are therefore much easier to evaluate than generic support-matrix requests.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the current workflow or limitation first.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: What should Stream Shell do differently?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: surfaces
+    attributes:
+      label: Relevant surface(s)
+      options:
+        - label: Shared shell / Dashboard / Landing
+        - label: YouTube
+        - label: Netflix
+        - label: Prime Video / Amazon
+        - label: Disney+
+        - label: Crunchyroll
+        - label: Twitch
+        - label: Discord integration
+        - label: Native helper
+        - label: Display/layout behavior
+        - label: Other
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Concrete use case
+      description: When would you actually use this, and how often?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Existing alternatives
+      description: Can the provider, browser, OS, hardware, or another extension already handle this adequately?
+
+  - type: textarea
+    id: architecture
+    attributes:
+      label: Implementation notes
+      description: Optional. Mention relevant provider DOM/API behavior or likely integration points if known.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked existing issues for a similar request.
+          required: true
+        - label: This is a concrete use case, not a request to support an arbitrary resolution/setup purely for completeness.
+          required: true
