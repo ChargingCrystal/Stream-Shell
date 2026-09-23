@@ -2,10 +2,19 @@
 
 ## Unreleased
 
+- Fixed Compact titlebar occlusion checks at monitor edges by using DWM visible frame bounds instead of Chromium's invisible maximized resize frames; focusing a window on an adjacent monitor no longer hides unobstructed Stream Shell chrome.
+
+## 0.18.7 — YouTube Compact Titlebar / Focus Repair
+
+- Normalized Compact YouTube titlebar sizing to the same 34-logical-pixel Opera caption baseline used by the other providers, preventing YouTube from collapsing the custom titlebar geometry.
+- Compensated YouTube's fixed masthead/page layout for the native helper's 8-logical-pixel caption overhang so the corrected titlebar height no longer clips the top of YouTube's own controls.
+- Hardened Compact YouTube focus-loss handling: transient unclaimed Opera helper/tool HWNDs no longer count as real occluders, while the real foreground Opera window, known normal Opera windows and foreign applications still do.
+- Added a YouTube-only second fullscreen-state confirmation after cross-window focus changes so one transient false Fullscreen API sample cannot resurrect the titlebar over a still-active fullscreen transition.
 - Fixed Compact 16:9 subscription row sizing so enlarged subscription content no longer overlaps the Subscriptions / Updated header.
 - Removed the Now Playing card from Compact 16:9 and 16:10; Now Playing remains a Wide-only multiscreen feature.
 - Removed the Compact-only minimized-provider snapshot retention and background playback-indicator path that only supported that card.
 - Kept Compact 16:9/16:10 native titlebar chrome suppressed when a fullscreen provider loses foreground focus; Alt-Tab no longer clears the fullscreen state, while Wide keeps its existing fullscreen geometry behavior.
+- Reconciled Compact fullscreen titlebar state against the live provider document after focus changes, so true fullscreen keeps chrome hidden while a stale fullscreen claim no longer hides the titlebar when Stream Shell remains visibly unobstructed on another monitor.
 
 ## 0.18.6
 

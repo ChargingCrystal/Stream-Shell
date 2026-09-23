@@ -60,6 +60,7 @@ internal static class StreamShellTitlebarHost
     private const int TRANSPARENT = 1;
     private const int GA_ROOT = 2;
     private const int DWMWA_CAPTION_BUTTON_BOUNDS = 5;
+    private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
     private const int DWMWA_BORDER_COLOR = 34;
     private const int DWMWA_CAPTION_COLOR = 35;
     private const int DWMWA_TEXT_COLOR = 36;
@@ -2589,6 +2590,177 @@ internal static class StreamShellTitlebarHost
         return !HasForeignWindowAboveWideLeftChrome(leftTarget);
     }
 
+    private static bool IsKnownNormalOperaWindow(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
+        {
+            return false;
+        }
+
+        IntPtr root = GetAncestor(hWnd, GA_ROOT);
+        IntPtr candidate = root != IntPtr.Zero ? root : hWnd;
+
+        lock (TaskbarNormalOperaWindows)
+        {
+            return TaskbarNormalOperaWindows.Contains(candidate);
+        }
+    }
+
+    private static bool ShouldIgnoreYouTubeCompactOperaOccluder(
+        IntPtr hWnd,
+        TargetInfo target
+    )
+    {
+        if (
+            hWnd == IntPtr.Zero ||
+            target == null ||
+            !IsWindow(hWnd)
+        )
+        {
+            return false;
+        }
+
+        string currentMode;
+        lock (StateLock)
+        {
+            currentMode = leftMode;
+        }
+
+        if (!String.Equals(currentMode, "youtube", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        IntPtr root = GetAncestor(hWnd, GA_ROOT);
+        IntPtr candidate = root != IntPtr.Zero ? root : hWnd;
+
+        if (
+            candidate == target.Handle ||
+            IsExplicitShellSurfaceHandle(candidate) ||
+            !IsOperaProcess(GetProcessName(candidate))
+        )
+        {
+            return false;
+        }
+
+        /*
+         * YouTube can leave transient Opera-owned helper/tool HWNDs above the
+         * provider surface when focus moves away. They are not real browser
+         * windows and must not make Compact chrome disappear. A real Opera
+         * browser still counts when it is the actual foreground root or when
+         * it has previously been registered as a normal Opera window.
+         */
+        IntPtr foreground = GetForegroundWindow();
+        IntPtr foregroundRoot =
+            foreground != IntPtr.Zero
+                ? GetAncestor(foreground, GA_ROOT)
+                : IntPtr.Zero;
+        IntPtr effectiveForeground =
+            foregroundRoot != IntPtr.Zero
+                ? foregroundRoot
+                : foreground;
+
+        if (candidate == effectiveForeground)
+        {
+            return false;
+        }
+
+        if (IsKnownNormalOperaWindow(candidate))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+
+    private static bool TryGetVisibleFrameRect(IntPtr hWnd, out RECT rect)
+    {
+        rect = new RECT();
+
+        if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
+        {
+            return false;
+        }
+
+        try
+        {
+            int hr = DwmGetWindowAttribute(
+                hWnd,
+                DWMWA_EXTENDED_FRAME_BOUNDS,
+                out rect,
+                Marshal.SizeOf(typeof(RECT))
+            );
+
+            if (
+                hr == 0 &&
+                rect.Right > rect.Left &&
+                rect.Bottom > rect.Top
+            )
+            {
+                return true;
+            }
+        }
+        catch
+        {
+        }
+
+        return GetWindowRect(hWnd, out rect);
+    }
+
+
+    private static bool MeaningfullyOverlapsCompactChrome(
+        IntPtr hWnd,
+        TargetInfo target
+    )
+    {
+        if (hWnd == IntPtr.Zero || target == null || hWnd == target.Handle ||
+            IsHelperChromeWindow(hWnd) || !IsWindow(hWnd) || !IsWindowVisible(hWnd) ||
+            IsIconic(hWnd) || IsExplicitShellSurfaceHandle(hWnd))
+        {
+            return false;
+        }
+
+        RECT foreignRect;
+        RECT targetRect;
+        if (
+            !TryGetVisibleFrameRect(hWnd, out foreignRect) ||
+            !TryGetVisibleFrameRect(target.Handle, out targetRect)
+        )
+        {
+            return false;
+        }
+
+        /*
+         * Compact surfaces are maximized to one monitor. GetWindowRect() also
+         * includes Chromium's invisible resize frame, which can protrude onto
+         * an adjacent monitor. When a window there gains focus, two invisible
+         * frames can look like a real titlebar overlap and incorrectly hide our
+         * chrome. Wide panes do not hit this monitor-edge case, so keep their
+         * proven path unchanged and use DWM's visible frame bounds here.
+         */
+        int dpi = target.Dpi;
+        int chromeHeight = Math.Max(Scale(28, dpi), target.TitlebarHeight + Scale(8, dpi));
+        int chromeLeft = targetRect.Left;
+        int chromeTop = targetRect.Top;
+        int chromeRight = targetRect.Right;
+        int chromeBottom = Math.Min(targetRect.Bottom, chromeTop + chromeHeight);
+
+        int overlapLeft = Math.Max(chromeLeft, foreignRect.Left);
+        int overlapTop = Math.Max(chromeTop, foreignRect.Top);
+        int overlapRight = Math.Min(chromeRight, foreignRect.Right);
+        int overlapBottom = Math.Min(chromeBottom, foreignRect.Bottom);
+        int overlapWidth = Math.Max(0, overlapRight - overlapLeft);
+        int overlapHeight = Math.Max(0, overlapBottom - overlapTop);
+
+        int horizontalTolerance = Math.Max(8, Scale(16, dpi));
+        int verticalTolerance = Math.Max(4, Scale(6, dpi));
+        return
+            overlapWidth > horizontalTolerance &&
+            overlapHeight > verticalTolerance;
+    }
+
+
     private static bool HasForeignWindowAboveCompactChrome(TargetInfo target)
     {
         if (target == null || target.Handle == IntPtr.Zero || !IsWindow(target.Handle))
@@ -2605,7 +2777,12 @@ internal static class StreamShellTitlebarHost
                 return true;
             }
 
-            if (MeaningfullyOverlapsWideLeftChrome(hWnd, target))
+            if (ShouldIgnoreYouTubeCompactOperaOccluder(hWnd, target))
+            {
+                return true;
+            }
+
+            if (MeaningfullyOverlapsCompactChrome(hWnd, target))
             {
                 occluded = true;
                 return false;
@@ -5244,6 +5421,28 @@ internal static class StreamShellTitlebarHost
         bool hasCaption = (((uint)style & WS_CAPTION) == WS_CAPTION);
         bool isDiscord = String.Equals(processName, "Discord", StringComparison.OrdinalIgnoreCase);
         bool isOpera = IsOperaProcess(processName);
+
+        bool normalizeCompactYouTubeTitlebar = false;
+        lock (StateLock)
+        {
+            normalizeCompactYouTubeTitlebar =
+                isOpera &&
+                String.Equals(layoutProfile, "compact", StringComparison.OrdinalIgnoreCase) &&
+                String.Equals(leftMode, "youtube", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /*
+         * YouTube/Opera occasionally reports a smaller client-to-window offset
+         * than the other managed providers. The custom bar must not inherit
+         * that provider-specific collapse or its geometry and hit targets drift.
+         */
+        if (
+            normalizeCompactYouTubeTitlebar &&
+            titlebarHeight < Scale(34, dpi)
+        )
+        {
+            titlebarHeight = Scale(34, dpi);
+        }
 
         if (titlebarHeight < Scale(8, dpi))
         {
