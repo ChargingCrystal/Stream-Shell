@@ -4845,6 +4845,8 @@ body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-pa
 
 body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-grid {
     height: calc(100% - 44px);
+    grid-template-rows: minmax(0, 1fr);
+    grid-auto-rows: auto;
     align-items: stretch;
 }
 
