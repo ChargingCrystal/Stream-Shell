@@ -62,10 +62,31 @@
     };
 
     function playbackUtilityKeysForProvider(provider) {
-        return Object.keys(playbackUtilityDefaults).filter(
+        const keys = Object.keys(playbackUtilityDefaults).filter(
             key => PLAYBACK_UTILITY_GLOBAL_KEYS.has(key) ||
                 key.endsWith(`_${provider}`)
         );
+
+        if (provider === "youtube" || provider === "crunchyroll") {
+            keys.push(
+                displayScopedStorageKey(
+                    `streamShellDoubleClickWindowed_${provider}`
+                )
+            );
+        }
+
+        return keys;
+    }
+
+    function windowedDoubleClickEnabled(provider) {
+        const baseKey = `streamShellDoubleClickWindowed_${provider}`;
+        const scopedKey = displayScopedStorageKey(baseKey);
+
+        if (Object.prototype.hasOwnProperty.call(playbackUtilitySettings, scopedKey)) {
+            return playbackUtilitySettings[scopedKey] === true;
+        }
+
+        return playbackUtilitySettings[baseKey] === true;
     }
 
     let playbackUtilityTimer = null;

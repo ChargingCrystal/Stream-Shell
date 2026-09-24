@@ -19,6 +19,12 @@
             );
 
 
+        const scopedStorageKey =
+            displayScopedStorageKey(
+                storageKey
+            );
+
+
         const adapter =
             getProviderAdapter(
                 provider
@@ -38,6 +44,7 @@
         try {
             const storageKeys = [
                 storageKey,
+                scopedStorageKey,
                 ...(
                     Array.isArray(
                         windowedExtension?.storageKeys
@@ -55,8 +62,11 @@
 
 
             enabled =
-                stored[storageKey] ===
-                true;
+                readDisplayScopedSetting(
+                    stored,
+                    storageKey,
+                    false
+                ) === true;
 
 
             windowedExtension
@@ -99,17 +109,37 @@
                 if (
                     Object.prototype.hasOwnProperty.call(
                         changes,
-                        storageKey
+                        scopedStorageKey
                     )
                 ) {
-                    enabled =
-                        changes[storageKey]
-                            ?.newValue ===
-                        true;
+                    if (changes[scopedStorageKey]?.newValue === undefined) {
+                        chrome.storage.local.get(storageKey)
+                            .then(stored => {
+                                enabled = stored[storageKey] === true;
+                                sync();
+                            })
+                            .catch(() => {});
+                    } else {
+                        enabled = changes[scopedStorageKey]?.newValue === true;
+                    }
 
 
                     changed =
                         true;
+                } else if (
+                    Object.prototype.hasOwnProperty.call(
+                        changes,
+                        storageKey
+                    )
+                ) {
+                    chrome.storage.local.get(scopedStorageKey)
+                        .then(stored => {
+                            if (!Object.prototype.hasOwnProperty.call(stored, scopedStorageKey)) {
+                                enabled = changes[storageKey]?.newValue === true;
+                                sync();
+                            }
+                        })
+                        .catch(() => {});
                 }
 
 

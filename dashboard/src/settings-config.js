@@ -4,6 +4,35 @@
  * ============================================================
  */
 
+const DISPLAY_SETTING_TARGETS = ["32:9", "16:9", "16:10"];
+const DISPLAY_SCOPED_SETTING_KEYS = new Set([
+    "streamShellWindowedPlayer_youtube",
+    "streamShellWindowedPlayer_crunchyroll",
+    "streamShellYoutubeExtrasEnabled",
+    "streamShellDoubleClickWindowed_youtube",
+    "streamShellDoubleClickWindowed_crunchyroll"
+]);
+
+function displayScopedSettingStorageKey(baseKey, target) {
+    const normalizedTarget = DISPLAY_SETTING_TARGETS.includes(target)
+        ? target
+        : "32:9";
+
+    return `${baseKey}__${normalizedTarget.replace(":", "_")}`;
+}
+
+function baseSettingKeyForStorageKey(storageKey) {
+    const match = String(storageKey || "").match(/__(32_9|16_9|16_10)$/);
+    if (!match) {
+        return storageKey;
+    }
+
+    const baseKey = storageKey.slice(0, -match[0].length);
+    return DISPLAY_SCOPED_SETTING_KEYS.has(baseKey)
+        ? baseKey
+        : storageKey;
+}
+
 const SETTINGS_DEFAULTS = {
     streamShellDisplayMode: "auto",
 
@@ -136,6 +165,16 @@ const SETTINGS_DEFAULTS = {
     streamShellYoutubeCleanupDisableAutoplay: false,
     streamShellYoutubeCleanupDisableAnnotations: false
 };
+
+const SETTINGS_STORAGE_KEYS = [
+    ...Object.keys(SETTINGS_DEFAULTS),
+    ...Array.from(DISPLAY_SCOPED_SETTING_KEYS).flatMap(
+        baseKey => DISPLAY_SETTING_TARGETS.map(
+            target => displayScopedSettingStorageKey(baseKey, target)
+        )
+    )
+];
+const SETTINGS_STORAGE_KEY_SET = new Set(SETTINGS_STORAGE_KEYS);
 
 const SETTINGS_SECTIONS = {
     general: [
@@ -316,6 +355,7 @@ function defaultSettingsSection(provider) {
 
 let settingsProvider = "youtube";
 let settingsSection = "appearance";
+let settingsDisplayTarget = "32:9";
 let settingsValues = {
     ...SETTINGS_DEFAULTS
 };

@@ -2,7 +2,10 @@
 
 ## Unreleased
 
+## 0.18.8 — Display-Target Settings + Compact Occlusion Fix
+
 - Fixed Compact titlebar occlusion checks at monitor edges by using DWM visible frame bounds instead of Chromium's invisible maximized resize frames; focusing a window on an adjacent monitor no longer hides unobstructed Stream Shell chrome.
+- Added display-target-specific Windowed Fullscreen settings for 32:9, 16:9 and 16:10, including YouTube quick actions and YouTube/Crunchyroll double-click gestures, while keeping unrelated provider settings shared.
 
 ## 0.18.7 — YouTube Compact Titlebar / Focus Repair
 

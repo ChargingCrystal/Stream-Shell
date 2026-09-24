@@ -268,6 +268,8 @@ This is the reconstructed version order from the recovered development chats. It
 - **0.18.4** — Compact Edge Balance + Bottom-Space Pass
 - **0.18.5** — 16:9 Readability + Release-Notes Folder
 - **0.18.6** — 16:9 Subscription Refinement
+- **0.18.7** — YouTube Compact Titlebar / Focus Repair
+- **0.18.8** — Display-Target Settings + Compact Occlusion Fix
 
 ## Known unresolved gaps
 

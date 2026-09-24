@@ -5,13 +5,32 @@ function notifySettingsVisibility(open) {
     }).catch(() => {});
 }
 
+function settingStorageKey(key) {
+    return DISPLAY_SCOPED_SETTING_KEYS.has(key)
+        ? displayScopedSettingStorageKey(key, settingsDisplayTarget)
+        : key;
+}
+
+function settingDefaultValue(key) {
+    const baseKey = baseSettingKeyForStorageKey(key);
+    return SETTINGS_DEFAULTS[baseKey];
+}
+
 function settingValue(key) {
-    return Object.prototype.hasOwnProperty.call(
-        settingsValues,
-        key
-    )
-        ? settingsValues[key]
-        : SETTINGS_DEFAULTS[key];
+    const storageKey = settingStorageKey(key);
+
+    if (Object.prototype.hasOwnProperty.call(settingsValues, storageKey)) {
+        return settingsValues[storageKey];
+    }
+
+    if (
+        storageKey !== key &&
+        Object.prototype.hasOwnProperty.call(settingsValues, key)
+    ) {
+        return settingsValues[key];
+    }
+
+    return SETTINGS_DEFAULTS[key];
 }
 
 function settingChecked(key) {
@@ -39,7 +58,7 @@ function settingSwitch(key, title, description) {
                 <span>${description}</span>
             </span>
             <span class="settings-switch${anarchyClass}">
-                <input type="checkbox" data-setting-key="${key}" ${settingChecked(key)}>
+                <input type="checkbox" data-setting-key="${settingStorageKey(key)}" ${settingChecked(key)}>
                 <span aria-hidden="true"></span>
             </span>
         </label>
@@ -329,6 +348,48 @@ function settingSegmented(key, title, description, options) {
     `;
 }
 
+function activeShellDisplayTarget() {
+    if (
+        document.body.dataset.layoutProfile === "compact" &&
+        DISPLAY_SETTING_TARGETS.includes(document.body.dataset.compactTarget)
+    ) {
+        return document.body.dataset.compactTarget;
+    }
+
+    return "32:9";
+}
+
+function renderDisplayTargetScopeRow(description = "These controls are stored separately for each supported display target.") {
+    const labels = {
+        "32:9": "32:9",
+        "16:9": "16:9",
+        "16:10": "16:10"
+    };
+
+    return `
+        <div class="setting-row setting-row-segmented setting-row-display-target">
+            <span class="setting-copy">
+                <strong>Applies to</strong>
+                <span>${description}</span>
+            </span>
+            <span class="settings-segmented" role="radiogroup" aria-label="Display target">
+                ${DISPLAY_SETTING_TARGETS.map(target => `
+                    <label class="settings-segmented-option">
+                        <input
+                            type="radio"
+                            name="settings-display-target"
+                            value="${target}"
+                            data-settings-display-target="${target}"
+                            ${settingsDisplayTarget === target ? "checked" : ""}
+                        >
+                        <span>${labels[target]}</span>
+                    </label>
+                `).join("")}
+            </span>
+        </div>
+    `;
+}
+
 function playbackSpeedKey(provider) {
     return `streamShellPlaybackSpeed_${provider}`;
 }
@@ -555,10 +616,19 @@ function showSettingsIoStatus(text) {
 }
 
 async function exportStreamShellSettings() {
-    const stored = await chrome.storage.local.get(Object.keys(SETTINGS_DEFAULTS));
+    const stored = await chrome.storage.local.get(SETTINGS_STORAGE_KEYS);
     const settings = {};
-    for (const key of Object.keys(SETTINGS_DEFAULTS)) {
-        settings[key] = stored[key] === undefined ? SETTINGS_DEFAULTS[key] : stored[key];
+
+    for (const key of SETTINGS_STORAGE_KEYS) {
+        if (stored[key] !== undefined) {
+            settings[key] = stored[key];
+            continue;
+        }
+
+        const baseKey = baseSettingKeyForStorageKey(key);
+        settings[key] = stored[baseKey] === undefined
+            ? SETTINGS_DEFAULTS[baseKey]
+            : stored[baseKey];
     }
 
     const extensionVersion = chrome.runtime.getManifest?.().version || "unknown";
@@ -583,7 +653,7 @@ async function exportStreamShellSettings() {
 }
 
 function normalizeImportedSetting(key, value) {
-    const fallback = SETTINGS_DEFAULTS[key];
+    const fallback = settingDefaultValue(key);
     if (typeof fallback === "boolean") return value === true;
     if (typeof fallback === "number") {
         const numeric = Number(value);
@@ -608,10 +678,22 @@ async function importStreamShellSettings(file) {
     }
 
     const next = {};
-    for (const key of Object.keys(SETTINGS_DEFAULTS)) {
+    for (const key of SETTINGS_STORAGE_KEYS) {
         if (Object.prototype.hasOwnProperty.call(source, key)) {
             next[key] = normalizeImportedSetting(key, source[key]);
         }
+    }
+
+    const importedScopedKeys = SETTINGS_STORAGE_KEYS.some(
+        key => baseSettingKeyForStorageKey(key) !== key &&
+            Object.prototype.hasOwnProperty.call(source, key)
+    );
+
+    if (!importedScopedKeys) {
+        const legacyScopedKeys = SETTINGS_STORAGE_KEYS.filter(
+            key => baseSettingKeyForStorageKey(key) !== key
+        );
+        await chrome.storage.local.remove(legacyScopedKeys);
     }
 
     await chrome.storage.local.set(next);

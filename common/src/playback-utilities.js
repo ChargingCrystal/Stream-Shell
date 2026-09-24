@@ -170,9 +170,7 @@
         if (
             isProviderSafeModeEnabled(provider) ||
             !WINDOWED_PLAYER_PROVIDERS.has(provider) ||
-            playbackUtilitySettings[
-                `streamShellDoubleClickWindowed_${provider}`
-            ] !== true ||
+            !windowedDoubleClickEnabled(provider) ||
             !isWindowedPlayerWatchContext(provider) ||
             !doubleClickTargetsPlayer(provider, event.target)
         ) {
@@ -183,11 +181,21 @@
         event.stopImmediatePropagation();
 
         const storageKey = getWindowedPlayerStorageKey(provider);
+        const scopedStorageKey = displayScopedStorageKey(storageKey);
 
         try {
-            const stored = await chrome.storage.local.get(storageKey);
+            const stored = await chrome.storage.local.get([
+                storageKey,
+                scopedStorageKey
+            ]);
+            const current = readDisplayScopedSetting(
+                stored,
+                storageKey,
+                false
+            ) === true;
+
             await chrome.storage.local.set({
-                [storageKey]: stored[storageKey] !== true
+                [scopedStorageKey]: !current
             });
         } catch {
         }
@@ -252,7 +260,21 @@
 
                 let relevant = false;
 
+                const scopedDoubleClickKey = displayScopedStorageKey(
+                    `streamShellDoubleClickWindowed_${provider}`
+                );
+
                 for (const [key, change] of Object.entries(changes)) {
+                    if (key === scopedDoubleClickKey) {
+                        if (change.newValue === undefined) {
+                            delete playbackUtilitySettings[key];
+                        } else {
+                            playbackUtilitySettings[key] = change.newValue;
+                        }
+                        relevant = true;
+                        continue;
+                    }
+
                     if (!Object.prototype.hasOwnProperty.call(
                         playbackUtilityDefaults,
                         key

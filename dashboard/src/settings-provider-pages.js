@@ -17,36 +17,57 @@ function renderYouTubeSettings(section) {
         return settingsPage(
             "Player",
             settingsSubgroup(
-                "Layout",
+                "Display-specific player",
+                renderDisplayTargetScopeRow(
+                    "Windowed fullscreen and its quick actions are stored separately for 32:9, 16:9 and 16:10."
+                ) +
                 settingSwitch(
                     "streamShellWindowedPlayer_youtube",
                     "Windowed fullscreen",
                     "Fill the Stream Shell provider pane with the YouTube player."
-                )
-            ) +
-            settingsSubgroup(
-                "Controls",
+                ) +
                 settingSwitch(
                     "streamShellYoutubeExtrasEnabled",
                     "Fullscreen quick actions",
                     "Show YouTube's Like, Dislike, Share and More actions in windowed fullscreen."
                 )
-            ),
-            "",
-            "two"
+            )
         );
     }
 
     if (section === "playback") {
-        return renderPlaybackSettings(
-            "youtube",
+        return settingsPage(
+            "Playback",
             settingsSubgroup(
-                "Behavior",
+                "Speed",
+                settingSelect(
+                    playbackSpeedKey("youtube"),
+                    "Default playback speed",
+                    "Keep the provider at this speed while a video is playing.",
+                    [
+                        ["0.5", "0.5x"],
+                        ["0.75", "0.75x"],
+                        ["1", "1.0x"],
+                        ["1.25", "1.25x"],
+                        ["1.5", "1.5x"],
+                        ["1.75", "1.75x"],
+                        ["2", "2.0x"]
+                    ]
+                )
+            ) +
+            settingsSubgroup(
+                "Windowed fullscreen",
+                renderDisplayTargetScopeRow(
+                    "The double-click gesture is stored separately for 32:9, 16:9 and 16:10."
+                ) +
                 settingSwitch(
                     "streamShellDoubleClickWindowed_youtube",
                     "Double-click windowed fullscreen",
                     "Double-click the player to toggle Stream Shell's windowed fullscreen mode."
-                ) +
+                )
+            ) +
+            settingsSubgroup(
+                "Loop",
                 settingSwitch(
                     "streamShellYoutubeLoopEnabled",
                     "Override loop behavior",
@@ -64,7 +85,9 @@ function renderYouTubeSettings(section) {
                     "Loop Shorts when the override is enabled.",
                     settingValue("streamShellYoutubeLoopEnabled") === true
                 )
-            )
+            ),
+            "Playback speed and loop behavior remain provider-wide; only the Windowed Fullscreen gesture is target-specific.",
+            "three"
         );
     }
 

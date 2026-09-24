@@ -1588,3 +1588,24 @@
 - Increased ACTIVE / ENDING / UNKNOWN status capsule height/padding to fit the larger labels comfortably.
 - Increased renewal-date / source typography.
 - Replaced the inherited provider dividers with dedicated vertically centered separators that remain aligned with the taller subscription rows.
+
+
+## 0.18.7 — YouTube Compact Titlebar / Focus Repair
+
+- Normalized Compact YouTube titlebar sizing to the same 34-logical-pixel Opera caption baseline used by the other providers.
+- Compensated YouTube's fixed masthead/page layout for the native helper's 8-logical-pixel caption overhang.
+- Ignored transient unclaimed Opera helper/tool HWNDs during YouTube Compact occlusion checks while preserving real normal-Opera and foreign-window occlusion behavior.
+- Added a YouTube-only second fullscreen-state confirmation after cross-window focus changes.
+- Fixed Compact 16:9 subscription row sizing and removed the Compact-only Now Playing/minimized-provider snapshot path.
+- Kept Compact true-fullscreen chrome suppressed across focus loss and reconciled stale fullscreen state against the live provider document.
+
+**Native helper:** Reinstall `native/install-titlebar-helper.cmd` after updating.
+
+## 0.18.8 — Display-Target Settings + Compact Occlusion Fix
+
+- Added independent 32:9, 16:9 and 16:10 values for Windowed Fullscreen behavior.
+- Added target-specific YouTube Fullscreen Quick Actions plus YouTube/Crunchyroll double-click Windowed Fullscreen preferences.
+- Kept unrelated provider settings shared rather than cloning the entire Settings model per display target.
+- Switched Compact monitor-edge occlusion checks to DWM visible frame bounds so Chromium's invisible maximized resize frame no longer hides unobstructed titlebar chrome when focus moves to an adjacent monitor.
+
+**Native helper:** Reinstall `native/install-titlebar-helper.cmd` if updating from a build that predates the Compact monitor-edge occlusion fix.

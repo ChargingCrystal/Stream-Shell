@@ -251,7 +251,10 @@ function renderSettingsContent() {
             html = settingsPage(
                 "Player",
                 settingsSubgroup(
-                    "Layout",
+                    "Display-specific player",
+                    renderDisplayTargetScopeRow(
+                        "Windowed fullscreen is stored separately for 32:9, 16:9 and 16:10."
+                    ) +
                     settingSwitch(
                         "streamShellWindowedPlayer_crunchyroll",
                         "Windowed fullscreen",
@@ -263,9 +266,38 @@ function renderSettingsContent() {
         }
 
         if (settingsSection === "playback") {
-            html = renderPlaybackSettings(
-                "crunchyroll",
-                renderWindowedGestureSetting("crunchyroll")
+            html = settingsPage(
+                "Playback",
+                settingsSubgroup(
+                    "Speed",
+                    settingSelect(
+                        playbackSpeedKey("crunchyroll"),
+                        "Default playback speed",
+                        "Keep the provider at this speed while a video is playing.",
+                        [
+                            ["0.5", "0.5x"],
+                            ["0.75", "0.75x"],
+                            ["1", "1.0x"],
+                            ["1.25", "1.25x"],
+                            ["1.5", "1.5x"],
+                            ["1.75", "1.75x"],
+                            ["2", "2.0x"]
+                        ]
+                    )
+                ) +
+                settingsSubgroup(
+                    "Windowed fullscreen",
+                    renderDisplayTargetScopeRow(
+                        "The double-click gesture is stored separately for 32:9, 16:9 and 16:10."
+                    ) +
+                    settingSwitch(
+                        "streamShellDoubleClickWindowed_crunchyroll",
+                        "Double-click windowed fullscreen",
+                        "Double-click the player to toggle Stream Shell's windowed fullscreen mode."
+                    )
+                ),
+                "Playback speed remains provider-wide; only the Windowed Fullscreen gesture is target-specific.",
+                "two"
             );
         }
 
@@ -361,7 +393,7 @@ function renderSettingsCenter() {
 async function loadSettingsValues() {
     try {
         const stored = await chrome.storage.local.get(
-            Object.keys(SETTINGS_DEFAULTS)
+            SETTINGS_STORAGE_KEYS
         );
 
         settingsValues = {
@@ -388,6 +420,7 @@ async function openSettingsCenter(provider) {
     }
 
     settingsSection = defaultSettingsSection(settingsProvider);
+    settingsDisplayTarget = activeShellDisplayTarget();
 
     if (!settingsLoaded) {
         await loadSettingsValues();
@@ -609,7 +642,7 @@ function normalizeSettingInput(input) {
         let numeric = Number(input.value);
 
         if (!Number.isFinite(numeric)) {
-            numeric = Number(SETTINGS_DEFAULTS[key]) || 0;
+            numeric = Number(settingDefaultValue(key)) || 0;
         }
 
         if (Number.isFinite(min)) {
@@ -698,6 +731,16 @@ document.addEventListener(
 document.addEventListener(
     "change",
     event => {
+        const targetInput = event.target.closest?.("[data-settings-display-target]");
+        if (targetInput) {
+            const target = targetInput.dataset.settingsDisplayTarget;
+            if (DISPLAY_SETTING_TARGETS.includes(target)) {
+                settingsDisplayTarget = target;
+                renderSettingsContent();
+            }
+            return;
+        }
+
         const input = event.target.closest?.("[data-setting-key]");
         if (!input) {
             return;
@@ -756,13 +799,19 @@ chrome.storage.onChanged.addListener(
 
         let relevant = false;
         for (const [key, change] of Object.entries(changes)) {
-            if (!Object.prototype.hasOwnProperty.call(SETTINGS_DEFAULTS, key)) {
+            if (!SETTINGS_STORAGE_KEY_SET.has(key)) {
                 continue;
             }
 
-            settingsValues[key] = change.newValue === undefined
-                ? SETTINGS_DEFAULTS[key]
-                : change.newValue;
+            if (change.newValue === undefined) {
+                if (baseSettingKeyForStorageKey(key) !== key) {
+                    delete settingsValues[key];
+                } else {
+                    settingsValues[key] = SETTINGS_DEFAULTS[key];
+                }
+            } else {
+                settingsValues[key] = change.newValue;
+            }
             relevant = true;
         }
 

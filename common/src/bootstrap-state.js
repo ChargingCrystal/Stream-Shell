@@ -144,6 +144,31 @@
 
     let managedMarkerObserver = null;
     let managedLayoutProfile = "wide";
+    let managedDisplayTarget = "32:9";
+
+
+    function displayScopedStorageKey(baseKey, target = managedDisplayTarget) {
+        const normalizedTarget = ["32:9", "16:9", "16:10"].includes(target)
+            ? target
+            : "32:9";
+
+        return `${baseKey}__${normalizedTarget.replace(":", "_")}`;
+    }
+
+
+    function readDisplayScopedSetting(stored, baseKey, fallbackValue) {
+        const scopedKey = displayScopedStorageKey(baseKey);
+
+        if (Object.prototype.hasOwnProperty.call(stored || {}, scopedKey)) {
+            return stored[scopedKey];
+        }
+
+        if (Object.prototype.hasOwnProperty.call(stored || {}, baseKey)) {
+            return stored[baseKey];
+        }
+
+        return fallbackValue;
+    }
 
 
     async function initializeManagedLayoutProfile() {
@@ -156,8 +181,15 @@
                 state?.layoutProfile === "compact"
                     ? "compact"
                     : "wide";
+
+            managedDisplayTarget =
+                managedLayoutProfile === "compact" &&
+                (state?.displayTarget === "16:9" || state?.displayTarget === "16:10")
+                    ? state.displayTarget
+                    : "32:9";
         } catch {
             managedLayoutProfile = "wide";
+            managedDisplayTarget = "32:9";
         }
     }
 
@@ -192,6 +224,19 @@
                     managedLayoutProfile
                 );
             }
+
+
+            if (
+                root &&
+                root.getAttribute(
+                    "data-stream-shell-display-target"
+                ) !== managedDisplayTarget
+            ) {
+                root.setAttribute(
+                    "data-stream-shell-display-target",
+                    managedDisplayTarget
+                );
+            }
         };
 
 
@@ -217,7 +262,8 @@
                 attributes: true,
                 attributeFilter: [
                     "data-stream-shell",
-                    "data-stream-shell-layout-profile"
+                    "data-stream-shell-layout-profile",
+                    "data-stream-shell-display-target"
                 ]
             }
         );

@@ -144,6 +144,31 @@
 
     let managedMarkerObserver = null;
     let managedLayoutProfile = "wide";
+    let managedDisplayTarget = "32:9";
+
+
+    function displayScopedStorageKey(baseKey, target = managedDisplayTarget) {
+        const normalizedTarget = ["32:9", "16:9", "16:10"].includes(target)
+            ? target
+            : "32:9";
+
+        return `${baseKey}__${normalizedTarget.replace(":", "_")}`;
+    }
+
+
+    function readDisplayScopedSetting(stored, baseKey, fallbackValue) {
+        const scopedKey = displayScopedStorageKey(baseKey);
+
+        if (Object.prototype.hasOwnProperty.call(stored || {}, scopedKey)) {
+            return stored[scopedKey];
+        }
+
+        if (Object.prototype.hasOwnProperty.call(stored || {}, baseKey)) {
+            return stored[baseKey];
+        }
+
+        return fallbackValue;
+    }
 
 
     async function initializeManagedLayoutProfile() {
@@ -156,8 +181,15 @@
                 state?.layoutProfile === "compact"
                     ? "compact"
                     : "wide";
+
+            managedDisplayTarget =
+                managedLayoutProfile === "compact" &&
+                (state?.displayTarget === "16:9" || state?.displayTarget === "16:10")
+                    ? state.displayTarget
+                    : "32:9";
         } catch {
             managedLayoutProfile = "wide";
+            managedDisplayTarget = "32:9";
         }
     }
 
@@ -192,6 +224,19 @@
                     managedLayoutProfile
                 );
             }
+
+
+            if (
+                root &&
+                root.getAttribute(
+                    "data-stream-shell-display-target"
+                ) !== managedDisplayTarget
+            ) {
+                root.setAttribute(
+                    "data-stream-shell-display-target",
+                    managedDisplayTarget
+                );
+            }
         };
 
 
@@ -217,7 +262,8 @@
                 attributes: true,
                 attributeFilter: [
                     "data-stream-shell",
-                    "data-stream-shell-layout-profile"
+                    "data-stream-shell-layout-profile",
+                    "data-stream-shell-display-target"
                 ]
             }
         );
@@ -4858,10 +4904,31 @@ function resolveProviderMediaLink(
     };
 
     function playbackUtilityKeysForProvider(provider) {
-        return Object.keys(playbackUtilityDefaults).filter(
+        const keys = Object.keys(playbackUtilityDefaults).filter(
             key => PLAYBACK_UTILITY_GLOBAL_KEYS.has(key) ||
                 key.endsWith(`_${provider}`)
         );
+
+        if (provider === "youtube" || provider === "crunchyroll") {
+            keys.push(
+                displayScopedStorageKey(
+                    `streamShellDoubleClickWindowed_${provider}`
+                )
+            );
+        }
+
+        return keys;
+    }
+
+    function windowedDoubleClickEnabled(provider) {
+        const baseKey = `streamShellDoubleClickWindowed_${provider}`;
+        const scopedKey = displayScopedStorageKey(baseKey);
+
+        if (Object.prototype.hasOwnProperty.call(playbackUtilitySettings, scopedKey)) {
+            return playbackUtilitySettings[scopedKey] === true;
+        }
+
+        return playbackUtilitySettings[baseKey] === true;
     }
 
     let playbackUtilityTimer = null;
@@ -5558,9 +5625,7 @@ function resolveProviderMediaLink(
         if (
             isProviderSafeModeEnabled(provider) ||
             !WINDOWED_PLAYER_PROVIDERS.has(provider) ||
-            playbackUtilitySettings[
-                `streamShellDoubleClickWindowed_${provider}`
-            ] !== true ||
+            !windowedDoubleClickEnabled(provider) ||
             !isWindowedPlayerWatchContext(provider) ||
             !doubleClickTargetsPlayer(provider, event.target)
         ) {
@@ -5571,11 +5636,21 @@ function resolveProviderMediaLink(
         event.stopImmediatePropagation();
 
         const storageKey = getWindowedPlayerStorageKey(provider);
+        const scopedStorageKey = displayScopedStorageKey(storageKey);
 
         try {
-            const stored = await chrome.storage.local.get(storageKey);
+            const stored = await chrome.storage.local.get([
+                storageKey,
+                scopedStorageKey
+            ]);
+            const current = readDisplayScopedSetting(
+                stored,
+                storageKey,
+                false
+            ) === true;
+
             await chrome.storage.local.set({
-                [storageKey]: stored[storageKey] !== true
+                [scopedStorageKey]: !current
             });
         } catch {
         }
@@ -5640,7 +5715,21 @@ function resolveProviderMediaLink(
 
                 let relevant = false;
 
+                const scopedDoubleClickKey = displayScopedStorageKey(
+                    `streamShellDoubleClickWindowed_${provider}`
+                );
+
                 for (const [key, change] of Object.entries(changes)) {
+                    if (key === scopedDoubleClickKey) {
+                        if (change.newValue === undefined) {
+                            delete playbackUtilitySettings[key];
+                        } else {
+                            playbackUtilitySettings[key] = change.newValue;
+                        }
+                        relevant = true;
+                        continue;
+                    }
+
                     if (!Object.prototype.hasOwnProperty.call(
                         playbackUtilityDefaults,
                         key
@@ -12180,11 +12269,40 @@ function resolveProviderMediaLink(
                 getRatio: () => getYouTubeRydLikeRatio()
             },
             windowedPlayer: {
-                storageKeys: [YOUTUBE_EXTRAS_STORAGE_KEY],
+                storageKeys: [
+                    YOUTUBE_EXTRAS_STORAGE_KEY,
+                    displayScopedStorageKey(YOUTUBE_EXTRAS_STORAGE_KEY)
+                ],
                 hydrate(stored) {
-                    youtubeExtrasEnabled = stored?.[YOUTUBE_EXTRAS_STORAGE_KEY] !== false;
+                    youtubeExtrasEnabled = readDisplayScopedSetting(
+                        stored,
+                        YOUTUBE_EXTRAS_STORAGE_KEY,
+                        true
+                    ) !== false;
                 },
                 handleStorageChanges(changes) {
+                    const scopedKey = displayScopedStorageKey(
+                        YOUTUBE_EXTRAS_STORAGE_KEY
+                    );
+
+                    if (Object.prototype.hasOwnProperty.call(changes || {}, scopedKey)) {
+                        if (changes[scopedKey]?.newValue === undefined) {
+                            chrome.storage.local.get(YOUTUBE_EXTRAS_STORAGE_KEY)
+                                .then(stored => {
+                                    youtubeExtrasEnabled = stored[YOUTUBE_EXTRAS_STORAGE_KEY] !== false;
+                                    syncYouTubeAdapterWindowedPlayer(
+                                        document.documentElement?.getAttribute(
+                                            "data-stream-shell-windowed-player"
+                                        ) === "youtube"
+                                    );
+                                })
+                                .catch(() => {});
+                        } else {
+                            youtubeExtrasEnabled = changes[scopedKey]?.newValue !== false;
+                        }
+                        return true;
+                    }
+
                     if (!Object.prototype.hasOwnProperty.call(
                         changes || {},
                         YOUTUBE_EXTRAS_STORAGE_KEY
@@ -12192,9 +12310,20 @@ function resolveProviderMediaLink(
                         return false;
                     }
 
-                    youtubeExtrasEnabled = changes[YOUTUBE_EXTRAS_STORAGE_KEY]
-                        ?.newValue !== false;
-                    return true;
+                    chrome.storage.local.get(scopedKey)
+                        .then(stored => {
+                            if (!Object.prototype.hasOwnProperty.call(stored, scopedKey)) {
+                                youtubeExtrasEnabled = changes[YOUTUBE_EXTRAS_STORAGE_KEY]
+                                    ?.newValue !== false;
+                                syncYouTubeAdapterWindowedPlayer(
+                                    document.documentElement?.getAttribute(
+                                        "data-stream-shell-windowed-player"
+                                    ) === "youtube"
+                                );
+                            }
+                        })
+                        .catch(() => {});
+                    return false;
                 },
                 sync: syncYouTubeAdapterWindowedPlayer,
                 start(sync) {
@@ -13026,6 +13155,12 @@ function resolveProviderMediaLink(
             );
 
 
+        const scopedStorageKey =
+            displayScopedStorageKey(
+                storageKey
+            );
+
+
         const adapter =
             getProviderAdapter(
                 provider
@@ -13045,6 +13180,7 @@ function resolveProviderMediaLink(
         try {
             const storageKeys = [
                 storageKey,
+                scopedStorageKey,
                 ...(
                     Array.isArray(
                         windowedExtension?.storageKeys
@@ -13062,8 +13198,11 @@ function resolveProviderMediaLink(
 
 
             enabled =
-                stored[storageKey] ===
-                true;
+                readDisplayScopedSetting(
+                    stored,
+                    storageKey,
+                    false
+                ) === true;
 
 
             windowedExtension
@@ -13106,17 +13245,37 @@ function resolveProviderMediaLink(
                 if (
                     Object.prototype.hasOwnProperty.call(
                         changes,
-                        storageKey
+                        scopedStorageKey
                     )
                 ) {
-                    enabled =
-                        changes[storageKey]
-                            ?.newValue ===
-                        true;
+                    if (changes[scopedStorageKey]?.newValue === undefined) {
+                        chrome.storage.local.get(storageKey)
+                            .then(stored => {
+                                enabled = stored[storageKey] === true;
+                                sync();
+                            })
+                            .catch(() => {});
+                    } else {
+                        enabled = changes[scopedStorageKey]?.newValue === true;
+                    }
 
 
                     changed =
                         true;
+                } else if (
+                    Object.prototype.hasOwnProperty.call(
+                        changes,
+                        storageKey
+                    )
+                ) {
+                    chrome.storage.local.get(scopedStorageKey)
+                        .then(stored => {
+                            if (!Object.prototype.hasOwnProperty.call(stored, scopedStorageKey)) {
+                                enabled = changes[storageKey]?.newValue === true;
+                                sync();
+                            }
+                        })
+                        .catch(() => {});
                 }
 
 

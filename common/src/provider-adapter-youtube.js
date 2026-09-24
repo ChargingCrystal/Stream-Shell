@@ -211,11 +211,40 @@
                 getRatio: () => getYouTubeRydLikeRatio()
             },
             windowedPlayer: {
-                storageKeys: [YOUTUBE_EXTRAS_STORAGE_KEY],
+                storageKeys: [
+                    YOUTUBE_EXTRAS_STORAGE_KEY,
+                    displayScopedStorageKey(YOUTUBE_EXTRAS_STORAGE_KEY)
+                ],
                 hydrate(stored) {
-                    youtubeExtrasEnabled = stored?.[YOUTUBE_EXTRAS_STORAGE_KEY] !== false;
+                    youtubeExtrasEnabled = readDisplayScopedSetting(
+                        stored,
+                        YOUTUBE_EXTRAS_STORAGE_KEY,
+                        true
+                    ) !== false;
                 },
                 handleStorageChanges(changes) {
+                    const scopedKey = displayScopedStorageKey(
+                        YOUTUBE_EXTRAS_STORAGE_KEY
+                    );
+
+                    if (Object.prototype.hasOwnProperty.call(changes || {}, scopedKey)) {
+                        if (changes[scopedKey]?.newValue === undefined) {
+                            chrome.storage.local.get(YOUTUBE_EXTRAS_STORAGE_KEY)
+                                .then(stored => {
+                                    youtubeExtrasEnabled = stored[YOUTUBE_EXTRAS_STORAGE_KEY] !== false;
+                                    syncYouTubeAdapterWindowedPlayer(
+                                        document.documentElement?.getAttribute(
+                                            "data-stream-shell-windowed-player"
+                                        ) === "youtube"
+                                    );
+                                })
+                                .catch(() => {});
+                        } else {
+                            youtubeExtrasEnabled = changes[scopedKey]?.newValue !== false;
+                        }
+                        return true;
+                    }
+
                     if (!Object.prototype.hasOwnProperty.call(
                         changes || {},
                         YOUTUBE_EXTRAS_STORAGE_KEY
@@ -223,9 +252,20 @@
                         return false;
                     }
 
-                    youtubeExtrasEnabled = changes[YOUTUBE_EXTRAS_STORAGE_KEY]
-                        ?.newValue !== false;
-                    return true;
+                    chrome.storage.local.get(scopedKey)
+                        .then(stored => {
+                            if (!Object.prototype.hasOwnProperty.call(stored, scopedKey)) {
+                                youtubeExtrasEnabled = changes[YOUTUBE_EXTRAS_STORAGE_KEY]
+                                    ?.newValue !== false;
+                                syncYouTubeAdapterWindowedPlayer(
+                                    document.documentElement?.getAttribute(
+                                        "data-stream-shell-windowed-player"
+                                    ) === "youtube"
+                                );
+                            }
+                        })
+                        .catch(() => {});
+                    return false;
                 },
                 sync: syncYouTubeAdapterWindowedPlayer,
                 start(sync) {

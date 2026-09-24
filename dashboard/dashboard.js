@@ -2922,6 +2922,35 @@ chrome.storage.onChanged.addListener(
  * ============================================================
  */
 
+const DISPLAY_SETTING_TARGETS = ["32:9", "16:9", "16:10"];
+const DISPLAY_SCOPED_SETTING_KEYS = new Set([
+    "streamShellWindowedPlayer_youtube",
+    "streamShellWindowedPlayer_crunchyroll",
+    "streamShellYoutubeExtrasEnabled",
+    "streamShellDoubleClickWindowed_youtube",
+    "streamShellDoubleClickWindowed_crunchyroll"
+]);
+
+function displayScopedSettingStorageKey(baseKey, target) {
+    const normalizedTarget = DISPLAY_SETTING_TARGETS.includes(target)
+        ? target
+        : "32:9";
+
+    return `${baseKey}__${normalizedTarget.replace(":", "_")}`;
+}
+
+function baseSettingKeyForStorageKey(storageKey) {
+    const match = String(storageKey || "").match(/__(32_9|16_9|16_10)$/);
+    if (!match) {
+        return storageKey;
+    }
+
+    const baseKey = storageKey.slice(0, -match[0].length);
+    return DISPLAY_SCOPED_SETTING_KEYS.has(baseKey)
+        ? baseKey
+        : storageKey;
+}
+
 const SETTINGS_DEFAULTS = {
     streamShellDisplayMode: "auto",
 
@@ -3054,6 +3083,16 @@ const SETTINGS_DEFAULTS = {
     streamShellYoutubeCleanupDisableAutoplay: false,
     streamShellYoutubeCleanupDisableAnnotations: false
 };
+
+const SETTINGS_STORAGE_KEYS = [
+    ...Object.keys(SETTINGS_DEFAULTS),
+    ...Array.from(DISPLAY_SCOPED_SETTING_KEYS).flatMap(
+        baseKey => DISPLAY_SETTING_TARGETS.map(
+            target => displayScopedSettingStorageKey(baseKey, target)
+        )
+    )
+];
+const SETTINGS_STORAGE_KEY_SET = new Set(SETTINGS_STORAGE_KEYS);
 
 const SETTINGS_SECTIONS = {
     general: [
@@ -3234,6 +3273,7 @@ function defaultSettingsSection(provider) {
 
 let settingsProvider = "youtube";
 let settingsSection = "appearance";
+let settingsDisplayTarget = "32:9";
 let settingsValues = {
     ...SETTINGS_DEFAULTS
 };
@@ -3323,13 +3363,32 @@ function notifySettingsVisibility(open) {
     }).catch(() => {});
 }
 
+function settingStorageKey(key) {
+    return DISPLAY_SCOPED_SETTING_KEYS.has(key)
+        ? displayScopedSettingStorageKey(key, settingsDisplayTarget)
+        : key;
+}
+
+function settingDefaultValue(key) {
+    const baseKey = baseSettingKeyForStorageKey(key);
+    return SETTINGS_DEFAULTS[baseKey];
+}
+
 function settingValue(key) {
-    return Object.prototype.hasOwnProperty.call(
-        settingsValues,
-        key
-    )
-        ? settingsValues[key]
-        : SETTINGS_DEFAULTS[key];
+    const storageKey = settingStorageKey(key);
+
+    if (Object.prototype.hasOwnProperty.call(settingsValues, storageKey)) {
+        return settingsValues[storageKey];
+    }
+
+    if (
+        storageKey !== key &&
+        Object.prototype.hasOwnProperty.call(settingsValues, key)
+    ) {
+        return settingsValues[key];
+    }
+
+    return SETTINGS_DEFAULTS[key];
 }
 
 function settingChecked(key) {
@@ -3357,7 +3416,7 @@ function settingSwitch(key, title, description) {
                 <span>${description}</span>
             </span>
             <span class="settings-switch${anarchyClass}">
-                <input type="checkbox" data-setting-key="${key}" ${settingChecked(key)}>
+                <input type="checkbox" data-setting-key="${settingStorageKey(key)}" ${settingChecked(key)}>
                 <span aria-hidden="true"></span>
             </span>
         </label>
@@ -3647,6 +3706,48 @@ function settingSegmented(key, title, description, options) {
     `;
 }
 
+function activeShellDisplayTarget() {
+    if (
+        document.body.dataset.layoutProfile === "compact" &&
+        DISPLAY_SETTING_TARGETS.includes(document.body.dataset.compactTarget)
+    ) {
+        return document.body.dataset.compactTarget;
+    }
+
+    return "32:9";
+}
+
+function renderDisplayTargetScopeRow(description = "These controls are stored separately for each supported display target.") {
+    const labels = {
+        "32:9": "32:9",
+        "16:9": "16:9",
+        "16:10": "16:10"
+    };
+
+    return `
+        <div class="setting-row setting-row-segmented setting-row-display-target">
+            <span class="setting-copy">
+                <strong>Applies to</strong>
+                <span>${description}</span>
+            </span>
+            <span class="settings-segmented" role="radiogroup" aria-label="Display target">
+                ${DISPLAY_SETTING_TARGETS.map(target => `
+                    <label class="settings-segmented-option">
+                        <input
+                            type="radio"
+                            name="settings-display-target"
+                            value="${target}"
+                            data-settings-display-target="${target}"
+                            ${settingsDisplayTarget === target ? "checked" : ""}
+                        >
+                        <span>${labels[target]}</span>
+                    </label>
+                `).join("")}
+            </span>
+        </div>
+    `;
+}
+
 function playbackSpeedKey(provider) {
     return `streamShellPlaybackSpeed_${provider}`;
 }
@@ -3873,10 +3974,19 @@ function showSettingsIoStatus(text) {
 }
 
 async function exportStreamShellSettings() {
-    const stored = await chrome.storage.local.get(Object.keys(SETTINGS_DEFAULTS));
+    const stored = await chrome.storage.local.get(SETTINGS_STORAGE_KEYS);
     const settings = {};
-    for (const key of Object.keys(SETTINGS_DEFAULTS)) {
-        settings[key] = stored[key] === undefined ? SETTINGS_DEFAULTS[key] : stored[key];
+
+    for (const key of SETTINGS_STORAGE_KEYS) {
+        if (stored[key] !== undefined) {
+            settings[key] = stored[key];
+            continue;
+        }
+
+        const baseKey = baseSettingKeyForStorageKey(key);
+        settings[key] = stored[baseKey] === undefined
+            ? SETTINGS_DEFAULTS[baseKey]
+            : stored[baseKey];
     }
 
     const extensionVersion = chrome.runtime.getManifest?.().version || "unknown";
@@ -3901,7 +4011,7 @@ async function exportStreamShellSettings() {
 }
 
 function normalizeImportedSetting(key, value) {
-    const fallback = SETTINGS_DEFAULTS[key];
+    const fallback = settingDefaultValue(key);
     if (typeof fallback === "boolean") return value === true;
     if (typeof fallback === "number") {
         const numeric = Number(value);
@@ -3926,10 +4036,22 @@ async function importStreamShellSettings(file) {
     }
 
     const next = {};
-    for (const key of Object.keys(SETTINGS_DEFAULTS)) {
+    for (const key of SETTINGS_STORAGE_KEYS) {
         if (Object.prototype.hasOwnProperty.call(source, key)) {
             next[key] = normalizeImportedSetting(key, source[key]);
         }
+    }
+
+    const importedScopedKeys = SETTINGS_STORAGE_KEYS.some(
+        key => baseSettingKeyForStorageKey(key) !== key &&
+            Object.prototype.hasOwnProperty.call(source, key)
+    );
+
+    if (!importedScopedKeys) {
+        const legacyScopedKeys = SETTINGS_STORAGE_KEYS.filter(
+            key => baseSettingKeyForStorageKey(key) !== key
+        );
+        await chrome.storage.local.remove(legacyScopedKeys);
     }
 
     await chrome.storage.local.set(next);
@@ -5040,36 +5162,57 @@ function renderYouTubeSettings(section) {
         return settingsPage(
             "Player",
             settingsSubgroup(
-                "Layout",
+                "Display-specific player",
+                renderDisplayTargetScopeRow(
+                    "Windowed fullscreen and its quick actions are stored separately for 32:9, 16:9 and 16:10."
+                ) +
                 settingSwitch(
                     "streamShellWindowedPlayer_youtube",
                     "Windowed fullscreen",
                     "Fill the Stream Shell provider pane with the YouTube player."
-                )
-            ) +
-            settingsSubgroup(
-                "Controls",
+                ) +
                 settingSwitch(
                     "streamShellYoutubeExtrasEnabled",
                     "Fullscreen quick actions",
                     "Show YouTube's Like, Dislike, Share and More actions in windowed fullscreen."
                 )
-            ),
-            "",
-            "two"
+            )
         );
     }
 
     if (section === "playback") {
-        return renderPlaybackSettings(
-            "youtube",
+        return settingsPage(
+            "Playback",
             settingsSubgroup(
-                "Behavior",
+                "Speed",
+                settingSelect(
+                    playbackSpeedKey("youtube"),
+                    "Default playback speed",
+                    "Keep the provider at this speed while a video is playing.",
+                    [
+                        ["0.5", "0.5x"],
+                        ["0.75", "0.75x"],
+                        ["1", "1.0x"],
+                        ["1.25", "1.25x"],
+                        ["1.5", "1.5x"],
+                        ["1.75", "1.75x"],
+                        ["2", "2.0x"]
+                    ]
+                )
+            ) +
+            settingsSubgroup(
+                "Windowed fullscreen",
+                renderDisplayTargetScopeRow(
+                    "The double-click gesture is stored separately for 32:9, 16:9 and 16:10."
+                ) +
                 settingSwitch(
                     "streamShellDoubleClickWindowed_youtube",
                     "Double-click windowed fullscreen",
                     "Double-click the player to toggle Stream Shell's windowed fullscreen mode."
-                ) +
+                )
+            ) +
+            settingsSubgroup(
+                "Loop",
                 settingSwitch(
                     "streamShellYoutubeLoopEnabled",
                     "Override loop behavior",
@@ -5087,7 +5230,9 @@ function renderYouTubeSettings(section) {
                     "Loop Shorts when the override is enabled.",
                     settingValue("streamShellYoutubeLoopEnabled") === true
                 )
-            )
+            ),
+            "Playback speed and loop behavior remain provider-wide; only the Windowed Fullscreen gesture is target-specific.",
+            "three"
         );
     }
 
@@ -5715,7 +5860,10 @@ function renderSettingsContent() {
             html = settingsPage(
                 "Player",
                 settingsSubgroup(
-                    "Layout",
+                    "Display-specific player",
+                    renderDisplayTargetScopeRow(
+                        "Windowed fullscreen is stored separately for 32:9, 16:9 and 16:10."
+                    ) +
                     settingSwitch(
                         "streamShellWindowedPlayer_crunchyroll",
                         "Windowed fullscreen",
@@ -5727,9 +5875,38 @@ function renderSettingsContent() {
         }
 
         if (settingsSection === "playback") {
-            html = renderPlaybackSettings(
-                "crunchyroll",
-                renderWindowedGestureSetting("crunchyroll")
+            html = settingsPage(
+                "Playback",
+                settingsSubgroup(
+                    "Speed",
+                    settingSelect(
+                        playbackSpeedKey("crunchyroll"),
+                        "Default playback speed",
+                        "Keep the provider at this speed while a video is playing.",
+                        [
+                            ["0.5", "0.5x"],
+                            ["0.75", "0.75x"],
+                            ["1", "1.0x"],
+                            ["1.25", "1.25x"],
+                            ["1.5", "1.5x"],
+                            ["1.75", "1.75x"],
+                            ["2", "2.0x"]
+                        ]
+                    )
+                ) +
+                settingsSubgroup(
+                    "Windowed fullscreen",
+                    renderDisplayTargetScopeRow(
+                        "The double-click gesture is stored separately for 32:9, 16:9 and 16:10."
+                    ) +
+                    settingSwitch(
+                        "streamShellDoubleClickWindowed_crunchyroll",
+                        "Double-click windowed fullscreen",
+                        "Double-click the player to toggle Stream Shell's windowed fullscreen mode."
+                    )
+                ),
+                "Playback speed remains provider-wide; only the Windowed Fullscreen gesture is target-specific.",
+                "two"
             );
         }
 
@@ -5825,7 +6002,7 @@ function renderSettingsCenter() {
 async function loadSettingsValues() {
     try {
         const stored = await chrome.storage.local.get(
-            Object.keys(SETTINGS_DEFAULTS)
+            SETTINGS_STORAGE_KEYS
         );
 
         settingsValues = {
@@ -5852,6 +6029,7 @@ async function openSettingsCenter(provider) {
     }
 
     settingsSection = defaultSettingsSection(settingsProvider);
+    settingsDisplayTarget = activeShellDisplayTarget();
 
     if (!settingsLoaded) {
         await loadSettingsValues();
@@ -6073,7 +6251,7 @@ function normalizeSettingInput(input) {
         let numeric = Number(input.value);
 
         if (!Number.isFinite(numeric)) {
-            numeric = Number(SETTINGS_DEFAULTS[key]) || 0;
+            numeric = Number(settingDefaultValue(key)) || 0;
         }
 
         if (Number.isFinite(min)) {
@@ -6162,6 +6340,16 @@ document.addEventListener(
 document.addEventListener(
     "change",
     event => {
+        const targetInput = event.target.closest?.("[data-settings-display-target]");
+        if (targetInput) {
+            const target = targetInput.dataset.settingsDisplayTarget;
+            if (DISPLAY_SETTING_TARGETS.includes(target)) {
+                settingsDisplayTarget = target;
+                renderSettingsContent();
+            }
+            return;
+        }
+
         const input = event.target.closest?.("[data-setting-key]");
         if (!input) {
             return;
@@ -6220,13 +6408,19 @@ chrome.storage.onChanged.addListener(
 
         let relevant = false;
         for (const [key, change] of Object.entries(changes)) {
-            if (!Object.prototype.hasOwnProperty.call(SETTINGS_DEFAULTS, key)) {
+            if (!SETTINGS_STORAGE_KEY_SET.has(key)) {
                 continue;
             }
 
-            settingsValues[key] = change.newValue === undefined
-                ? SETTINGS_DEFAULTS[key]
-                : change.newValue;
+            if (change.newValue === undefined) {
+                if (baseSettingKeyForStorageKey(key) !== key) {
+                    delete settingsValues[key];
+                } else {
+                    settingsValues[key] = SETTINGS_DEFAULTS[key];
+                }
+            } else {
+                settingsValues[key] = change.newValue;
+            }
             relevant = true;
         }
 
