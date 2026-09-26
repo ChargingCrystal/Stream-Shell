@@ -1,0 +1,40 @@
+Stream Shell Unified Remote v0.1.0
+==========================================
+
+Purpose
+-------
+Phase 1 is intentionally tiny:
+- prove the custom remote loads
+- prove layout.xml -> remote.lua actions work
+- do not touch Stream Shell itself yet
+
+Install
+-------
+1. Copy the folder named "Stream Shell" to:
+   C:\ProgramData\Unified Remote\Remotes\Custom\
+2. Open the Unified Remote Server manager:
+   http://localhost:9510/web
+3. Restart the Unified Remote Server.
+4. Open the "Stream Shell" remote in the phone app.
+5. Tap PING.
+
+Expected result
+---------------
+The status label changes from:
+READY · bridge not connected
+
+to:
+PING OK · HH:MM:SS
+
+Next phase
+----------
+Add one real Stream Shell action through a local-only bridge:
+
+Unified Remote remote.lua
+  -> StreamShellTitlebarHost.exe CLI invocation
+  -> local named pipe
+  -> already-running TitlebarHost native-messaging instance
+  -> existing Stream Shell action event
+  -> existing background action handler
+
+That keeps the actual Stream Shell actions single-sourced.

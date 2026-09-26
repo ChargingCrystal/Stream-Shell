@@ -177,8 +177,21 @@ async function showDashboard() {
          * provider before restoring Dashboard.
          */
         const providerWindows = await getProviderWindows();
-        for (const windowId of Object.values(providerWindows)) {
+        const providerEntries = Object.entries(providerWindows);
+
+        await Promise.all(
+            providerEntries.map(([providerName, windowId]) =>
+                pauseProviderWindowPlayback(
+                    windowId,
+                    providerName,
+                    "compact-dashboard"
+                )
+            )
+        );
+
+        for (const [, windowId] of providerEntries) {
             if (Number.isInteger(windowId)) {
+                await setWindowMuted(windowId, true);
                 await safelyMinimizeWindow(windowId);
             }
         }

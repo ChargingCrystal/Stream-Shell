@@ -6,7 +6,7 @@
 
 Stream Shell is a personal Opera GX / Chromium extension that turns several streaming services into one managed desktop-style shell. It was built around my own Windows setup and workflow first; other setups may work, but compatibility is best-effort rather than a product promise.
 
-Current public version: **0.18.12**.
+Current public version: **0.18.13**.
 
 ## What it does
 
@@ -17,7 +17,7 @@ Highlights include:
 - Automatic display targeting with 32:9 Wide plus 16:9/16:10 Compact single-surface layouts and provider-aware window management.
 - A unified Landing/Dashboard UI with Watchlist, Continue Watching, Recent and Direct entries.
 - TMDB metadata/search plus streaming availability through TMDB's watch-provider data.
-- Provider automations such as autoplay/skip helpers, playback utilities and provider-specific cleanup.
+- Provider automations such as autoplay/skip helpers, playback utilities and provider-specific cleanup; switching away pauses outgoing provider playback before the warm window is parked.
 - YouTube extras including Windowed Fullscreen, Auto-Like, quality handling, upload-date helpers, Shorts tweaks and optional Return YouTube Dislike ratio integration.
 - Twitch channel-points/Drops automation, raid guard and audio handling.
 - A tab-capture based Volume Booster with a Chromium fullscreen bridge.

@@ -1,0 +1,22 @@
+Stream Shell Unified Remote v0.3.0
+====================================
+
+What changed
+------------
+- Removed the integrated touchpad.
+- Removed left / middle / right mouse buttons.
+- Removed the dedicated scroll strip.
+- Navigation is intentionally delegated to Unified Remote's built-in touch/mouse controls.
+- Replaced the page with a Stream Shell action-surface prototype.
+- Added provider buttons matching the native titlebar action vocabulary:
+  YouTube, Netflix, Prime Video, Disney+, Crunchyroll.
+- Added Dashboard, Settings, Reload, Volume Boost, Discord, Twitch and Kill.
+- Kept PING for quick Lua/layout verification.
+- Buttons are UI-preview only for now; the Stream Shell control bridge is the next phase.
+
+Install / update
+----------------
+Replace:
+C:\ProgramData\Unified Remote\Remotes\Custom\Stream Shell\
+
+Then restart Unified Remote Server and reopen the Stream Shell remote.

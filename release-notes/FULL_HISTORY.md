@@ -1643,3 +1643,13 @@
 - Documented the titlebar-helper dependency, installation/update flow and active-state behavior.
 - Updated repository-facing version/description text.
 - Made no runtime, provider, window-management or native-helper changes from 0.18.11.
+
+## 0.18.13 — Pause Inactive Provider Playback
+
+- Routed outgoing provider pause requests through the existing shared provider adapter before muting/minimizing provider windows.
+- Applied pause-before-park to provider-to-provider switches, Wide Landing/Home handoffs and Compact Dashboard handoffs.
+- Left Wide Dashboard/Settings unchanged because those surfaces do not replace the visible left provider.
+- Kept return behavior manual: reopening a parked provider restores the window but does not automatically restart playback.
+- Backfilled bundled Unified Remote release notes for v0.1.0 through v0.7.2.
+
+**Native helper:** No reinstall required.

@@ -1,0 +1,36 @@
+Stream Shell Unified Remote v0.5.0
+====================================
+
+Bridge pilot
+------------
+Dashboard is now the first real Unified Remote -> Stream Shell action.
+All other buttons remain preview-only until Dashboard has been verified.
+
+Expected Dashboard behavior
+---------------------------
+With Stream Shell open and the updated 0.18.9 native helper installed:
+
+1. Tap Dashboard.
+2. The remote status should briefly show:
+   SENDING · DASHBOARD
+3. Stream Shell should switch/focus Dashboard using its existing titlebar action path.
+4. The remote status should become:
+   OK · DASHBOARD
+
+Useful error states
+-------------------
+ERR helper-missing
+  The updated titlebar helper executable is not installed.
+
+ERR bridge-unavailable
+  No running Stream Shell titlebar host is listening. Open/reload Stream Shell.
+
+ERR not-ready
+  The native host exists but its extension/native-messaging handshake is not ready yet.
+
+Install / update
+----------------
+Replace:
+C:\ProgramData\Unified Remote\Remotes\Custom\Stream Shell\
+
+Then restart Unified Remote Server and reopen the Stream Shell remote.

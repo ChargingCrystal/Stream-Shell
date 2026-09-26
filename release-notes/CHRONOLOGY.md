@@ -274,6 +274,7 @@ This is the reconstructed version order from the recovered development chats. It
 - **0.18.10** — Unified Remote Action Surface
 - **0.18.11** — Unified Remote State Sync Fix
 - **0.18.12** — Unified Remote Repository Integration
+- **0.18.13** — Pause Inactive Provider Playback
 
 ## Known unresolved gaps
 

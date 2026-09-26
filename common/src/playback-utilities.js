@@ -218,7 +218,28 @@
         }).catch(() => {});
     }
 
-    chrome.runtime.onMessage.addListener(message => {
+    chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+        if (message?.type === "stream-shell-playback-pause") {
+            const adapter = getProviderAdapter();
+
+            Promise.resolve()
+                .then(() => adapter?.pause?.())
+                .then(paused => {
+                    sendResponse({
+                        ok: true,
+                        paused: paused !== false
+                    });
+                })
+                .catch(() => {
+                    sendResponse({
+                        ok: false,
+                        paused: false
+                    });
+                });
+
+            return true;
+        }
+
         if (message?.type === "stream-shell-sleep-arm") {
             sleepTimerEndArmed = message.armed === true;
             return;

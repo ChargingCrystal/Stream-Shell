@@ -1,0 +1,44 @@
+Stream Shell Unified Remote v0.4.0
+====================================
+
+Layout pass
+-----------
+- Grouped controls into Navigation, Providers, Shell and Auxiliary.
+- Added Home / Landing.
+- Moved Kill into the top status row as a small power symbol.
+- Kill is HOLD-only; a normal tap does nothing.
+- Kept PING for diagnostics.
+- Mouse / keyboard / touch remain delegated to Unified Remote's built-in controls.
+- Stream Shell action bridge is still intentionally not connected in this build.
+
+Controls
+--------
+Navigation:
+- Home
+- Dashboard
+- Settings
+
+Providers:
+- YouTube
+- Netflix
+- Prime Video
+- Disney+
+- Crunchyroll
+
+Shell:
+- Reload
+- Volume Boost
+
+Auxiliary:
+- Discord
+- Twitch
+
+Top-right:
+- ⏻ Kill Stream Shell (hold)
+
+Install / update
+----------------
+Replace:
+C:\ProgramData\Unified Remote\Remotes\Custom\Stream Shell\
+
+Then restart Unified Remote Server and reopen the Stream Shell remote.

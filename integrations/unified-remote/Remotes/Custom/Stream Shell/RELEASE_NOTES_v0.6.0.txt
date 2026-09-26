@@ -1,0 +1,26 @@
+Stream Shell Unified Remote v0.6.0
+====================================
+
+What changed
+------------
+- All previously preview-only buttons now use the real Stream Shell native bridge.
+- The remote queries the native bridge for the current layout/surface.
+- Wide shows Home plus Discord / Twitch / Drops Inventory.
+- Compact hides Home because Dashboard is Compact Home.
+- Compact also hides Discord / Twitch / Drops because those auxiliary surfaces are Wide-only.
+- The native bridge rejects Wide-only auxiliary actions from Compact even if invoked manually.
+- Twitch and Drops are separate buttons, but both reuse the established single managed Twitch window.
+- Drops opens https://www.twitch.tv/drops/inventory in that same Twitch window; no legacy Drops worker is restored.
+- Refresh status replaces the old PING diagnostic button.
+- Kill remains top-right and hold-only.
+
+Requires
+--------
+Stream Shell 0.18.10 or newer.
+
+Install / update
+----------------
+Replace:
+C:\ProgramData\Unified Remote\Remotes\Custom\Stream Shell\
+
+Then restart Unified Remote Server and reopen the Stream Shell remote.

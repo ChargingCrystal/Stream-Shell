@@ -1,0 +1,12 @@
+Stream Shell Unified Remote v0.7.1
+====================================
+
+Icon hotfix
+-----------
+- Visual-only hotfix; layout.xml and action wiring remain unchanged.
+- Repacked button PNGs onto transparent padded canvases so Unified Remote no longer scales icons to the button edges.
+- Shifted symbols left and reduced their apparent size to leave room for the existing layout labels.
+- Landing remains labeled Landing.
+- Kill remains icon-only and is only reduced/recentered visually.
+
+No Stream Shell core update is required for this build.

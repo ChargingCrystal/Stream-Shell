@@ -247,7 +247,19 @@ async function openShellHome() {
     if (shuttingDown) return;
 
     const providerWindows = await getProviderWindows();
-    for (const [providerName, windowId] of Object.entries(providerWindows)) {
+    const providerEntries = Object.entries(providerWindows);
+
+    await Promise.all(
+        providerEntries.map(([providerName, windowId]) =>
+            pauseProviderWindowPlayback(
+                windowId,
+                providerName,
+                "shell-home"
+            )
+        )
+    );
+
+    for (const [providerName, windowId] of providerEntries) {
         await setWindowMuted(windowId, true);
         await safelyMinimizeWindow(windowId);
         await parkWindowOffscreen(windowId, LEFT);

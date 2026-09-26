@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Stream Shell",
-  "version": "0.18.12",
+  "version": "0.18.13",
   "description": "Unified shell for Netflix, Prime Video, Crunchyroll, YouTube and Disney+, with Discord/Twitch utilities and remote control.",
   "author": "Sven Rieseler",
   "icons": {

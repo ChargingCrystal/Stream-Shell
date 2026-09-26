@@ -1,0 +1,31 @@
+Stream Shell Unified Remote v0.2.0
+====================================
+
+What changed
+------------
+- Replaced the giant proof-of-life layout with a real integrated touchpad.
+- Relative touch movement controls the Windows cursor.
+- Tap = left click.
+- Double tap = double click.
+- Hold + move = drag.
+- Two-finger tap = right click.
+- Three-or-more-finger tap = middle click.
+- Added a dedicated vertical scroll strip.
+- Added explicit LEFT / MIDDLE / RIGHT buttons.
+- Kept the PING action for quick remote/Lua verification.
+- No screen-preview / remote-desktop mode yet.
+- No Stream Shell action bridge yet; provider/settings/dashboard controls come next.
+
+Install / update
+----------------
+1. Replace the existing folder:
+   C:\ProgramData\Unified Remote\Remotes\Custom\Stream Shell\
+   with the new "Stream Shell" folder from this package.
+2. Restart Unified Remote Server.
+3. Reopen the Stream Shell remote in the phone app.
+
+Notes
+-----
+The touch implementation is deliberately based on the bundled Unified Remote
+Basic Input / Basic Input MT behavior from the supplied Unified Remote package.
+This version is input-only: it does not modify Stream Shell 0.18.8 itself.

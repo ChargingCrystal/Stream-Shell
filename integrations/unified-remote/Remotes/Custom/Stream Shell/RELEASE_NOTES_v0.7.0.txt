@@ -1,0 +1,26 @@
+Stream Shell Unified Remote v0.7.0
+====================================
+
+Visual polish pass
+------------------
+- Reuses Stream Shell's existing native titlebar artwork.
+- Adds the Stream Shell app icon to the Unified Remote remote entry.
+- Adds icon + text buttons for Landing, Dashboard, Settings, all providers,
+  Volume Boost, Discord, Twitch and Drops.
+- Keeps Reload as the established circular-arrow glyph plus text.
+- Keeps Kill as an icon-only HOLD action in the top-right corner.
+- Adds stronger per-group/provider colors for both dark and light themes.
+- Renames Home to Landing everywhere in the remote UI/status naming.
+- Wide/Compact visibility and all v0.6.0 bridge behavior remain unchanged.
+- Drops still uses the Twitch icon because Stream Shell has no separate Drops
+  asset; the amber button color and label distinguish it.
+
+No Stream Shell core update is required for this build.
+Stream Shell remains v0.18.10.
+
+Install / update
+----------------
+Replace:
+C:\ProgramData\Unified Remote\Remotes\Custom\Stream Shell\
+
+Then restart Unified Remote Server and reopen the Stream Shell remote.

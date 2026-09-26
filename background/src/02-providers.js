@@ -248,19 +248,36 @@ async function switchProvider(
     const windows =
         await getProviderWindows();
 
-    for (
-        const [name, windowId]
-        of Object.entries(
+    const inactiveProviders =
+        Object.entries(
             windows
         )
-    ) {
-        if (
-            name ===
-            providerName
-        ) {
-            continue;
-        }
+            .filter(
+                ([name, windowId]) =>
+                    name !== providerName &&
+                    Number.isInteger(windowId)
+            );
 
+    /*
+     * Pause outgoing/parked provider playback through the provider adapter
+     * before muting and minimizing. Keep the pause requests parallel so an
+     * async provider bridge (notably Netflix) cannot serially delay switching.
+     */
+    await Promise.all(
+        inactiveProviders.map(
+            ([name, windowId]) =>
+                pauseProviderWindowPlayback(
+                    windowId,
+                    name,
+                    "provider-switch"
+                )
+        )
+    );
+
+    for (
+        const [name, windowId]
+        of inactiveProviders
+    ) {
         await setWindowMuted(
             windowId,
             true
@@ -349,6 +366,69 @@ async function switchProvider(
     }).catch(() => {});
 
     await broadcastState();
+}
+
+
+async function pauseProviderWindowPlayback(
+    windowId,
+    providerName = null,
+    reason = "provider-switch"
+) {
+    if (
+        !Number.isInteger(
+            windowId
+        )
+    ) {
+        return false;
+    }
+
+    let tabs;
+
+    try {
+        tabs =
+            await chrome.tabs.query({
+                windowId
+            });
+    } catch {
+        return false;
+    }
+
+    let delivered = false;
+
+    for (
+        const tab
+        of tabs
+    ) {
+        if (
+            !Number.isInteger(
+                tab.id
+            )
+        ) {
+            continue;
+        }
+
+        try {
+            await chrome.tabs.sendMessage(
+                tab.id,
+                {
+                    type: "stream-shell-playback-pause",
+                    reason,
+                    provider:
+                        providerName ||
+                        null
+                }
+            );
+
+            delivered = true;
+        } catch {
+            /*
+             * A provider tab can be between documents or not yet have the
+             * shared content runtime. Parking/muting must still continue.
+             */
+        }
+    }
+
+    return delivered;
 }
 
 

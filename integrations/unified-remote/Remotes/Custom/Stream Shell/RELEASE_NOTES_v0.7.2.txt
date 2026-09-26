@@ -1,0 +1,14 @@
+Stream Shell Unified Remote v0.7.2
+====================================
+
+Style pass
+----------
+- Reduced the Kill icon further.
+- Moved icon + label into the button artwork so labels remain visible consistently.
+- Made provider cards more neutral, with brand identity carried primarily by their icons/artwork.
+- Unified Landing / Dashboard / Settings navigation styling.
+- Increased Reload visual size.
+- Rebalanced the Auxiliary row to Discord 50%, Twitch 35%, Drops 15%.
+- Added a dedicated twitch_drops.png asset so Drops is visually distinct instead of reusing the Twitch presentation.
+
+This pass intentionally changes layout.xml where needed for the new Auxiliary proportions and styling.

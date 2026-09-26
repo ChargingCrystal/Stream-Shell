@@ -161,11 +161,25 @@ async function showLanding(
     const providerWindows =
         await getProviderWindows();
 
-    for (
-        const windowId
-        of Object.values(
+    const providerEntries =
+        Object.entries(
             providerWindows
+        );
+
+    await Promise.all(
+        providerEntries.map(
+            ([providerName, windowId]) =>
+                pauseProviderWindowPlayback(
+                    windowId,
+                    providerName,
+                    "landing"
+                )
         )
+    );
+
+    for (
+        const [, windowId]
+        of providerEntries
     ) {
         await setWindowMuted(
             windowId,

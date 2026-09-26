@@ -61,4 +61,6 @@ Run `uninstall-unified-remote.cmd` to remove only the installed `Stream Shell` c
 
 ## Files
 
+Historical per-version notes for the custom remote are bundled next to the remote source as `RELEASE_NOTES_v*.txt`, covering the prototype/visual passes through the current v0.8.x state.
+
 The actual custom remote lives under `Remotes/Custom/Stream Shell/` so the repository mirrors the directory subtree expected below Unified Remote's data root without embedding a fake `C:` drive tree.

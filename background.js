@@ -494,7 +494,19 @@ async function openShellHome() {
     if (shuttingDown) return;
 
     const providerWindows = await getProviderWindows();
-    for (const [providerName, windowId] of Object.entries(providerWindows)) {
+    const providerEntries = Object.entries(providerWindows);
+
+    await Promise.all(
+        providerEntries.map(([providerName, windowId]) =>
+            pauseProviderWindowPlayback(
+                windowId,
+                providerName,
+                "shell-home"
+            )
+        )
+    );
+
+    for (const [providerName, windowId] of providerEntries) {
         await setWindowMuted(windowId, true);
         await safelyMinimizeWindow(windowId);
         await parkWindowOffscreen(windowId, LEFT);
@@ -1694,19 +1706,36 @@ async function switchProvider(
     const windows =
         await getProviderWindows();
 
-    for (
-        const [name, windowId]
-        of Object.entries(
+    const inactiveProviders =
+        Object.entries(
             windows
         )
-    ) {
-        if (
-            name ===
-            providerName
-        ) {
-            continue;
-        }
+            .filter(
+                ([name, windowId]) =>
+                    name !== providerName &&
+                    Number.isInteger(windowId)
+            );
 
+    /*
+     * Pause outgoing/parked provider playback through the provider adapter
+     * before muting and minimizing. Keep the pause requests parallel so an
+     * async provider bridge (notably Netflix) cannot serially delay switching.
+     */
+    await Promise.all(
+        inactiveProviders.map(
+            ([name, windowId]) =>
+                pauseProviderWindowPlayback(
+                    windowId,
+                    name,
+                    "provider-switch"
+                )
+        )
+    );
+
+    for (
+        const [name, windowId]
+        of inactiveProviders
+    ) {
         await setWindowMuted(
             windowId,
             true
@@ -1795,6 +1824,69 @@ async function switchProvider(
     }).catch(() => {});
 
     await broadcastState();
+}
+
+
+async function pauseProviderWindowPlayback(
+    windowId,
+    providerName = null,
+    reason = "provider-switch"
+) {
+    if (
+        !Number.isInteger(
+            windowId
+        )
+    ) {
+        return false;
+    }
+
+    let tabs;
+
+    try {
+        tabs =
+            await chrome.tabs.query({
+                windowId
+            });
+    } catch {
+        return false;
+    }
+
+    let delivered = false;
+
+    for (
+        const tab
+        of tabs
+    ) {
+        if (
+            !Number.isInteger(
+                tab.id
+            )
+        ) {
+            continue;
+        }
+
+        try {
+            await chrome.tabs.sendMessage(
+                tab.id,
+                {
+                    type: "stream-shell-playback-pause",
+                    reason,
+                    provider:
+                        providerName ||
+                        null
+                }
+            );
+
+            delivered = true;
+        } catch {
+            /*
+             * A provider tab can be between documents or not yet have the
+             * shared content runtime. Parking/muting must still continue.
+             */
+        }
+    }
+
+    return delivered;
 }
 
 
@@ -2093,11 +2185,25 @@ async function showLanding(
     const providerWindows =
         await getProviderWindows();
 
-    for (
-        const windowId
-        of Object.values(
+    const providerEntries =
+        Object.entries(
             providerWindows
+        );
+
+    await Promise.all(
+        providerEntries.map(
+            ([providerName, windowId]) =>
+                pauseProviderWindowPlayback(
+                    windowId,
+                    providerName,
+                    "landing"
+                )
         )
+    );
+
+    for (
+        const [, windowId]
+        of providerEntries
     ) {
         await setWindowMuted(
             windowId,
@@ -2385,8 +2491,21 @@ async function showDashboard() {
          * provider before restoring Dashboard.
          */
         const providerWindows = await getProviderWindows();
-        for (const windowId of Object.values(providerWindows)) {
+        const providerEntries = Object.entries(providerWindows);
+
+        await Promise.all(
+            providerEntries.map(([providerName, windowId]) =>
+                pauseProviderWindowPlayback(
+                    windowId,
+                    providerName,
+                    "compact-dashboard"
+                )
+            )
+        );
+
+        for (const [, windowId] of providerEntries) {
             if (Number.isInteger(windowId)) {
+                await setWindowMuted(windowId, true);
                 await safelyMinimizeWindow(windowId);
             }
         }

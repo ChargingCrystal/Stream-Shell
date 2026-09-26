@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.18.13 — Pause Inactive Provider Playback
+
+- Pauses provider playback through the shared provider adapter before an outgoing provider window is muted/minimized during provider switches.
+- Applies the same pause-before-park behavior when returning to Wide Landing/Home and when Compact Dashboard replaces a provider surface.
+- Keeps Wide Dashboard/Settings behavior unchanged because the left provider remains visible there.
+- Does not auto-resume playback when returning to a previously parked provider; playback remains paused until the user resumes it.
+- Added the missing Unified Remote release-note history from v0.1.0 through v0.7.2 alongside the already bundled v0.8.x notes.
+- No native-helper reinstall is required for this release.
+
 ## 0.18.12 — Unified Remote Repository Integration
 
 - Added the first-party Stream Shell Unified Remote v0.8.3 under `integrations/unified-remote/` instead of maintaining it as a detached sidecar archive.
