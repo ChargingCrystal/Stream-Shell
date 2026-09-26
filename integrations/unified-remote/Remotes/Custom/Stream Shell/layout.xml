@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layout onlaunch="init">
+    <grid>
+        <row weight="wrap">
+            <label id="status" text="CONNECTING · Stream Shell" weight="5" />
+            <button id="kill" image="icons/kill.png" scale="fit" weight="wrap"
+                color="#b91c1c" onhold="kill" />
+        </row>
+
+        <row weight="wrap"><label text="NAVIGATION" /></row>
+        <row>
+            <button id="landing" image="icons/landing.png" scale="fit" color="#66707d" ontap="landing" />
+            <button id="dashboard" image="icons/dashboard.png" scale="fit" color="#66707d" ontap="dashboard" />
+            <button id="settings" image="icons/settings.png" scale="fit" color="#66707d" ontap="settings" />
+        </row>
+
+        <row weight="wrap"><label text="PROVIDERS" /></row>
+        <row>
+            <button id="youtube" image="icons/youtube.png" scale="fit" color="#66707d" ontap="youtube" />
+            <button id="netflix" image="icons/netflix.png" scale="fit" color="#66707d" ontap="netflix" />
+        </row>
+        <row>
+            <button id="prime" image="icons/prime.png" scale="fit" color="#66707d" ontap="prime" />
+            <button id="disney" image="icons/disney.png" scale="fit" color="#66707d" ontap="disney" />
+        </row>
+        <row>
+            <button id="crunchyroll" image="icons/crunchyroll.png" scale="fit" color="#66707d" ontap="crunchyroll" />
+        </row>
+
+        <row weight="wrap"><label text="SHELL" /></row>
+        <row>
+            <button id="reload" image="icons/reload.png" scale="fit" color="#66707d" ontap="reload" />
+            <button id="volume" image="icons/volume.png" scale="fit" color="#66707d" ontap="volume" />
+        </row>
+
+        <row weight="wrap"><label id="aux_label" text="AUXILIARY · WIDE" /></row>
+        <row>
+            <button id="discord" image="icons/discord.png" scale="fit" color="#66707d" weight="50" ontap="discord" />
+            <button id="twitch" image="icons/twitch.png" scale="fit" color="#66707d" weight="35" ontap="twitch" />
+            <button id="twitch_drops" image="icons/twitch_drops.png" scale="fit" color="#66707d" weight="15" ontap="twitch_drops" />
+        </row>
+
+        <row weight="wrap">
+            <button id="refresh" text="↻ Refresh status" color="#4b5563" ontap="refresh" />
+        </row>
+    </grid>
+</layout>

@@ -4,6 +4,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -75,8 +76,27 @@ internal static class StreamShellTitlebarHost
     private const ushort VT_EMPTY = 0;
     private const ushort VT_LPWSTR = 31;
     private const string STREAM_SHELL_APP_ID = "SvenRieseler.StreamShell.Desktop";
+    private const string CONTROL_PIPE_NAME = "StreamShell.ControlBridge.v1";
     private const int TITLEBAR_PROTOCOL_VERSION = 4;
     private const uint HEARTBEAT_TIMEOUT_MS = 6500;
+
+    private static readonly HashSet<string> ControlBridgeActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "landing",
+        "dashboard",
+        "settings",
+        "reload",
+        "volume",
+        "youtube",
+        "netflix",
+        "prime",
+        "disney",
+        "crunchyroll",
+        "discord",
+        "twitch",
+        "twitch-drops",
+        "kill"
+    };
 
     private static readonly IntPtr HWND_TOP = IntPtr.Zero;
     private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
@@ -102,6 +122,7 @@ internal static class StreamShellTitlebarHost
     private static string layoutProfile = "wide";
     private static string leftMode = "landing";
     private static string rightMode = "dashboard";
+    private static string twitchTarget = "resume";
     private static bool settingsOpen = false;
     private static bool volumeActive = false;
     private static bool fullscreenActive = false;
@@ -753,8 +774,26 @@ internal static class StreamShellTitlebarHost
         [MarshalAs(UnmanagedType.Interface)] out IPropertyStore ppv
     );
 
-    public static int Main()
+    public static int Main(string[] args)
     {
+        if (
+            args != null &&
+            args.Length >= 2 &&
+            String.Equals(args[0], "--action", StringComparison.OrdinalIgnoreCase)
+        )
+        {
+            return SendControlActionClient(args[1]);
+        }
+
+        if (
+            args != null &&
+            args.Length >= 1 &&
+            String.Equals(args[0], "--status", StringComparison.OrdinalIgnoreCase)
+        )
+        {
+            return SendControlStatusClient();
+        }
+
         try
         {
             ResetDiagnosticLog();
@@ -823,6 +862,11 @@ internal static class StreamShellTitlebarHost
             reader.IsBackground = true;
             reader.Name = "StreamShellTitlebarNativeReader";
             reader.Start();
+
+            Thread controlBridge = new Thread(ControlBridgeLoop);
+            controlBridge.IsBackground = true;
+            controlBridge.Name = "StreamShellControlBridge";
+            controlBridge.Start();
 
             SetTimer(controllerWindow, new UIntPtr(1), 500, IntPtr.Zero);
 
@@ -6094,6 +6138,7 @@ internal static class StreamShellTitlebarHost
     private static void SendNativeStatus()
     {
         string profile;
+        string nativeTwitchTarget;
         string browserVisibility;
         string compactMap;
         string wideMap;
@@ -6107,6 +6152,7 @@ internal static class StreamShellTitlebarHost
         lock (StateLock)
         {
             profile = layoutProfile;
+            nativeTwitchTarget = twitchTarget;
             browserVisibility = visibilityMode;
             compactCount = CompactSurfaceWindows.Count;
             wideCount = WideSurfaceWindows.Count;
@@ -6149,6 +6195,7 @@ internal static class StreamShellTitlebarHost
             "{\"event\":\"status\",\"protocolVersion\":" + TITLEBAR_PROTOCOL_VERSION +
             ",\"protocolCompatible\":" + (compatible ? "true" : "false") +
             ",\"layoutProfile\":\"" + JsonEscape(profile ?? "unknown") +
+            "\",\"twitchTarget\":\"" + JsonEscape(nativeTwitchTarget ?? "resume") +
             "\",\"browserVisibility\":\"" + JsonEscape(browserVisibility ?? "none") +
             "\",\"effectiveVisibility\":\"" + JsonEscape(lastEffectiveVisibility ?? "none") +
             "\",\"fullscreenActive\":" + (nativeFullscreenActive ? "true" : "false") +
@@ -6245,6 +6292,7 @@ internal static class StreamShellTitlebarHost
                 layoutProfile = GetJsonString(json, "layoutProfile") ?? "wide";
                 leftMode = GetJsonString(json, "leftMode") ?? "landing";
                 rightMode = GetJsonString(json, "rightMode") ?? "dashboard";
+                twitchTarget = GetJsonString(json, "twitchTarget") ?? "resume";
                 visibilityMode = GetJsonString(json, "visibilityMode") ?? "none";
                 settingsOpen = GetJsonBool(json, "settingsOpen", false);
                 volumeActive = GetJsonBool(json, "volumeActive", false);
@@ -6258,6 +6306,7 @@ internal static class StreamShellTitlebarHost
                 " layout=" + layoutProfile +
                 ", leftMode=" + leftMode +
                 ", rightMode=" + rightMode +
+                ", twitchTarget=" + twitchTarget +
                 ", visibility=" + visibilityMode
             );
 
@@ -6301,11 +6350,13 @@ internal static class StreamShellTitlebarHost
                 string nextLayoutProfile = GetJsonString(json, "layoutProfile");
                 string nextLeft = GetJsonString(json, "leftMode");
                 string nextRight = GetJsonString(json, "rightMode");
+                string nextTwitchTarget = GetJsonString(json, "twitchTarget");
                 string nextVisibility = GetJsonString(json, "visibilityMode");
 
                 if (!String.IsNullOrWhiteSpace(nextLayoutProfile)) layoutProfile = nextLayoutProfile;
                 if (!String.IsNullOrWhiteSpace(nextLeft)) leftMode = nextLeft;
                 if (!String.IsNullOrWhiteSpace(nextRight)) rightMode = nextRight;
+                if (!String.IsNullOrWhiteSpace(nextTwitchTarget)) twitchTarget = nextTwitchTarget;
                 if (!String.IsNullOrWhiteSpace(nextVisibility)) visibilityMode = nextVisibility;
                 settingsOpen = GetJsonBool(json, "settingsOpen", settingsOpen);
                 volumeActive = GetJsonBool(json, "volumeActive", volumeActive);
@@ -6354,6 +6405,269 @@ internal static class StreamShellTitlebarHost
             return;
         }
 
+    }
+
+    private static bool TryNormalizeControlAction(string action, out string normalized)
+    {
+        normalized = String.IsNullOrWhiteSpace(action)
+            ? String.Empty
+            : action.Trim().ToLowerInvariant();
+
+        return ControlBridgeActions.Contains(normalized);
+    }
+
+    private static int SendControlStatusClient()
+    {
+        try
+        {
+            using (NamedPipeClientStream pipe = new NamedPipeClientStream(
+                ".",
+                CONTROL_PIPE_NAME,
+                PipeDirection.InOut,
+                PipeOptions.None
+            ))
+            {
+                pipe.Connect(900);
+
+                using (StreamReader reader = new StreamReader(
+                    pipe,
+                    new UTF8Encoding(false),
+                    false,
+                    1024,
+                    true
+                ))
+                using (StreamWriter writer = new StreamWriter(
+                    pipe,
+                    new UTF8Encoding(false),
+                    1024,
+                    true
+                ))
+                {
+                    writer.AutoFlush = true;
+                    writer.WriteLine("__status__");
+
+                    string response = reader.ReadLine();
+                    if (String.IsNullOrWhiteSpace(response))
+                    {
+                        Console.WriteLine("ERR empty-response");
+                        return 5;
+                    }
+
+                    Console.WriteLine(response);
+                    return response.StartsWith("OK status ", StringComparison.OrdinalIgnoreCase)
+                        ? 0
+                        : 6;
+                }
+            }
+        }
+        catch (TimeoutException)
+        {
+            Console.WriteLine("ERR bridge-unavailable");
+            return 4;
+        }
+        catch (IOException)
+        {
+            Console.WriteLine("ERR bridge-unavailable");
+            return 4;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("ERR " + ex.GetType().Name);
+            return 10;
+        }
+    }
+
+    private static int SendControlActionClient(string action)
+    {
+        string normalized;
+        if (!TryNormalizeControlAction(action, out normalized))
+        {
+            Console.WriteLine("ERR invalid-action");
+            return 2;
+        }
+
+        try
+        {
+            using (NamedPipeClientStream pipe = new NamedPipeClientStream(
+                ".",
+                CONTROL_PIPE_NAME,
+                PipeDirection.InOut,
+                PipeOptions.None
+            ))
+            {
+                pipe.Connect(900);
+
+                using (StreamReader reader = new StreamReader(
+                    pipe,
+                    new UTF8Encoding(false),
+                    false,
+                    1024,
+                    true
+                ))
+                using (StreamWriter writer = new StreamWriter(
+                    pipe,
+                    new UTF8Encoding(false),
+                    1024,
+                    true
+                ))
+                {
+                    writer.AutoFlush = true;
+                    writer.WriteLine(normalized);
+
+                    string response = reader.ReadLine();
+                    if (String.IsNullOrWhiteSpace(response))
+                    {
+                        Console.WriteLine("ERR empty-response");
+                        return 5;
+                    }
+
+                    Console.WriteLine(response);
+                    return response.StartsWith("OK ", StringComparison.OrdinalIgnoreCase)
+                        ? 0
+                        : 6;
+                }
+            }
+        }
+        catch (TimeoutException)
+        {
+            Console.WriteLine("ERR bridge-unavailable");
+            return 4;
+        }
+        catch (IOException)
+        {
+            Console.WriteLine("ERR bridge-unavailable");
+            return 4;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("ERR " + ex.GetType().Name);
+            return 10;
+        }
+    }
+
+    private static void ControlBridgeLoop()
+    {
+        while (!shuttingDown)
+        {
+            try
+            {
+                using (NamedPipeServerStream pipe = new NamedPipeServerStream(
+                    CONTROL_PIPE_NAME,
+                    PipeDirection.InOut,
+                    1,
+                    PipeTransmissionMode.Byte,
+                    PipeOptions.None
+                ))
+                {
+                    pipe.WaitForConnection();
+
+                    using (StreamReader reader = new StreamReader(
+                        pipe,
+                        new UTF8Encoding(false),
+                        false,
+                        1024,
+                        true
+                    ))
+                    using (StreamWriter writer = new StreamWriter(
+                        pipe,
+                        new UTF8Encoding(false),
+                        1024,
+                        true
+                    ))
+                    {
+                        writer.AutoFlush = true;
+
+                        string requested = reader.ReadLine();
+
+                        bool ready;
+                        string currentProfile;
+                        string currentLeftMode;
+                        string currentRightMode;
+                        string currentTwitchTarget;
+                        bool currentSettingsOpen;
+                        bool currentVolumeActive;
+                        bool currentFullscreenActive;
+                        lock (StateLock)
+                        {
+                            ready = protocolCompatible && initialized;
+                            currentProfile = layoutProfile ?? "unknown";
+                            currentLeftMode = leftMode ?? "unknown";
+                            currentRightMode = rightMode ?? "unknown";
+                            currentTwitchTarget = twitchTarget ?? "resume";
+                            currentSettingsOpen = settingsOpen;
+                            currentVolumeActive = volumeActive;
+                            currentFullscreenActive = fullscreenActive;
+                        }
+
+                        if (!ready || shuttingDown)
+                        {
+                            writer.WriteLine("ERR not-ready");
+                            continue;
+                        }
+
+                        if (String.Equals(requested, "__status__", StringComparison.OrdinalIgnoreCase))
+                        {
+                            writer.WriteLine(
+                                "OK status layout=" + currentProfile +
+                                " left=" + currentLeftMode +
+                                " right=" + currentRightMode +
+                                " twitchTarget=" + currentTwitchTarget +
+                                " settings=" + (currentSettingsOpen ? "1" : "0") +
+                                " volume=" + (currentVolumeActive ? "1" : "0") +
+                                " fullscreen=" + (currentFullscreenActive ? "1" : "0")
+                            );
+                            continue;
+                        }
+
+                        string action;
+                        if (!TryNormalizeControlAction(requested, out action))
+                        {
+                            writer.WriteLine("ERR invalid-action");
+                            continue;
+                        }
+
+                        bool compact = String.Equals(
+                            currentProfile,
+                            "compact",
+                            StringComparison.OrdinalIgnoreCase
+                        );
+
+                        if (
+                            compact &&
+                            (
+                                String.Equals(action, "discord", StringComparison.OrdinalIgnoreCase) ||
+                                String.Equals(action, "twitch", StringComparison.OrdinalIgnoreCase) ||
+                                String.Equals(action, "twitch-drops", StringComparison.OrdinalIgnoreCase)
+                            )
+                        )
+                        {
+                            writer.WriteLine("ERR unsupported-compact");
+                            continue;
+                        }
+
+                        if (String.Equals(action, "volume", StringComparison.OrdinalIgnoreCase))
+                        {
+                            TriggerVolumeShortcut();
+                        }
+                        else
+                        {
+                            SendAction(action);
+                        }
+
+                        LogDiagnostic("control bridge action=" + action);
+                        writer.WriteLine("OK " + action);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!shuttingDown)
+                {
+                    LogDiagnostic("control bridge error: " + ex.GetType().Name + ": " + ex.Message);
+                    Thread.Sleep(150);
+                }
+            }
+        }
     }
 
     private static void SendAction(string action)

@@ -34,7 +34,8 @@ async function syncConnectedTitlebarNative() {
     const state =
         await chrome.storage.local.get([
             "leftMode",
-            "rightMode"
+            "rightMode",
+            "twitchTarget"
         ]);
 
     await refreshTitlebarVolumeActive(
@@ -52,7 +53,9 @@ async function syncConnectedTitlebarNative() {
             "landing",
         state.rightMode ||
             "dashboard",
-        visibilityMode
+        visibilityMode,
+        state.twitchTarget ||
+            "resume"
     );
 }
 
@@ -231,7 +234,8 @@ async function connectTitlebarNative() {
     const state =
         await chrome.storage.local.get([
             "leftMode",
-            "rightMode"
+            "rightMode",
+            "twitchTarget"
         ]);
 
     let volumeShortcut =
@@ -312,6 +316,10 @@ async function connectTitlebarNative() {
                 state.rightMode ||
                 "dashboard",
 
+            twitchTarget:
+                state.twitchTarget ||
+                "resume",
+
             visibilityMode,
 
             settingsOpen:
@@ -327,7 +335,7 @@ async function connectTitlebarNative() {
         });
 
         titlebarLastStateKey =
-            `${state.leftMode || "landing"}|${state.rightMode || "dashboard"}|${visibilityMode}|${streamShellDisplayProfileCache?.mode || "wide"}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
+            `${state.leftMode || "landing"}|${state.rightMode || "dashboard"}|${state.twitchTarget || "resume"}|${visibilityMode}|${streamShellDisplayProfileCache?.mode || "wide"}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
 
         startTitlebarReconcileLoop();
     } catch {
@@ -853,7 +861,8 @@ function requestTitlebarFocus(
 function sendTitlebarState(
     leftMode,
     rightMode,
-    visibilityMode = "none"
+    visibilityMode = "none",
+    twitchTarget = "resume"
 ) {
     if (
         !titlebarPort ||
@@ -874,11 +883,16 @@ function sendTitlebarState(
         visibilityMode ||
         "none";
 
+    const nextTwitchTarget =
+        twitchTarget === "drops"
+            ? "drops"
+            : "resume";
+
     const layoutProfile =
         streamShellDisplayProfileCache?.mode || "wide";
 
     const key =
-        `${nextLeft}|${nextRight}|${nextVisibility}|${layoutProfile}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
+        `${nextLeft}|${nextRight}|${nextTwitchTarget}|${nextVisibility}|${layoutProfile}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
 
     if (
         key ===
@@ -902,6 +916,9 @@ function sendTitlebarState(
 
             rightMode:
                 nextRight,
+
+            twitchTarget:
+                nextTwitchTarget,
 
             visibilityMode:
                 nextVisibility,
@@ -970,7 +987,8 @@ async function setTitlebarSettingsOpen(
         await Promise.all([
             chrome.storage.local.get([
                 "leftMode",
-                "rightMode"
+                "rightMode",
+                "twitchTarget"
             ]),
             getTitlebarVisibilityMode()
         ]);
@@ -980,7 +998,9 @@ async function setTitlebarSettingsOpen(
             "landing",
         state.rightMode ||
             "dashboard",
-        visibilityMode
+        visibilityMode,
+        state.twitchTarget ||
+            "resume"
     );
 }
 
@@ -1133,6 +1153,14 @@ function handleTitlebarNativeMessage(
                     "twitch"
                 ) {
                     await showTwitch("resume");
+                    return;
+                }
+
+                if (
+                    action ===
+                    "twitch-drops"
+                ) {
+                    await showTwitch("drops");
                     return;
                 }
 

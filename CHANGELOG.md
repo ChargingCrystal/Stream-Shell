@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+## 0.18.12 — Unified Remote Repository Integration
+
+- Added the first-party Stream Shell Unified Remote v0.8.3 under `integrations/unified-remote/` instead of maintaining it as a detached sidecar archive.
+- Mirrored Unified Remote's `Remotes/Custom/Stream Shell` subtree inside the repository and added Windows installer/uninstaller wrappers targeting the official `C:\ProgramData\Unified Remote\Remotes\Custom\Stream Shell` location.
+- Documented the native titlebar-helper dependency, install/update flow, Compact/Wide behavior and active-state semantics.
+- Updated public project/version descriptions to include the optional remote-control integration.
+- No Stream Shell runtime, provider, window-management or native-helper behavior changed from 0.18.11.
+
+## 0.18.11 — Unified Remote State Sync Fix
+
+- Added an explicit `twitchTarget=resume|drops` bridge state while keeping `rightMode=twitch` unchanged for existing Twitch window, Auto-Mute and cleanup logic.
+- Included the Twitch target in native titlebar state deduplication so switching between Twitch Resume and Drops always propagates even when the right-side surface itself does not change.
+- Kept the target synchronized when the managed Twitch tab navigates between Drops Inventory and normal Twitch content, so external highlighting reflects the live page instead of only the last remote action.
+- Extended `StreamShellTitlebarHost.exe --status` with `twitchTarget` for deterministic external-control highlighting.
+- Kept the existing Volume Boost state export available for Unified Remote active-state styling.
+
+## 0.18.10 — Unified Remote Action Surface
+
+- Wired the remaining Unified Remote controls through the local native control bridge: Home, Settings, all five providers, Reload, Volume Boost, Discord, Twitch and Kill.
+- Added a native bridge status query so external control surfaces can adapt to the active Wide/Compact layout instead of assuming the 32:9 action set.
+- Marked Discord and Twitch controls as Wide-only at the bridge boundary; Compact remotes can hide those actions and receive an explicit `unsupported-compact` error if invoked externally.
+- Split Twitch into separate Resume/Show and Drops Inventory actions while keeping the established single-window Twitch model; no legacy Drops worker is restored.
+
+## 0.18.9 — Unified Remote Control Bridge
+
+- Added a local named-pipe control bridge to the existing native titlebar host so trusted local control surfaces can reuse Stream Shell's existing action vocabulary instead of duplicating provider/window logic.
+- Added `StreamShellTitlebarHost.exe --action <name>` client mode with explicit action allowlisting and bridge-ready/error responses.
+- Kept the native-messaging protocol at v4; the bridge forwards accepted actions through the same native action event path already used by the titlebar.
+- Added the first Unified Remote bridge pilot for Dashboard while leaving the remaining remote buttons in preview mode until the transport is verified on-device.
+
 ## 0.18.8 — Display-Target Settings + Compact Occlusion Fix
 
 - Fixed Compact titlebar occlusion checks at monitor edges by using DWM visible frame bounds instead of Chromium's invisible maximized resize frames; focusing a window on an adjacent monitor no longer hides unobstructed Stream Shell chrome.

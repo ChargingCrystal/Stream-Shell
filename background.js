@@ -509,7 +509,8 @@ async function openShellHome() {
      */
     await chrome.storage.local.set({
         leftMode: compact ? "dashboard" : "landing",
-        rightMode: "dashboard"
+        rightMode: "dashboard",
+        twitchTarget: "resume"
     });
 
     await ensureTitlebarNative();
@@ -3107,8 +3108,25 @@ async function deactivateTwitchForRightSurface(options = {}) {
      * window remains at RIGHT and the next restored surface simply covers it. */
 }
 
+async function syncManagedTwitchTargetFromUrl(windowId, url) {
+    if (!Number.isInteger(windowId) || !isTwitchUrl(url)) return;
+
+    const managedWindowId = await getTwitchWindowId();
+    if (managedWindowId !== windowId) return;
+
+    const nextTarget = isTwitchDropsUrl(url) ? "drops" : "resume";
+    const state = await chrome.storage.local.get(["rightMode", "twitchTarget"]);
+
+    if (state.rightMode !== "twitch" || state.twitchTarget === nextTarget) return;
+
+    await chrome.storage.local.set({ twitchTarget: nextTarget });
+    await broadcastState();
+}
+
 async function showTwitch(target = "resume") {
     if (shuttingDown) return;
+
+    const twitchTarget = target === "drops" ? "drops" : "resume";
 
     const profile = await getStreamShellDisplayProfile().catch(() => null);
     if (profile?.mode === "compact") {
@@ -3121,11 +3139,14 @@ async function showTwitch(target = "resume") {
     await hideDiscordForDashboard();
     await restoreWindow(dashboardId, RIGHT, false);
 
-    await activateTwitchTargetInMainWindow(twitchWindowId, target);
+    await activateTwitchTargetInMainWindow(twitchWindowId, twitchTarget);
 
     await syncTwitchAutoMuteForWindow(twitchWindowId);
 
-    await chrome.storage.local.set({ rightMode: "twitch" });
+    await chrome.storage.local.set({
+        rightMode: "twitch",
+        twitchTarget
+    });
 
     await restoreWindow(twitchWindowId, RIGHT, true);
     await claimFocusedTitlebarSurface(twitchWindowId);
@@ -3226,6 +3247,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
                 }
             })
             .catch(() => {});
+        syncManagedTwitchTargetFromUrl(tab.windowId, url).catch(() => {});
         syncTwitchAutoMuteForTab(tab).catch(() => {});
     }
 });
@@ -3295,7 +3317,8 @@ async function syncConnectedTitlebarNative() {
     const state =
         await chrome.storage.local.get([
             "leftMode",
-            "rightMode"
+            "rightMode",
+            "twitchTarget"
         ]);
 
     await refreshTitlebarVolumeActive(
@@ -3313,7 +3336,9 @@ async function syncConnectedTitlebarNative() {
             "landing",
         state.rightMode ||
             "dashboard",
-        visibilityMode
+        visibilityMode,
+        state.twitchTarget ||
+            "resume"
     );
 }
 
@@ -3492,7 +3517,8 @@ async function connectTitlebarNative() {
     const state =
         await chrome.storage.local.get([
             "leftMode",
-            "rightMode"
+            "rightMode",
+            "twitchTarget"
         ]);
 
     let volumeShortcut =
@@ -3573,6 +3599,10 @@ async function connectTitlebarNative() {
                 state.rightMode ||
                 "dashboard",
 
+            twitchTarget:
+                state.twitchTarget ||
+                "resume",
+
             visibilityMode,
 
             settingsOpen:
@@ -3588,7 +3618,7 @@ async function connectTitlebarNative() {
         });
 
         titlebarLastStateKey =
-            `${state.leftMode || "landing"}|${state.rightMode || "dashboard"}|${visibilityMode}|${streamShellDisplayProfileCache?.mode || "wide"}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
+            `${state.leftMode || "landing"}|${state.rightMode || "dashboard"}|${state.twitchTarget || "resume"}|${visibilityMode}|${streamShellDisplayProfileCache?.mode || "wide"}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
 
         startTitlebarReconcileLoop();
     } catch {
@@ -4114,7 +4144,8 @@ function requestTitlebarFocus(
 function sendTitlebarState(
     leftMode,
     rightMode,
-    visibilityMode = "none"
+    visibilityMode = "none",
+    twitchTarget = "resume"
 ) {
     if (
         !titlebarPort ||
@@ -4135,11 +4166,16 @@ function sendTitlebarState(
         visibilityMode ||
         "none";
 
+    const nextTwitchTarget =
+        twitchTarget === "drops"
+            ? "drops"
+            : "resume";
+
     const layoutProfile =
         streamShellDisplayProfileCache?.mode || "wide";
 
     const key =
-        `${nextLeft}|${nextRight}|${nextVisibility}|${layoutProfile}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
+        `${nextLeft}|${nextRight}|${nextTwitchTarget}|${nextVisibility}|${layoutProfile}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
 
     if (
         key ===
@@ -4163,6 +4199,9 @@ function sendTitlebarState(
 
             rightMode:
                 nextRight,
+
+            twitchTarget:
+                nextTwitchTarget,
 
             visibilityMode:
                 nextVisibility,
@@ -4231,7 +4270,8 @@ async function setTitlebarSettingsOpen(
         await Promise.all([
             chrome.storage.local.get([
                 "leftMode",
-                "rightMode"
+                "rightMode",
+                "twitchTarget"
             ]),
             getTitlebarVisibilityMode()
         ]);
@@ -4241,7 +4281,9 @@ async function setTitlebarSettingsOpen(
             "landing",
         state.rightMode ||
             "dashboard",
-        visibilityMode
+        visibilityMode,
+        state.twitchTarget ||
+            "resume"
     );
 }
 
@@ -4394,6 +4436,14 @@ function handleTitlebarNativeMessage(
                     "twitch"
                 ) {
                     await showTwitch("resume");
+                    return;
+                }
+
+                if (
+                    action ===
+                    "twitch-drops"
+                ) {
+                    await showTwitch("drops");
                     return;
                 }
 
@@ -9211,7 +9261,8 @@ async function broadcastState() {
             chrome.storage.local.get([
                 "activeProvider",
                 "leftMode",
-                "rightMode"
+                "rightMode",
+                "twitchTarget"
             ]),
             isLandingExposed(),
             getTitlebarVisibilityMode()
@@ -9235,7 +9286,9 @@ async function broadcastState() {
             "landing",
         state.rightMode ||
             "dashboard",
-        titlebarVisibilityMode
+        titlebarVisibilityMode,
+        state.twitchTarget ||
+            "resume"
     );
 
     try {
@@ -9254,6 +9307,10 @@ async function broadcastState() {
             rightMode:
                 state.rightMode ||
                 "dashboard",
+
+            twitchTarget:
+                state.twitchTarget ||
+                "resume",
 
             landingExposed
         });

@@ -513,8 +513,25 @@ async function deactivateTwitchForRightSurface(options = {}) {
      * window remains at RIGHT and the next restored surface simply covers it. */
 }
 
+async function syncManagedTwitchTargetFromUrl(windowId, url) {
+    if (!Number.isInteger(windowId) || !isTwitchUrl(url)) return;
+
+    const managedWindowId = await getTwitchWindowId();
+    if (managedWindowId !== windowId) return;
+
+    const nextTarget = isTwitchDropsUrl(url) ? "drops" : "resume";
+    const state = await chrome.storage.local.get(["rightMode", "twitchTarget"]);
+
+    if (state.rightMode !== "twitch" || state.twitchTarget === nextTarget) return;
+
+    await chrome.storage.local.set({ twitchTarget: nextTarget });
+    await broadcastState();
+}
+
 async function showTwitch(target = "resume") {
     if (shuttingDown) return;
+
+    const twitchTarget = target === "drops" ? "drops" : "resume";
 
     const profile = await getStreamShellDisplayProfile().catch(() => null);
     if (profile?.mode === "compact") {
@@ -527,11 +544,14 @@ async function showTwitch(target = "resume") {
     await hideDiscordForDashboard();
     await restoreWindow(dashboardId, RIGHT, false);
 
-    await activateTwitchTargetInMainWindow(twitchWindowId, target);
+    await activateTwitchTargetInMainWindow(twitchWindowId, twitchTarget);
 
     await syncTwitchAutoMuteForWindow(twitchWindowId);
 
-    await chrome.storage.local.set({ rightMode: "twitch" });
+    await chrome.storage.local.set({
+        rightMode: "twitch",
+        twitchTarget
+    });
 
     await restoreWindow(twitchWindowId, RIGHT, true);
     await claimFocusedTitlebarSurface(twitchWindowId);
@@ -632,6 +652,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
                 }
             })
             .catch(() => {});
+        syncManagedTwitchTargetFromUrl(tab.windowId, url).catch(() => {});
         syncTwitchAutoMuteForTab(tab).catch(() => {});
     }
 });

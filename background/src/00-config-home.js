@@ -262,7 +262,8 @@ async function openShellHome() {
      */
     await chrome.storage.local.set({
         leftMode: compact ? "dashboard" : "landing",
-        rightMode: "dashboard"
+        rightMode: "dashboard",
+        twitchTarget: "resume"
     });
 
     await ensureTitlebarNative();

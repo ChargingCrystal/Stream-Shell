@@ -1609,3 +1609,37 @@
 - Switched Compact monitor-edge occlusion checks to DWM visible frame bounds so Chromium's invisible maximized resize frame no longer hides unobstructed titlebar chrome when focus moves to an adjacent monitor.
 
 **Native helper:** Reinstall `native/install-titlebar-helper.cmd` if updating from a build that predates the Compact monitor-edge occlusion fix.
+
+## 0.18.9 — Unified Remote Control Bridge
+
+- Added a local named-pipe control bridge to the existing native titlebar host.
+- Added `StreamShellTitlebarHost.exe --action <name>` client mode with explicit action allowlisting and bridge-ready/error responses.
+- Reused the existing native titlebar action event path instead of introducing separate provider/window-management logic for remote integrations.
+- Kept native-messaging protocol v4 unchanged.
+- Added the first Unified Remote pilot with Dashboard as the only live bridged action while the remaining buttons stay preview-only.
+
+**Native helper:** Reinstall `native/install-titlebar-helper.cmd` after updating.
+
+## 0.18.10 — Unified Remote Action Surface
+
+- Completed Unified Remote control coverage through the local named-pipe bridge.
+- Added bridge status reporting so the remote can distinguish Wide from Compact and reflect the current shell surface.
+- Kept Discord/Twitch/Twitch Drops as Wide-only auxiliary actions and rejected them explicitly from Compact external-control calls.
+- Split Twitch Resume/Show from Drops Inventory while retaining the single managed Twitch window introduced in 0.16.3.
+
+## 0.18.11 — Unified Remote State Sync Fix
+
+- Added explicit `twitchTarget=resume|drops` state while preserving `rightMode=twitch` for the existing Twitch surface model.
+- Threaded the Twitch target through extension storage, native titlebar state, state deduplication and `StreamShellTitlebarHost.exe --status`.
+- Synchronized the target with live navigation inside the managed Twitch window.
+- Preserved the existing Volume Boost bridge state for Unified Remote active-state highlighting.
+
+**Native helper:** Reinstall `native/install-titlebar-helper.cmd` after updating.
+
+## 0.18.12 — Unified Remote Repository Integration
+
+- Added Stream Shell Unified Remote v0.8.3 to the main repository under `integrations/unified-remote/`.
+- Added the mirrored `Remotes/Custom/Stream Shell` subtree plus installer/uninstaller wrappers for the official Windows custom-remotes location.
+- Documented the titlebar-helper dependency, installation/update flow and active-state behavior.
+- Updated repository-facing version/description text.
+- Made no runtime, provider, window-management or native-helper changes from 0.18.11.

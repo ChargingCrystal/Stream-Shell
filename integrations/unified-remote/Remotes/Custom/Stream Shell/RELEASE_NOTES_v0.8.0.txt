@@ -1,0 +1,16 @@
+Stream Shell Unified Remote v0.8.0
+==================================
+
+Visual reset
+------------
+- Rebuilt from the known-good v0.7.0 action-wired remote, not from the failed v0.7.2 styling pass.
+- Custom button art now uses scale="fit"; labels are baked into correctly proportioned assets so Unified Remote no longer crops/zooms them.
+- Provider buttons use neutral backgrounds by default; brand color lives in the provider icon.
+- The currently active provider gets a restrained brand-tinted background.
+- Landing / Dashboard / Settings remain neutral and use only a subtle active-state brightness change.
+- Navigation and shell icons were normalized to consistent optical size.
+- Reload now matches the other shell controls.
+- Kill remains icon-only and is substantially smaller.
+- Auxiliary row is Discord 50% / Twitch 35% / Drops 15%.
+- Twitch Drops uses the same gift-outline visual as Stream Shell Landing and is icon-only.
+- Existing bridge actions and Wide/Compact visibility behavior remain unchanged.

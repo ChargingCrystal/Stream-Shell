@@ -192,7 +192,8 @@ async function broadcastState() {
             chrome.storage.local.get([
                 "activeProvider",
                 "leftMode",
-                "rightMode"
+                "rightMode",
+                "twitchTarget"
             ]),
             isLandingExposed(),
             getTitlebarVisibilityMode()
@@ -216,7 +217,9 @@ async function broadcastState() {
             "landing",
         state.rightMode ||
             "dashboard",
-        titlebarVisibilityMode
+        titlebarVisibilityMode,
+        state.twitchTarget ||
+            "resume"
     );
 
     try {
@@ -235,6 +238,10 @@ async function broadcastState() {
             rightMode:
                 state.rightMode ||
                 "dashboard",
+
+            twitchTarget:
+                state.twitchTarget ||
+                "resume",
 
             landingExposed
         });

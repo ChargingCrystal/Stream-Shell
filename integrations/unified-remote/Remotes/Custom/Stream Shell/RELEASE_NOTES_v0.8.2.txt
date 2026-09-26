@@ -1,0 +1,12 @@
+Stream Shell Unified Remote v0.8.2
+
+Active-state fix:
+- Fixed dynamic button styling by binding `local server = libs.server` before using `server.update(...)`.
+- Volume Booster now highlights from the bridge's existing `volume=0|1` state.
+- Twitch Resume/Show and Twitch Drops now use the explicit `twitchTarget=resume|drops` bridge state while `right=twitch` remains unchanged.
+- Kept backward-compatible behavior: if an older bridge does not expose `twitchTarget`, the main Twitch button is treated as active.
+
+Behavior:
+- Provider, Landing, Dashboard, Settings, Discord and Twitch highlighting remains synchronized through `--status`.
+- Reload intentionally remains neutral because it has no persistent active state.
+- Compact still hides the Wide-only auxiliary row.

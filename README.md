@@ -6,7 +6,7 @@
 
 Stream Shell is a personal Opera GX / Chromium extension that turns several streaming services into one managed desktop-style shell. It was built around my own Windows setup and workflow first; other setups may work, but compatibility is best-effort rather than a product promise.
 
-Current public version: **0.18.6**.
+Current public version: **0.18.12**.
 
 ## What it does
 
@@ -22,6 +22,7 @@ Highlights include:
 - Twitch channel-points/Drops automation, raid guard and audio handling.
 - A tab-capture based Volume Booster with a Chromium fullscreen bridge.
 - Optional native Windows helpers for Stream Shell titlebars/window controls and Discord desktop integration.
+- Optional first-party Unified Remote control surface with live Stream Shell active-state highlighting.
 - Settings export/import, diagnostics, self-test/repair paths and resource-governor logic.
 
 ## Reality check / support policy
@@ -61,6 +62,12 @@ The `native/` folder contains source and installer scripts for two Windows Nativ
 
 Read [`native/TITLEBAR-README.txt`](native/TITLEBAR-README.txt) and [`native/README.txt`](native/README.txt) before installing them. The Discord helper resolves the stable client dynamically from `%LOCALAPPDATA%\\Discord` and contains no user-specific executable path.
 
+### Optional: Unified Remote
+
+The repository includes a first-party custom Unified Remote under [`integrations/unified-remote/`](integrations/unified-remote/). It controls Stream Shell through the local native titlebar bridge and mirrors the active provider/surface state in the mobile remote.
+
+Install the Stream Shell titlebar helper first, then run `integrations/unified-remote/install-unified-remote.cmd` or copy `integrations/unified-remote/Remotes/Custom/Stream Shell` to `C:\ProgramData\Unified Remote\Remotes\Custom\Stream Shell`. Restart Unified Remote Server afterwards. The integration is optional and Unified Remote itself is third-party software.
+
 ## Source layout
 
 Stream Shell keeps canonical source fragments next to generated runtime bundles:
@@ -72,6 +79,7 @@ Stream Shell keeps canonical source fragments next to generated runtime bundles:
 - `providers/` → provider content scripts, themes and player helpers
 - `media/` → local library / TMDB integration
 - `native/` → optional Windows Native Messaging helpers
+- `integrations/unified-remote/` → optional Unified Remote custom remote plus installer/uninstaller
 
 PowerShell build scripts and `SOURCE-README.txt` files document the bundle order for the larger generated files.
 
@@ -91,4 +99,4 @@ Copyright © 2026 **Sven Rieseler**.
 
 ## Third-party services and trademarks
 
-Stream Shell is independent and is not affiliated with or endorsed by the services it integrates. Netflix, Prime Video/Amazon, YouTube/Google, Disney+, Crunchyroll, Twitch, Discord, TMDB, JustWatch and Return YouTube Dislike are names/trademarks/projects of their respective owners.
+Stream Shell is independent and is not affiliated with or endorsed by the services it integrates. Netflix, Prime Video/Amazon, YouTube/Google, Disney+, Crunchyroll, Twitch, Discord, TMDB, JustWatch, Return YouTube Dislike and Unified Remote are names/trademarks/projects of their respective owners.

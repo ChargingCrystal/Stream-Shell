@@ -1,0 +1,5 @@
+meta.name: Stream Shell
+meta.author: Sven Rieseler
+meta.description: Remote control for Stream Shell through its local Windows control bridge.
+meta.platform: windows
+meta.version: 11

@@ -1,0 +1,11 @@
+Stream Shell Unified Remote v0.8.1
+
+Active-state pass:
+- Providers: only the active provider gets a subtle brand tint.
+- Navigation: Landing, Dashboard, and Settings use a subtle neutral active tint.
+- Auxiliary row: Discord, Twitch, and Drops now also get active-state tinting when they are the active right-side surface in Wide mode.
+- Reload and Volume Booster remain neutral unless a real state is introduced later.
+
+Behavior:
+- Compact layout still hides the Wide-only auxiliary row.
+- Status refresh logic now reads both left and right surface state from the Stream Shell bridge so highlighting stays in sync.

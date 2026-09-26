@@ -270,6 +270,10 @@ This is the reconstructed version order from the recovered development chats. It
 - **0.18.6** — 16:9 Subscription Refinement
 - **0.18.7** — YouTube Compact Titlebar / Focus Repair
 - **0.18.8** — Display-Target Settings + Compact Occlusion Fix
+- **0.18.9** — Unified Remote Control Bridge
+- **0.18.10** — Unified Remote Action Surface
+- **0.18.11** — Unified Remote State Sync Fix
+- **0.18.12** — Unified Remote Repository Integration
 
 ## Known unresolved gaps
 

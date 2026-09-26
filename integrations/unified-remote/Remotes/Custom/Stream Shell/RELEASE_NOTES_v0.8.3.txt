@@ -1,0 +1,14 @@
+Stream Shell Unified Remote v0.8.3
+
+Active-state edge cases:
+- Wide Dashboard now follows the right-side surface (`right=dashboard`) instead of the left-side mode.
+- Opening Settings highlights both Dashboard and Settings because Settings overlays Dashboard.
+- Bringing Discord or Twitch above the right pane immediately clears both Dashboard and Settings highlights.
+- External/native applications do not alter Stream Shell button state; the bridge continues to report the last internal Stream Shell surfaces only.
+
+Responsiveness:
+- While the Unified Remote page is focused, bridge state is polled once per second so PC-side surface changes catch up without reopening/refocusing the remote.
+- Polling stops when the remote is blurred.
+- Post-action settling delay increased from 180 ms to 300 ms to reduce stale reads directly after a Stream Shell action.
+
+No Stream Shell extension/native-helper update is required for this release.
