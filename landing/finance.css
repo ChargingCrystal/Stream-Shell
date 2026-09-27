@@ -472,3 +472,100 @@
     opacity: .55;
     cursor: wait;
 }
+
+
+.finance-operations-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+
+    gap: 10px;
+}
+
+
+.finance-print,
+.finance-reconcile {
+    min-width: 150px;
+
+    padding: 11px 17px;
+
+    border-radius: 11px;
+
+    color:
+        #fff;
+
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .08em;
+
+    cursor: pointer;
+}
+
+
+.finance-print {
+    border: 1px solid rgba(255, 255, 255, .16);
+
+    background:
+        rgba(255, 255, 255, .055);
+}
+
+
+.finance-print:hover:not(:disabled) {
+    background:
+        rgba(255, 255, 255, .10);
+}
+
+
+.finance-print:disabled {
+    opacity: .38;
+    cursor: not-allowed;
+}
+
+
+.finance-print-report {
+    display: none;
+}
+
+
+@media print {
+    @page {
+        size: A4 portrait;
+        margin: 14mm;
+    }
+
+    html,
+    body {
+        background: #fff !important;
+        color: #000 !important;
+    }
+
+    body > *:not(.finance-print-report) {
+        display: none !important;
+    }
+
+    body > .finance-print-report {
+        display: block !important;
+
+        width: auto;
+        margin: 0;
+        padding: 0;
+
+        overflow: visible;
+
+        background: #fff;
+        color: #000;
+
+        font-family:
+            "Cascadia Mono",
+            "Consolas",
+            "Courier New",
+            monospace;
+
+        font-size: 8pt;
+        font-weight: 400;
+        line-height: 1.28;
+        letter-spacing: 0;
+
+        white-space: pre;
+    }
+}

@@ -1703,3 +1703,13 @@
 - Generalized runtime-path diagnostics so they instruct the user to reinstall from the current checkout rather than naming an obsolete patch version.
 - Kept the 0.18.16 billing exposure model and 0.18.17 Crunchyroll Google Play source behavior unchanged.
 
+## 0.18.19 — COBOL Printable Financial Report
+
+- Extended the real GnuCOBOL finance worker from aggregate reconciliation into statement generation: it now retains each fixed-width ledger row and produces a printer-ready subscription exposure report itself.
+- Added a dated fixed-width report containing service, status, billing source, cadence, monthly equivalent, annualized value, active/ending summary counts and monthly billing-source exposure.
+- Kept the existing machine-readable `KEY=VALUE` reconciliation fields and added a bounded `PRINT_REPORT_BEGIN` / `PRINT_REPORT_END` section for the browser UI.
+- Added a Wide `PRINT REPORT` action that prints only the COBOL-produced statement using A4 print CSS; browser Save as PDF therefore works without a separate export renderer.
+- Invalidated the printable statement whenever finance inputs change so a stale report cannot be printed without another reconciliation.
+- Extended the native integration installer self-test to verify both reconciliation totals and printable statement generation.
+- Added a truthful GitHub Linguist mapping for `*.cob`; the expanded worker now exceeds the bundled Lua remote by source bytes, allowing COBOL to compete for the repository language sidebar instead of being grouped under Other.
+

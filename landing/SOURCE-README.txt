@@ -24,3 +24,7 @@ Global Continue Watching storage plus its user-editable completion threshold liv
 Wide-only finance source
 ------------------------
 `src/finance.js` is part of `landing/landing.js` only. It intentionally does not appear in Dashboard's Compact Home source list, so Compact does not parse or execute the COBOL finance UI/bridge code.
+
+Finance print path
+
+`src/finance.js` consumes the `PRINT_REPORT_BEGIN` / `PRINT_REPORT_END` section emitted by the GnuCOBOL worker. `PRINT REPORT` prints that COBOL-produced fixed-width statement through A4 print CSS; JavaScript does not reconstruct the financial statement.

@@ -616,6 +616,9 @@ async function syncSubscriptions() {
     let clickResetTimer =
         null;
 
+    let printableReport =
+        "";
+
 
     function clampCents(value) {
         const number =
@@ -747,11 +750,30 @@ async function syncSubscriptions() {
 
 
     function parseCobolReport(text) {
-        const result = {};
+        const fields = {};
+        const printLines = [];
+        let inPrintReport = false;
 
         for (const line of String(text || "").split(/\r?\n/)) {
             const trimmed =
                 line.trim();
+
+            if (trimmed === "PRINT_REPORT_BEGIN") {
+                inPrintReport = true;
+                continue;
+            }
+
+            if (trimmed === "PRINT_REPORT_END") {
+                inPrintReport = false;
+                continue;
+            }
+
+            if (inPrintReport) {
+                printLines.push(
+                    line.replace(/\s+$/, "")
+                );
+                continue;
+            }
 
             if (!trimmed) {
                 continue;
@@ -764,12 +786,18 @@ async function syncSubscriptions() {
                 continue;
             }
 
-            result[
+            fields[
                 trimmed.slice(0, separator)
             ] = trimmed.slice(separator + 1);
         }
 
-        return result;
+        return {
+            fields,
+            printable:
+                printLines.length
+                    ? printLines.join("\n").replace(/\s+$/, "") + "\n"
+                    : ""
+        };
     }
 
 
@@ -927,6 +955,85 @@ async function syncSubscriptions() {
     }
 
 
+    function setPrintReport(value) {
+        printableReport =
+            String(value || "");
+
+        const button =
+            overlay?.querySelector(
+                "#finance-print"
+            );
+
+        if (button) {
+            button.disabled =
+                !printableReport.trim();
+        }
+    }
+
+
+    function markReportDirty() {
+        setPrintReport(
+            ""
+        );
+
+        const status =
+            overlay?.querySelector(
+                "#finance-engine-status"
+            );
+
+        if (status) {
+            status.removeAttribute(
+                "data-ok"
+            );
+
+            status.textContent =
+                "INPUT CHANGED · RECONCILE REQUIRED";
+        }
+    }
+
+
+    function printFinancialReport() {
+        if (!printableReport.trim()) {
+            return;
+        }
+
+        const existing =
+            document.querySelector(
+                ".finance-print-report"
+            );
+
+        existing?.remove();
+
+        const report =
+            document.createElement("pre");
+
+        report.className =
+            "finance-print-report";
+
+        report.textContent =
+            printableReport;
+
+        document.body.append(
+            report
+        );
+
+        const cleanup = () => {
+            report.remove();
+            window.removeEventListener(
+                "afterprint",
+                cleanup
+            );
+        };
+
+        window.addEventListener(
+            "afterprint",
+            cleanup
+        );
+
+        window.print();
+    }
+
+
     function createMetric(label, value, id) {
         const element =
             document.createElement("div");
@@ -1060,6 +1167,11 @@ async function syncSubscriptions() {
         amount.dataset.financeAmount =
             provider.id;
 
+        amount.addEventListener(
+            "input",
+            markReportDirty
+        );
+
         amountWrap.append(
             currency,
             amount
@@ -1079,6 +1191,11 @@ async function syncSubscriptions() {
 
         cadence.value =
             finance.cadence;
+
+        cadence.addEventListener(
+            "change",
+            markReportDirty
+        );
 
         const monthly =
             document.createElement("span");
@@ -1334,13 +1451,23 @@ async function syncSubscriptions() {
         }
 
         try {
-            renderReport(
+            const result =
                 await runCobolReconciliation(
                     subscriptions,
                     config
-                )
+                );
+
+            renderReport(
+                result.fields
+            );
+
+            setPrintReport(
+                result.printable
             );
         } catch (error) {
+            setPrintReport(
+                ""
+            );
             console.error(
                 "COBOL finance reconciliation failed:",
                 error
@@ -1365,6 +1492,9 @@ async function syncSubscriptions() {
         overlay?.remove();
         overlay =
             null;
+
+        printableReport =
+            "";
     }
 
 
@@ -1515,7 +1645,36 @@ async function syncSubscriptions() {
             document.createElement("span");
 
         note.textContent =
-            "Prices are stored locally. ACTIVE and ENDING services are included in exposure.";
+            "Prices are stored locally. ACTIVE and ENDING services are included in exposure. Print output is generated by COBOL.";
+
+        const actions =
+            document.createElement("div");
+
+        actions.className =
+            "finance-operations-actions";
+
+        const printButton =
+            document.createElement("button");
+
+        printButton.type =
+            "button";
+
+        printButton.id =
+            "finance-print";
+
+        printButton.className =
+            "finance-print";
+
+        printButton.textContent =
+            "PRINT REPORT";
+
+        printButton.disabled =
+            true;
+
+        printButton.addEventListener(
+            "click",
+            printFinancialReport
+        );
 
         const reconcileButton =
             document.createElement("button");
@@ -1544,9 +1703,14 @@ async function syncSubscriptions() {
             }
         );
 
+        actions.append(
+            printButton,
+            reconcileButton
+        );
+
         footer.append(
             note,
-            reconcileButton
+            actions
         );
 
         shell.append(

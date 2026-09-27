@@ -6,7 +6,7 @@
 
 Stream Shell is a personal Opera GX / Chromium extension that turns several streaming services into one managed desktop-style shell. It was built around my own Windows setup and workflow first; other setups may work, but compatibility is best-effort rather than a product promise.
 
-Current public version: **0.18.18**.
+Current public version: **0.18.19**.
 
 ## What it does
 
@@ -23,7 +23,7 @@ Highlights include:
 - A tab-capture based Volume Booster with a Chromium fullscreen bridge.
 - Optional native Windows helpers for Stream Shell titlebars/window controls and Discord desktop integration.
 - Optional first-party Unified Remote control surface with live Stream Shell active-state highlighting.
-- Optional Wide-only COBOL-backed subscription financial report with local price/cadence input and native reconciliation.
+- Optional Wide-only COBOL-backed subscription financial report with local price/cadence input, native reconciliation and a COBOL-generated printer-ready A4 statement.
 - Settings export/import, diagnostics, self-test/repair paths and resource-governor logic.
 
 ## Reality check / support policy

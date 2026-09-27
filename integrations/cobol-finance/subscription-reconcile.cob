@@ -25,7 +25,7 @@
            05 LR-BILLING           PIC X.
 
        FD  REPORT-FILE.
-       01  REPORT-LINE             PIC X(80).
+       01  REPORT-LINE             PIC X(96).
 
        WORKING-STORAGE SECTION.
        01  WS-ARG-COUNT            PIC 9(4) VALUE ZERO.
@@ -35,6 +35,8 @@
        01  WS-OUTPUT-STATUS        PIC XX VALUE SPACES.
        01  WS-END-OF-FILE          PIC X VALUE "N".
 
+       01  WS-MAX-ITEMS            PIC 9(2) VALUE 32.
+       01  WS-ITEM-COUNT           PIC 9(2) VALUE ZERO.
        01  WS-BILLABLE-COUNT       PIC 9(4) VALUE ZERO.
        01  WS-ACTIVE-COUNT         PIC 9(4) VALUE ZERO.
        01  WS-ENDING-COUNT         PIC 9(4) VALUE ZERO.
@@ -46,8 +48,34 @@
        01  WS-ITEM-MONTHLY         PIC 9(12) VALUE ZERO.
        01  WS-ITEM-ANNUAL          PIC 9(12) VALUE ZERO.
 
+       01  WS-ITEM-TABLE.
+           05 WS-ITEM OCCURS 32 TIMES.
+               10 WI-PROVIDER      PIC X(12).
+               10 WI-STATUS        PIC X.
+               10 WI-CADENCE       PIC X.
+               10 WI-AMOUNT-CENTS  PIC 9(9).
+               10 WI-BILLING       PIC X.
+               10 WI-MONTHLY-CENTS PIC 9(12).
+               10 WI-ANNUAL-CENTS  PIC 9(12).
+
        01  WS-DISPLAY-COUNT        PIC 9(4) VALUE ZERO.
+       01  WS-PRINT-COUNT          PIC ZZZ9.
        01  WS-DISPLAY-AMOUNT       PIC 9(12) VALUE ZERO.
+
+       01  WS-DATE-RAW             PIC X(8) VALUE SPACES.
+       01  WS-DATE-TEXT            PIC X(10) VALUE SPACES.
+       01  WS-PRINT-INDEX          PIC 9(2) VALUE ZERO.
+       01  WS-PRINT-SERVICE        PIC X(16) VALUE SPACES.
+       01  WS-PRINT-STATUS         PIC X(8) VALUE SPACES.
+       01  WS-PRINT-BILLING        PIC X(12) VALUE SPACES.
+       01  WS-PRINT-CADENCE        PIC X(8) VALUE SPACES.
+       01  WS-PRINT-MONTHLY        PIC X(18) VALUE SPACES.
+       01  WS-PRINT-ANNUAL         PIC X(18) VALUE SPACES.
+
+       01  WS-MONEY-SOURCE-CENTS   PIC 9(12) VALUE ZERO.
+       01  WS-MONEY-WORK           PIC 9(10)V99 VALUE ZERO.
+       01  WS-MONEY-EDIT           PIC ZZZ,ZZZ,ZZ9.99.
+       01  WS-MONEY-TEXT           PIC X(18) VALUE SPACES.
 
        PROCEDURE DIVISION.
        MAIN-PROCEDURE.
@@ -60,6 +88,16 @@
 
            ACCEPT WS-INPUT-PATH FROM ARGUMENT-VALUE
            ACCEPT WS-OUTPUT-PATH FROM ARGUMENT-VALUE
+           ACCEPT WS-DATE-RAW FROM DATE YYYYMMDD
+
+           STRING
+               WS-DATE-RAW(1:4) DELIMITED BY SIZE
+               "-" DELIMITED BY SIZE
+               WS-DATE-RAW(5:2) DELIMITED BY SIZE
+               "-" DELIMITED BY SIZE
+               WS-DATE-RAW(7:2) DELIMITED BY SIZE
+               INTO WS-DATE-TEXT
+           END-STRING
 
            OPEN INPUT LEDGER-FILE
            IF WS-INPUT-STATUS NOT = "00"
@@ -83,7 +121,8 @@
                END-READ
            END-PERFORM
 
-           PERFORM WRITE-REPORT
+           PERFORM WRITE-MACHINE-REPORT
+           PERFORM WRITE-PRINTABLE-REPORT
 
            CLOSE LEDGER-FILE
            CLOSE REPORT-FILE
@@ -92,6 +131,35 @@
            STOP RUN.
 
        PROCESS-LEDGER-RECORD.
+           MOVE ZERO TO WS-ITEM-MONTHLY
+           MOVE ZERO TO WS-ITEM-ANNUAL
+
+           IF LR-AMOUNT-CENTS NOT = ZERO
+               IF LR-CADENCE = "Y"
+                   DIVIDE LR-AMOUNT-CENTS BY 12
+                       GIVING WS-ITEM-MONTHLY ROUNDED
+                   MOVE LR-AMOUNT-CENTS TO WS-ITEM-ANNUAL
+               ELSE
+                   MOVE LR-AMOUNT-CENTS TO WS-ITEM-MONTHLY
+                   MULTIPLY LR-AMOUNT-CENTS BY 12
+                       GIVING WS-ITEM-ANNUAL
+               END-IF
+           END-IF
+
+           IF WS-ITEM-COUNT < WS-MAX-ITEMS
+               ADD 1 TO WS-ITEM-COUNT
+               MOVE LR-PROVIDER TO WI-PROVIDER(WS-ITEM-COUNT)
+               MOVE LR-STATUS TO WI-STATUS(WS-ITEM-COUNT)
+               MOVE LR-CADENCE TO WI-CADENCE(WS-ITEM-COUNT)
+               MOVE LR-AMOUNT-CENTS
+                   TO WI-AMOUNT-CENTS(WS-ITEM-COUNT)
+               MOVE LR-BILLING TO WI-BILLING(WS-ITEM-COUNT)
+               MOVE WS-ITEM-MONTHLY
+                   TO WI-MONTHLY-CENTS(WS-ITEM-COUNT)
+               MOVE WS-ITEM-ANNUAL
+                   TO WI-ANNUAL-CENTS(WS-ITEM-COUNT)
+           END-IF
+
            IF LR-STATUS NOT = "A" AND LR-STATUS NOT = "E"
                EXIT PARAGRAPH
            END-IF
@@ -108,16 +176,6 @@
                ADD 1 TO WS-ENDING-COUNT
            END-IF
 
-           IF LR-CADENCE = "Y"
-               DIVIDE LR-AMOUNT-CENTS BY 12
-                   GIVING WS-ITEM-MONTHLY ROUNDED
-               MOVE LR-AMOUNT-CENTS TO WS-ITEM-ANNUAL
-           ELSE
-               MOVE LR-AMOUNT-CENTS TO WS-ITEM-MONTHLY
-               MULTIPLY LR-AMOUNT-CENTS BY 12
-                   GIVING WS-ITEM-ANNUAL
-           END-IF
-
            ADD WS-ITEM-MONTHLY TO WS-MONTHLY-CENTS
            ADD WS-ITEM-ANNUAL TO WS-ANNUAL-CENTS
 
@@ -130,12 +188,20 @@
                    ADD WS-ITEM-MONTHLY TO WS-OTHER-CENTS
            END-EVALUATE.
 
-       WRITE-REPORT.
+       WRITE-MACHINE-REPORT.
            MOVE "STATUS=OK" TO REPORT-LINE
            WRITE REPORT-LINE
 
            MOVE SPACES TO REPORT-LINE
            MOVE "ENGINE=GNUCOBOL" TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           STRING
+               "REPORT_DATE=" DELIMITED BY SIZE
+               WS-DATE-TEXT DELIMITED BY SIZE
+               INTO REPORT-LINE
+           END-STRING
            WRITE REPORT-LINE
 
            MOVE WS-BILLABLE-COUNT TO WS-DISPLAY-COUNT
@@ -201,3 +267,239 @@
                INTO REPORT-LINE
            END-STRING
            WRITE REPORT-LINE.
+
+       WRITE-PRINTABLE-REPORT.
+           MOVE "PRINT_REPORT_BEGIN" TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE ALL "=" TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           MOVE "STREAM SHELL FINANCIAL OPERATIONS"
+               TO REPORT-LINE(32:33)
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           MOVE "SUBSCRIPTION EXPOSURE REPORT"
+               TO REPORT-LINE(35:28)
+           WRITE REPORT-LINE
+
+           MOVE ALL "=" TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           MOVE "REPORT DATE:" TO REPORT-LINE(1:12)
+           MOVE WS-DATE-TEXT TO REPORT-LINE(14:10)
+           MOVE "ENGINE:" TO REPORT-LINE(62:7)
+           MOVE "GNUCOBOL" TO REPORT-LINE(70:8)
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           MOVE "RECONCILIATION STATUS:" TO REPORT-LINE(1:22)
+           MOVE "OK" TO REPORT-LINE(24:2)
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           MOVE "SERVICE" TO REPORT-LINE(1:7)
+           MOVE "STATUS" TO REPORT-LINE(18:6)
+           MOVE "BILLING" TO REPORT-LINE(28:7)
+           MOVE "CADENCE" TO REPORT-LINE(42:7)
+           MOVE "MONTHLY" TO REPORT-LINE(53:7)
+           MOVE "ANNUALIZED" TO REPORT-LINE(73:10)
+           WRITE REPORT-LINE
+
+           MOVE ALL "-" TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           PERFORM VARYING WS-PRINT-INDEX FROM 1 BY 1
+               UNTIL WS-PRINT-INDEX > WS-ITEM-COUNT
+               PERFORM PREPARE-PRINT-ITEM
+               PERFORM WRITE-PRINT-ITEM
+           END-PERFORM
+
+           MOVE ALL "-" TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE "SUBSCRIPTION SUMMARY" TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE ALL "-" TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE "ACTIVE SERVICES" TO REPORT-LINE(1:15)
+           MOVE WS-ACTIVE-COUNT TO WS-DISPLAY-COUNT
+           MOVE WS-DISPLAY-COUNT TO WS-PRINT-COUNT
+           MOVE WS-PRINT-COUNT TO REPORT-LINE(90:4)
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           MOVE "ENDING SERVICES" TO REPORT-LINE(1:15)
+           MOVE WS-ENDING-COUNT TO WS-DISPLAY-COUNT
+           MOVE WS-DISPLAY-COUNT TO WS-PRINT-COUNT
+           MOVE WS-PRINT-COUNT TO REPORT-LINE(90:4)
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           MOVE "MONTHLY RUN RATE" TO REPORT-LINE(1:16)
+           MOVE WS-MONTHLY-CENTS TO WS-MONEY-SOURCE-CENTS
+           PERFORM FORMAT-MONEY
+           MOVE WS-MONEY-TEXT TO REPORT-LINE(77:18)
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           MOVE "ANNUALIZED EXPENDITURE" TO REPORT-LINE(1:22)
+           MOVE WS-ANNUAL-CENTS TO WS-MONEY-SOURCE-CENTS
+           PERFORM FORMAT-MONEY
+           MOVE WS-MONEY-TEXT TO REPORT-LINE(77:18)
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE "BILLING EXPOSURE (MONTHLY)" TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE ALL "-" TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE "Direct" TO REPORT-LINE(1:6)
+           MOVE WS-DIRECT-CENTS TO WS-MONEY-SOURCE-CENTS
+           PERFORM FORMAT-MONEY
+           MOVE WS-MONEY-TEXT TO REPORT-LINE(77:18)
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           MOVE "Google Play" TO REPORT-LINE(1:11)
+           MOVE WS-GOOGLE-CENTS TO WS-MONEY-SOURCE-CENTS
+           PERFORM FORMAT-MONEY
+           MOVE WS-MONEY-TEXT TO REPORT-LINE(77:18)
+           WRITE REPORT-LINE
+
+           IF WS-OTHER-CENTS NOT = ZERO
+               MOVE SPACES TO REPORT-LINE
+               MOVE "Other / unknown" TO REPORT-LINE(1:15)
+               MOVE WS-OTHER-CENTS TO WS-MONEY-SOURCE-CENTS
+               PERFORM FORMAT-MONEY
+               MOVE WS-MONEY-TEXT TO REPORT-LINE(77:18)
+               WRITE REPORT-LINE
+           END-IF
+
+           MOVE ALL "-" TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE SPACES TO REPORT-LINE
+           MOVE "Generated by the Stream Shell GnuCOBOL finance engine."
+               TO REPORT-LINE(1:54)
+           WRITE REPORT-LINE
+
+           MOVE "END OF REPORT" TO REPORT-LINE(1:13)
+           WRITE REPORT-LINE
+
+           MOVE ALL "=" TO REPORT-LINE
+           WRITE REPORT-LINE
+
+           MOVE "PRINT_REPORT_END" TO REPORT-LINE
+           WRITE REPORT-LINE.
+
+       PREPARE-PRINT-ITEM.
+           MOVE SPACES TO WS-PRINT-SERVICE
+           MOVE SPACES TO WS-PRINT-STATUS
+           MOVE SPACES TO WS-PRINT-BILLING
+           MOVE SPACES TO WS-PRINT-CADENCE
+           MOVE SPACES TO WS-PRINT-MONTHLY
+           MOVE SPACES TO WS-PRINT-ANNUAL
+
+           EVALUATE WI-PROVIDER(WS-PRINT-INDEX)
+               WHEN "YOUTUBE     "
+                   MOVE "YouTube" TO WS-PRINT-SERVICE
+               WHEN "NETFLIX     "
+                   MOVE "Netflix" TO WS-PRINT-SERVICE
+               WHEN "PRIME       "
+                   MOVE "Prime Video" TO WS-PRINT-SERVICE
+               WHEN "DISNEY      "
+                   MOVE "Disney+" TO WS-PRINT-SERVICE
+               WHEN "CRUNCHYROLL "
+                   MOVE "Crunchyroll" TO WS-PRINT-SERVICE
+               WHEN "DISCORD     "
+                   MOVE "Discord" TO WS-PRINT-SERVICE
+               WHEN OTHER
+                   MOVE WI-PROVIDER(WS-PRINT-INDEX)
+                       TO WS-PRINT-SERVICE
+           END-EVALUATE
+
+           EVALUATE WI-STATUS(WS-PRINT-INDEX)
+               WHEN "A"
+                   MOVE "ACTIVE" TO WS-PRINT-STATUS
+               WHEN "E"
+                   MOVE "ENDING" TO WS-PRINT-STATUS
+               WHEN "I"
+                   MOVE "INACTIVE" TO WS-PRINT-STATUS
+               WHEN OTHER
+                   MOVE "UNKNOWN" TO WS-PRINT-STATUS
+           END-EVALUATE
+
+           EVALUATE WI-BILLING(WS-PRINT-INDEX)
+               WHEN "D"
+                   MOVE "Direct" TO WS-PRINT-BILLING
+               WHEN "G"
+                   MOVE "Google Play" TO WS-PRINT-BILLING
+               WHEN OTHER
+                   MOVE "Other" TO WS-PRINT-BILLING
+           END-EVALUATE
+
+           IF WI-CADENCE(WS-PRINT-INDEX) = "Y"
+               MOVE "Yearly" TO WS-PRINT-CADENCE
+           ELSE
+               MOVE "Monthly" TO WS-PRINT-CADENCE
+           END-IF
+
+           IF WI-STATUS(WS-PRINT-INDEX) = "A"
+               OR WI-STATUS(WS-PRINT-INDEX) = "E"
+               IF WI-AMOUNT-CENTS(WS-PRINT-INDEX) NOT = ZERO
+                   MOVE WI-MONTHLY-CENTS(WS-PRINT-INDEX)
+                       TO WS-MONEY-SOURCE-CENTS
+                   PERFORM FORMAT-MONEY
+                   MOVE WS-MONEY-TEXT TO WS-PRINT-MONTHLY
+
+                   MOVE WI-ANNUAL-CENTS(WS-PRINT-INDEX)
+                       TO WS-MONEY-SOURCE-CENTS
+                   PERFORM FORMAT-MONEY
+                   MOVE WS-MONEY-TEXT TO WS-PRINT-ANNUAL
+               ELSE
+                   MOVE "EUR 0.00" TO WS-PRINT-MONTHLY
+                   MOVE "EUR 0.00" TO WS-PRINT-ANNUAL
+               END-IF
+           ELSE
+               MOVE "EXCLUDED" TO WS-PRINT-MONTHLY
+               MOVE "EXCLUDED" TO WS-PRINT-ANNUAL
+           END-IF.
+
+       WRITE-PRINT-ITEM.
+           MOVE SPACES TO REPORT-LINE
+           MOVE WS-PRINT-SERVICE TO REPORT-LINE(1:16)
+           MOVE WS-PRINT-STATUS TO REPORT-LINE(18:8)
+           MOVE WS-PRINT-BILLING TO REPORT-LINE(28:12)
+           MOVE WS-PRINT-CADENCE TO REPORT-LINE(42:8)
+           MOVE WS-PRINT-MONTHLY TO REPORT-LINE(53:18)
+           MOVE WS-PRINT-ANNUAL TO REPORT-LINE(73:18)
+           WRITE REPORT-LINE.
+
+       FORMAT-MONEY.
+           MOVE ZERO TO WS-MONEY-WORK
+           MOVE SPACES TO WS-MONEY-TEXT
+
+           COMPUTE WS-MONEY-WORK = WS-MONEY-SOURCE-CENTS / 100
+           MOVE WS-MONEY-WORK TO WS-MONEY-EDIT
+
+           STRING
+               "EUR " DELIMITED BY SIZE
+               WS-MONEY-EDIT DELIMITED BY SIZE
+               INTO WS-MONEY-TEXT
+           END-STRING.

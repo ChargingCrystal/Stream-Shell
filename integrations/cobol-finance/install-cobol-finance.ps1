@@ -172,8 +172,14 @@ try {
     }
 
     $testReport = Get-Content -LiteralPath $testOutput -Raw
-    if ($testReport -notmatch 'STATUS=OK' -or $testReport -notmatch 'MONTHLY_CENTS=000000001299') {
-        throw "COBOL reconciliation self-test returned an unexpected report."
+    if (
+        $testReport -notmatch 'STATUS=OK' -or
+        $testReport -notmatch 'MONTHLY_CENTS=000000001299' -or
+        $testReport -notmatch 'PRINT_REPORT_BEGIN' -or
+        $testReport -notmatch 'SUBSCRIPTION EXPOSURE REPORT' -or
+        $testReport -notmatch 'PRINT_REPORT_END'
+    ) {
+        throw "COBOL reconciliation/print-report self-test returned an unexpected report."
     }
 }
 finally {

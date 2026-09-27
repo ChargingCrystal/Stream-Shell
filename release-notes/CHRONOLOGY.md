@@ -280,6 +280,7 @@ This is the reconstructed version order from the recovered development chats. It
 - **0.18.16** — Finance Billing Exposure Cleanup
 - **0.18.17** — Crunchyroll Google Play Billing Source
 - **0.18.18** — COBOL Finance Installer Compatibility
+- **0.18.19** — COBOL Printable Financial Report
 
 ## Known unresolved gaps
 
