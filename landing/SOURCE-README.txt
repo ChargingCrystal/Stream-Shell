@@ -19,3 +19,8 @@ is required.
 
 Direct-link storage lives in ../media/direct-links.js and intentionally loads before landing.js as a self-contained IIFE API.
 Global Continue Watching storage plus its user-editable completion threshold live in ../media/continue-watching.js and load before landing.js as a self-contained IIFE API.
+
+
+Wide-only finance source
+------------------------
+`src/finance.js` is part of `landing/landing.js` only. It intentionally does not appear in Dashboard's Compact Home source list, so Compact does not parse or execute the COBOL finance UI/bridge code.

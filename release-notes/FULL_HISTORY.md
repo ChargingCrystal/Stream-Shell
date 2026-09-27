@@ -1653,3 +1653,53 @@
 - Backfilled bundled Unified Remote release notes for v0.1.0 through v0.7.2.
 
 **Native helper:** No reinstall required.
+
+## 0.18.14 — Wide COBOL Finance
+
+- Added a hidden Financial Operations report to the Wide Landing subscription surface.
+- Added local price/cadence configuration for the six subscription rows already tracked by Stream Shell.
+- Added a real GnuCOBOL fixed-record reconciliation worker under `integrations/cobol-finance/` and a small C# Native Messaging bridge that invokes it.
+- Reconciliation returns active/ending counts, monthly run rate, annualized expenditure and billing-source exposure as line-oriented `KEY=VALUE` data.
+- Kept the feature Wide-only by adding `finance.js` to the Landing bundle while deliberately leaving it out of the Compact Home bundle.
+- Finance installation compiles the native bridge and COBOL worker, validates the worker with a fixed-record self-test, and registers a separate `com.streamshell.finance` native host.
+- Kept all integration entry points under `integrations/cobol-finance/`; no repository-root launcher is part of the release.
+
+**Native helper:** no titlebar-helper reinstall is required. Install the separate COBOL finance host with `integrations/cobol-finance/install-cobol-finance.cmd`.
+
+
+## 0.18.15 — COBOL Runtime Path Hardening
+
+- Fixed the finance COBOL worker failing after a successful install when the Opera-launched native host did not inherit the MSYS2 UCRT64 runtime directory.
+- Added standard MSYS2 UCRT64 compiler discovery and automatic GnuCOBOL config/copy/library environment setup to the finance installer.
+- Persisted the resolved GnuCOBOL runtime `bin` directory beside the installed finance host.
+- The C# native bridge now prepends that directory to the worker process `PATH`, allowing `libcob` and the worker's MinGW runtime dependencies to resolve outside the installer PowerShell session.
+- Added a targeted diagnostic for Windows `0xC0000135` DLL-load failures.
+
+**COBOL finance helper:** Re-run `integrations/cobol-finance/install-cobol-finance.cmd` after updating.
+
+## 0.18.16 — Finance Billing Exposure Cleanup
+
+- Removed the Amazon-specific billing exposure bucket from the hidden Wide Financial Operations report.
+- Added provider-aware fallback classification so Netflix, Prime Video, Disney+ and Crunchyroll count as Direct when no explicit billing-source metadata is available.
+- Preserved explicit Google Play classification for store-billed services such as YouTube and Discord.
+- Reduced the fixed-width COBOL billing code vocabulary to `D`, `G` and `O`.
+- Removed the COBOL `AMAZON_CENTS` accumulator/output and updated the native ledger validator plus Wide exposure grid accordingly.
+- Kept `Other / unknown` only as a fallback for billing paths that cannot be inferred and hide that fallback from the exposure strip while its value is zero.
+
+**COBOL finance helper:** Re-run `integrations/cobol-finance/install-cobol-finance.cmd` after updating.
+
+## 0.18.17 — Crunchyroll Google Play Billing Source
+
+- Added Crunchyroll recognition to the Google Play subscription-page parser.
+- Merged Google Play as Crunchyroll's billing source without overwriting renewal/end dates obtained from Crunchyroll's own account page.
+- Kept Google Play dates out of the Crunchyroll merge because the page contains multiple neighbouring subscription cards and date ownership is not reliable enough.
+- Finance exposure therefore moves Play-billed Crunchyroll from Direct to Google Play after a fresh subscription sync.
+
+**COBOL/native finance helper:** No reinstall required. Reload the extension and sync subscriptions once.
+## 0.18.18 — COBOL Finance Installer Compatibility
+
+- Removed the COBOL finance installer's stale exact-version requirement that still expected 0.18.15 after later Stream Shell releases.
+- The installer now compiles the native finance bridge and COBOL worker from the current checkout and uses the current manifest version only for status output.
+- Generalized runtime-path diagnostics so they instruct the user to reinstall from the current checkout rather than naming an obsolete patch version.
+- Kept the 0.18.16 billing exposure model and 0.18.17 Crunchyroll Google Play source behavior unchanged.
+

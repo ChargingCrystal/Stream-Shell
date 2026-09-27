@@ -275,6 +275,11 @@ This is the reconstructed version order from the recovered development chats. It
 - **0.18.11** — Unified Remote State Sync Fix
 - **0.18.12** — Unified Remote Repository Integration
 - **0.18.13** — Pause Inactive Provider Playback
+- **0.18.14** — Wide COBOL Finance
+- **0.18.15** — COBOL Runtime Path Hardening
+- **0.18.16** — Finance Billing Exposure Cleanup
+- **0.18.17** — Crunchyroll Google Play Billing Source
+- **0.18.18** — COBOL Finance Installer Compatibility
 
 ## Known unresolved gaps
 

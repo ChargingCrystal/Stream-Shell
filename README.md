@@ -6,7 +6,7 @@
 
 Stream Shell is a personal Opera GX / Chromium extension that turns several streaming services into one managed desktop-style shell. It was built around my own Windows setup and workflow first; other setups may work, but compatibility is best-effort rather than a product promise.
 
-Current public version: **0.18.13**.
+Current public version: **0.18.18**.
 
 ## What it does
 
@@ -23,6 +23,7 @@ Highlights include:
 - A tab-capture based Volume Booster with a Chromium fullscreen bridge.
 - Optional native Windows helpers for Stream Shell titlebars/window controls and Discord desktop integration.
 - Optional first-party Unified Remote control surface with live Stream Shell active-state highlighting.
+- Optional Wide-only COBOL-backed subscription financial report with local price/cadence input and native reconciliation.
 - Settings export/import, diagnostics, self-test/repair paths and resource-governor logic.
 
 ## Reality check / support policy
@@ -68,6 +69,12 @@ The repository includes a first-party custom Unified Remote under [`integrations
 
 Install the Stream Shell titlebar helper first, then run `integrations/unified-remote/install-unified-remote.cmd` or copy `integrations/unified-remote/Remotes/Custom/Stream Shell` to `C:\ProgramData\Unified Remote\Remotes\Custom\Stream Shell`. Restart Unified Remote Server afterwards. The integration is optional and Unified Remote itself is third-party software.
 
+### Optional: COBOL finance
+
+Wide mode includes an optional hidden subscription-finance surface backed by a real GnuCOBOL reconciliation worker. Prices are entered locally; Stream Shell passes normalized fixed-width subscription records through a small native bridge to the COBOL worker and renders the returned monthly/annual exposure report. Compact does not load the finance runtime.
+
+Install it with `integrations/cobol-finance/install-cobol-finance.cmd`. The installer can use `cobc` from `PATH` or detect the standard MSYS2 UCRT64 location, configures the GnuCOBOL build environment, and records the runtime DLL directory for the native bridge. See [`integrations/cobol-finance/README.md`](integrations/cobol-finance/README.md) for details.
+
 ## Source layout
 
 Stream Shell keeps canonical source fragments next to generated runtime bundles:
@@ -80,6 +87,7 @@ Stream Shell keeps canonical source fragments next to generated runtime bundles:
 - `media/` → local library / TMDB integration
 - `native/` → optional Windows Native Messaging helpers
 - `integrations/unified-remote/` → optional Unified Remote custom remote plus installer/uninstaller
+- `integrations/cobol-finance/` → optional Wide-only COBOL subscription-finance reconciliation
 
 PowerShell build scripts and `SOURCE-README.txt` files document the bundle order for the larger generated files.
 

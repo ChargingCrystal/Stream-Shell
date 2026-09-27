@@ -396,6 +396,12 @@ function streamShellScrapeGooglePlaySubscriptions() {
                     /discord/i,
                     /nitro(?:\s+basic)?/i
                 ]
+            ),
+            crunchyroll: streamShellParseGooglePlayItem(
+                lines,
+                [
+                    /crunchyroll/i
+                ]
             )
         }
     };

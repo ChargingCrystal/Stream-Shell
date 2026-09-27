@@ -693,6 +693,50 @@ function mergeGooglePlaySubscriptionData(
                 Date.now()
         };
     }
+
+    const crunchyroll =
+        playItems.crunchyroll;
+
+    if (
+        crunchyroll
+    ) {
+        const current =
+            items.crunchyroll ||
+            {};
+
+        /*
+         * Crunchyroll can be billed through Google Play while its own account
+         * page still owns the subscription date/status metadata. Use the Play
+         * page to identify the billing source, but never replace a date supplied
+         * by Crunchyroll with a date inferred from neighbouring Play cards.
+         */
+        items.crunchyroll = {
+            ...current,
+
+            status:
+                current.status &&
+                current.status !== "unknown" &&
+                current.status !== "signin"
+                    ? current.status
+                    : crunchyroll.status ||
+                      current.status ||
+                      "active",
+
+            renewal:
+                current.renewal ||
+                null,
+
+            dateKind:
+                current.dateKind ||
+                null,
+
+            billingSource:
+                "Google Play",
+
+            checkedAt:
+                Date.now()
+        };
+    }
 }
 
 

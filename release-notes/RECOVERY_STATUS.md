@@ -2,7 +2,7 @@
 
 ## What is now recovered
 
-- **223 canonical version-specific release notes** from **0.1.0 through 0.18.13**.
+- **228 canonical version-specific release notes** from **0.1.0 through 0.18.18**.
 - Notes are version-specific rather than chat summaries.
 - Known regression/rollback builds are preserved as such.
 - A reused 0.17.12 publication state is preserved separately in `variants/`.

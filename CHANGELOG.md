@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+## 0.18.18 — COBOL Finance Installer Compatibility
+
+- Removed the stale exact-version gate from the COBOL finance installer; it now compiles the finance bridge/worker from the current checkout instead of only accepting Stream Shell 0.18.15.
+- Reads the current manifest version dynamically for installer output, so later compatible patch releases can reinstall the finance worker without being rejected before compilation.
+- Generalized the native-host runtime-path diagnostic so it no longer points to one obsolete Stream Shell version.
+- No finance calculation, billing classification or Wide-only UI behavior changed from 0.18.17.
+
+## 0.18.17 — Crunchyroll Google Play Billing Source
+
+- Added Crunchyroll to the Google Play subscription cross-check so Play-billed Crunchyroll memberships show `Google Play` instead of an empty billing source.
+- Preserved renewal/end dates supplied by Crunchyroll itself while deliberately not substituting dates inferred from the multi-card Google Play page.
+- Finance billing exposure now classifies Play-billed Crunchyroll under Google Play after the next subscription sync.
+- No COBOL/native finance reinstall is required; reload the extension and run subscription sync once.
+
+## 0.18.16 — Finance Billing Exposure Cleanup
+
+- Removed the dedicated Amazon exposure bucket from the Wide Financial Operations report.
+- Classified Netflix, Prime Video, Disney+ and Crunchyroll as Direct billing when no explicit billing-source label is available.
+- Kept explicit Google Play billing separate for services such as YouTube and Discord.
+- Folded any other explicit provider billing source into Direct while retaining Other / unknown as a fallback for genuinely unresolved cases; the fallback is hidden from the exposure strip while it is zero.
+- Simplified the COBOL ledger billing code set from `D/G/A/O` to `D/G/O` and removed `AMAZON_CENTS` from the reconciliation report.
+- Updated the native ledger validator and Wide exposure grid for the new three-bucket model.
+
+**COBOL finance helper:** Re-run `integrations/cobol-finance/install-cobol-finance.cmd` after updating.
+
+## 0.18.15 — COBOL Runtime Path Hardening
+
+- Fixed the Wide Financial Operations worker failing at runtime with Windows status `0xC0000135` when Opera did not inherit the MSYS2 UCRT64 `bin` directory in `PATH`.
+- The finance installer now detects the standard MSYS2 UCRT64 GnuCOBOL installation in addition to normal `PATH` lookup.
+- The installer automatically configures `COB_CONFIG_DIR`, `COB_COPY_DIR` and the GnuCOBOL runtime/library paths when an MSYS2-style compiler layout is detected.
+- The installed native finance bridge now stores the compiler/runtime `bin` directory and prepends it to the COBOL child process environment, so `libcob` and its MinGW dependencies resolve even when Stream Shell is launched from Opera.
+- Improved the native bridge diagnostic for Windows DLL-load failure (`0xC0000135`).
+- No Landing/Compact UI behavior changed from 0.18.14; reinstall the COBOL finance integration after updating.
+
+## 0.18.14 — Wide COBOL Finance
+
+- Added a hidden Wide-only Financial Operations surface behind the Landing Subscriptions heading.
+- Added local per-service price/cadence storage and fixed-width subscription-ledger generation for the six displayed subscription services.
+- Added `integrations/cobol-finance/` with a real GnuCOBOL reconciliation worker plus a C# Native Messaging bridge.
+- COBOL returns active/ending counts, monthly run rate, annualized expenditure and billing-source exposure for the report.
+- Kept Compact free of the finance runtime; `finance.js` is included only in the Wide Landing bundle.
+- Added a compile-time/runtime self-test to the finance installer and kept all install/uninstall entry points inside the integration folder rather than the repository root.
+- The existing titlebar helper does not require a rebuild; the separate COBOL finance native host must be installed for reconciliation.
+
 ## 0.18.13 — Pause Inactive Provider Playback
 
 - Pauses provider playback through the shared provider adapter before an outgoing provider window is muted/minimized during provider switches.

@@ -7,6 +7,7 @@ $Target = Join-Path $LandingRoot "landing.js"
 $Order = @(
     "state.js",
     "subscriptions.js",
+    "finance.js",
     "media-ui.js",
     "token.js",
     "availability.js",
