@@ -222,6 +222,9 @@ async function broadcastState() {
             "resume"
     );
 
+    const twitchWorkspace =
+        await getTwitchWorkspaceV2Summary().catch(() => ({ active: false, slots: [] }));
+
     try {
         await chrome.runtime.sendMessage({
             type:
@@ -242,6 +245,8 @@ async function broadcastState() {
             twitchTarget:
                 state.twitchTarget ||
                 "resume",
+
+            twitchWorkspace,
 
             landingExposed
         });
@@ -269,12 +274,20 @@ chrome.tabs.onUpdated.addListener(
             return;
         }
 
-        claimFocusedTitlebarSurface(
-            tab.windowId
-        )
-            .catch(
-                () => {}
-            );
+        /* Workspace slots are already explicitly claimed as A-D. Re-running the
+         * generic focused-surface claimant on Twitch title/status changes only
+         * creates duplicate native work while the user navigates inside a slot. */
+        isTwitchWorkspaceV2WindowId(tab.windowId)
+            .then(isWorkspaceWindow => {
+                if (isWorkspaceWindow) {
+                    /* A-D HWND identity is stable across Twitch SPA navigation. Queue
+                     * exactly one member claim as soon as the first real title/status
+                     * arrives instead of relying on fixed startup timing. */
+                    return claimTwitchWorkspaceV2WindowById(tab.windowId);
+                }
+                return claimFocusedTitlebarSurface(tab.windowId);
+            })
+            .catch(() => {});
     }
 );
 
@@ -286,6 +299,8 @@ chrome.windows.onFocusChanged.addListener(
         ) {
             return;
         }
+
+        let twitchWorkspaceFastPath = false;
 
         /*
          * Focus loss is not a fullscreen-exit signal. Chromium can keep a
@@ -302,18 +317,56 @@ chrome.windows.onFocusChanged.addListener(
                             "providerWindows",
                             "landingWindowId",
                             "dashboardWindowId",
-                            TWITCH_WINDOW_STORAGE_KEY
+                            TWITCH_WINDOW_STORAGE_KEY,
+                            TWITCH_WORKSPACE_V2_STORAGE_KEY
                         ]);
+
+                    const workspaceRecord = state[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+                    const workspaceWindowIds = [
+                        workspaceRecord?.slots?.a?.windowId,
+                        workspaceRecord?.slots?.b?.windowId,
+                        workspaceRecord?.slots?.c?.windowId,
+                        workspaceRecord?.slots?.d?.windowId,
+                        workspaceRecord?.chat?.windowId
+                    ];
 
                     const managedWindowIds =
                         new Set([
                             state.landingWindowId,
                             state.dashboardWindowId,
                             state[TWITCH_WINDOW_STORAGE_KEY],
+                            ...workspaceWindowIds,
                             ...Object.values(
                                 state.providerWindows || {}
                             )
                         ].filter(Number.isInteger));
+
+                    const workspaceSlotId =
+                        getTwitchWorkspaceV2SlotByWindowId(workspaceRecord, focusedWindowId);
+                    const workspaceChatFocused =
+                        workspaceRecord?.chat?.windowId === focusedWindowId;
+
+                    if (workspaceSlotId || workspaceChatFocused) {
+                        /* A -> C -> B focus changes are ordinary interaction inside
+                         * one Twitch surface, not provider transitions. Keep them off
+                         * the global reconcile/broadcast path. Record the focused slot
+                         * with one lightweight storage write so only that slot renders
+                         * the shared floating workspace bar. */
+                        twitchWorkspaceFastPath = true;
+                        if (workspaceSlotId && workspaceRecord?.selectedSlot !== workspaceSlotId) {
+                            await chrome.storage.local.set({
+                                [TWITCH_WORKSPACE_V2_STORAGE_KEY]: {
+                                    ...workspaceRecord,
+                                    selectedSlot: workspaceSlotId,
+                                    updatedAt: Date.now()
+                                }
+                            }).catch(() => {});
+                        }
+                        raiseTwitchWorkspaceV2NativeCluster(
+                            workspaceSlotId || workspaceRecord?.selectedSlot || "a"
+                        );
+                        return null;
+                    }
 
                     if (
                         !managedWindowIds.has(
@@ -331,17 +384,20 @@ chrome.windows.onFocusChanged.addListener(
                 }
             )
             .then(
-                () =>
-                    Promise.allSettled([
+                () => {
+                    if (twitchWorkspaceFastPath) return null;
+                    return Promise.allSettled([
                         syncDiscordVisibilityState(),
                         reconcileProviderPlaybackWindows(),
                         claimFocusedTitlebarSurface(
                             focusedWindowId
                         )
-                    ])
+                    ]);
+                }
             )
             .finally(
                 () => {
+                    if (twitchWorkspaceFastPath) return;
                     broadcastState()
                         .catch(
                             () => {}
@@ -353,25 +409,23 @@ chrome.windows.onFocusChanged.addListener(
 
 
 chrome.windows.onBoundsChanged.addListener(
-    () => {
+    changedWindow => {
         if (
             shuttingDown
         ) {
             return;
         }
 
-        reconcileProviderPlaybackWindows()
-            .catch(
-                () => {}
-            )
-            .finally(
-                () => {
-                    broadcastState()
-                        .catch(
-                            () => {}
-                        );
-                }
-            );
+        isTwitchWorkspaceV2WindowId(changedWindow?.id)
+            .then(isWorkspaceWindow => {
+                if (isWorkspaceWindow) return null;
+                return reconcileProviderPlaybackWindows()
+                    .catch(() => {})
+                    .finally(() => {
+                        broadcastState().catch(() => {});
+                    });
+            })
+            .catch(() => {});
     }
 );
 

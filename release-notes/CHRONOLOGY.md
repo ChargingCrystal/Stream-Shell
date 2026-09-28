@@ -1,3 +1,4 @@
+- **0.19.1** — Twitch Workspace V2 Surface Repair
 # Stream Shell — Recovered Release Chronology
 
 This is the reconstructed version order from the recovered development chats. It follows the **actual version labels used at the time**, including experimental/regression builds. No missing release is silently invented.
@@ -281,6 +282,28 @@ This is the reconstructed version order from the recovered development chats. It
 - **0.18.17** — Crunchyroll Google Play Billing Source
 - **0.18.18** — COBOL Finance Installer Compatibility
 - **0.18.19** — COBOL Printable Financial Report
+- **0.18.20** — Remote Contrast + YouTube Windowed Reflow
+- **0.18.21** — Unified Remote Active-State Rollback
+- **0.18.22** — Twitch Workspace Phase 1
+- **0.18.23** — Twitch Workspace Phase 2 + Floating Bar Revival
+- **0.18.24** — Twitch Page-Context Window Isolation
+- **0.18.25** — Twitch Popup Bootstrap Recovery
+- **0.18.26** — Twitch Popup Bootstrap Geometry + Diagnostics
+- **0.18.27** — Twitch Multi-View Window Cluster
+- **0.18.28** — Twitch Workspace Stabilization
+- **0.18.29** — Twitch Workspace Interaction Mapping
+- **0.18.30** — Twitch Native Tile Layout
+- **0.18.31** — Twitch Physical Window Ownership Repair
+- **0.18.32** — Twitch Multi-View Hard Reset
+- **0.18.33** — Warm Provider Geometry Repair
+- **0.18.34** — Twitch Direct Split Lab
+- **0.18.35** — Twitch Split Managed-Automation Probe
+- **0.18.36** — Twitch Persistent Split + Native Cluster Claim
+- **0.18.37** — Twitch Persistent Split Workspace
+
+### 0.19.x
+
+- **0.19.0** — Twitch Workspace V2 Foundation
 
 ## Known unresolved gaps
 

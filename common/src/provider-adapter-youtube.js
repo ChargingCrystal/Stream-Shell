@@ -188,6 +188,7 @@
 
         setWindowedPlayerRootMarker("youtube", active);
         bindYouTubeTopUiPointer(active);
+        scheduleYouTubeWindowedLayoutRefresh();
 
         if (active) {
             scheduleYouTubeTheaterMode();

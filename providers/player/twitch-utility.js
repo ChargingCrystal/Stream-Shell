@@ -32,6 +32,107 @@
     let raidGuardCooldownUntil = 0;
     const recentClicks = new WeakMap();
 
+    /*
+     * Workspace playback is intentionally different from core-provider
+     * playback. Covering the right pane with Dashboard/Discord (or covering
+     * Stream Shell with another desktop window) must not pause a Twitch stream
+     * that was already playing. Track the user's last visible playback intent
+     * and only fight pause events while the Workspace is covered/occluded.
+     */
+    let workspacePlaybackGuardEnabled = false;
+    let workspaceRightMode = "twitch";
+    let workspaceWantedPlaying = false;
+    let workspaceResumeInterval = null;
+    let workspaceResumeTimeout = null;
+
+    function getPrimaryTwitchVideo() {
+        const videos = Array.from(document.querySelectorAll("video"));
+        if (!videos.length) return null;
+        let best = null;
+        let bestArea = -1;
+        for (const video of videos) {
+            const rect = video.getBoundingClientRect();
+            const area = Math.max(0, rect.width) * Math.max(0, rect.height);
+            if (area > bestArea) {
+                best = video;
+                bestArea = area;
+            }
+        }
+        return best;
+    }
+
+    function workspaceIsCovered() {
+        return workspaceRightMode !== "twitch" ||
+            document.visibilityState !== "visible" ||
+            !document.hasFocus();
+    }
+
+    function clearWorkspaceResumeTimers() {
+        if (workspaceResumeInterval !== null) {
+            clearInterval(workspaceResumeInterval);
+            workspaceResumeInterval = null;
+        }
+        if (workspaceResumeTimeout !== null) {
+            clearTimeout(workspaceResumeTimeout);
+            workspaceResumeTimeout = null;
+        }
+    }
+
+    function tryResumeCoveredWorkspacePlayback() {
+        if (!workspacePlaybackGuardEnabled || !workspaceWantedPlaying || !workspaceIsCovered()) return;
+        const video = getPrimaryTwitchVideo();
+        if (!video || !video.paused || video.ended) return;
+        try {
+            const result = video.play();
+            if (result && typeof result.catch === "function") result.catch(() => {});
+        } catch {}
+    }
+
+    function syncWorkspaceResumeWatchdog() {
+        if (!workspacePlaybackGuardEnabled || !workspaceWantedPlaying || !workspaceIsCovered()) {
+            clearWorkspaceResumeTimers();
+            return;
+        }
+
+        if (workspaceResumeTimeout === null) {
+            workspaceResumeTimeout = setTimeout(() => {
+                workspaceResumeTimeout = null;
+                tryResumeCoveredWorkspacePlayback();
+            }, 120);
+        }
+
+        if (workspaceResumeInterval === null) {
+            workspaceResumeInterval = setInterval(tryResumeCoveredWorkspacePlayback, 1250);
+        }
+    }
+
+    function captureVisibleWorkspacePlaybackIntent() {
+        if (!workspacePlaybackGuardEnabled || workspaceIsCovered()) return;
+        const video = getPrimaryTwitchVideo();
+        workspaceWantedPlaying = Boolean(video && !video.paused && !video.ended);
+    }
+
+    function handleWorkspaceVisibilityTransition() {
+        if (!workspacePlaybackGuardEnabled) return;
+        if (workspaceIsCovered()) {
+            syncWorkspaceResumeWatchdog();
+            return;
+        }
+
+        /* If Twitch/browser paused while covered, give it one final resume on
+         * reveal before returning control fully to normal visible playback. */
+        if (workspaceWantedPlaying) {
+            const video = getPrimaryTwitchVideo();
+            if (video?.paused && !video.ended) {
+                try {
+                    const result = video.play();
+                    if (result && typeof result.catch === "function") result.catch(() => {});
+                } catch {}
+            }
+        }
+        clearWorkspaceResumeTimers();
+    }
+
     function isEnabled(element) {
         return Boolean(
             element &&
@@ -221,9 +322,54 @@
         document.documentElement.dataset.streamShellTwitch = "true";
 
         try {
-            const stored = await chrome.storage.local.get(Object.keys(DEFAULTS));
+            const workspaceContext = await chrome.runtime.sendMessage({
+                type: "get-stream-shell-twitch-workspace-context"
+            });
+            workspacePlaybackGuardEnabled = workspaceContext?.managed === true;
+        } catch {
+            workspacePlaybackGuardEnabled = false;
+        }
+
+        try {
+            const stored = await chrome.storage.local.get([
+                ...Object.keys(DEFAULTS),
+                "rightMode"
+            ]);
             settings = { ...DEFAULTS, ...stored };
+            workspaceRightMode = stored.rightMode || "twitch";
         } catch {}
+
+        if (workspacePlaybackGuardEnabled) {
+            const video = getPrimaryTwitchVideo();
+            workspaceWantedPlaying = Boolean(video && !video.paused && !video.ended);
+
+            document.addEventListener("play", event => {
+                if (event.target?.tagName !== "VIDEO") return;
+                const primary = getPrimaryTwitchVideo();
+                if (primary && event.target !== primary) return;
+                workspaceWantedPlaying = true;
+                syncWorkspaceResumeWatchdog();
+            }, true);
+
+            document.addEventListener("pause", event => {
+                if (event.target?.tagName !== "VIDEO") return;
+                const primary = getPrimaryTwitchVideo();
+                if (primary && event.target !== primary) return;
+                if (workspaceIsCovered()) {
+                    syncWorkspaceResumeWatchdog();
+                } else {
+                    workspaceWantedPlaying = false;
+                    clearWorkspaceResumeTimers();
+                }
+            }, true);
+
+            document.addEventListener("visibilitychange", () => {
+                handleWorkspaceVisibilityTransition();
+            });
+            window.addEventListener("focus", handleWorkspaceVisibilityTransition);
+            window.addEventListener("blur", handleWorkspaceVisibilityTransition);
+            handleWorkspaceVisibilityTransition();
+        }
 
         observer = new MutationObserver(records => {
             if (mutationTouchesAutomation(records)) {
@@ -275,6 +421,17 @@
                     settings[key] = changes[key].newValue ?? DEFAULTS[key];
                 }
             }
+
+            if (workspacePlaybackGuardEnabled && Object.prototype.hasOwnProperty.call(changes, "rightMode")) {
+                const oldMode = changes.rightMode.oldValue || workspaceRightMode;
+                const nextMode = changes.rightMode.newValue || "dashboard";
+                if (oldMode === "twitch" && nextMode !== "twitch") {
+                    captureVisibleWorkspacePlaybackIntent();
+                }
+                workspaceRightMode = nextMode;
+                handleWorkspaceVisibilityTransition();
+            }
+
             syncObserver();
             syncFallbackTimer();
             scan();
@@ -326,6 +483,7 @@
         window.addEventListener("pagehide", () => {
             if (fallbackTimer) clearInterval(fallbackTimer);
             if (scanTimer !== null) clearTimeout(scanTimer);
+            clearWorkspaceResumeTimers();
             observer?.disconnect();
         }, { once: true });
     }

@@ -187,7 +187,7 @@ async function collectSettingsDiagnostics(options = {}) {
 
     return {
         format: "stream-shell-diagnostics",
-        version: 9,
+        version: 12,
         mode: full ? "full" : "panel",
         generatedAt: new Date().toISOString(),
         extensionVersion: manifest.version || "unknown",
@@ -228,7 +228,17 @@ async function collectSettingsDiagnostics(options = {}) {
             providerWindowsKnown: Number(runtime.providerWindowsKnown) || 0,
             providerWindows: providerStates,
             landingWindowAlive: runtime.landingWindowAlive === true,
-            dashboardWindowAlive: runtime.dashboardWindowAlive === true
+            dashboardWindowAlive: runtime.dashboardWindowAlive === true,
+            twitchSplitLab: runtime.twitchSplitLab || {
+                active: false,
+                windowCount: 0,
+                windows: []
+            },
+            twitchWorkspaceV2: runtime.twitchWorkspaceV2 || {
+                active: false,
+                version: 1,
+                windows: []
+            }
         },
         native: {
             titlebarConnected: runtime.titlebarConnected === true,

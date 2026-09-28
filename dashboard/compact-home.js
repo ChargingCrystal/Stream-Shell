@@ -296,6 +296,12 @@ const twitchDropsButton =
     );
 
 
+const twitchWorkspaceButton =
+    document.getElementById(
+        "twitch-workspace"
+    );
+
+
 let activePanel =
     null;
 
@@ -4185,6 +4191,24 @@ if (twitchUtility && twitchOpenButton && twitchDropsButton) {
     twitchDropsButton.addEventListener("click", () => {
         openTwitchTarget("drops");
     });
+
+    if (twitchWorkspaceButton) {
+        twitchWorkspaceButton.addEventListener("click", async () => {
+            twitchUtility.classList.add("busy");
+            try {
+                const response = await chrome.runtime.sendMessage({
+                    type: "landing-show-twitch-workspace"
+                });
+                if (response?.ok === false) {
+                    throw new Error(response.error || "Twitch workspace failed.");
+                }
+            } catch (error) {
+                console.error("Twitch workspace failed:", error);
+            } finally {
+                twitchUtility.classList.remove("busy");
+            }
+        });
+    }
 }
 
 

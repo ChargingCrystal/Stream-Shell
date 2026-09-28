@@ -250,6 +250,54 @@
     }
 
 
+    function scheduleYouTubeWindowedLayoutRefresh() {
+        const generation =
+            ++youtubeWindowedLayoutRefreshGeneration;
+
+
+        const refresh =
+            () => {
+                if (
+                    generation !==
+                        youtubeWindowedLayoutRefreshGeneration
+                ) {
+                    return;
+                }
+
+
+                document.documentElement
+                    ?.getBoundingClientRect();
+
+
+                window.dispatchEvent(
+                    new Event(
+                        "resize"
+                    )
+                );
+            };
+
+
+        requestAnimationFrame(
+            () => {
+                requestAnimationFrame(
+                    refresh
+                );
+            }
+        );
+
+
+        for (
+            const delayMs
+            of [80, 220, 500, 1000]
+        ) {
+            setTimeout(
+                refresh,
+                delayMs
+            );
+        }
+    }
+
+
     function ensureYouTubeTheaterMode() {
         const watchContainer =
             getYouTubeWatchContainer();
@@ -319,7 +367,11 @@
                     }
 
 
-                    ensureYouTubeTheaterMode();
+                    if (
+                        ensureYouTubeTheaterMode()
+                    ) {
+                        scheduleYouTubeWindowedLayoutRefresh();
+                    }
                 },
                 delayMs
             );
@@ -355,6 +407,9 @@
 
         youtubeTheaterForcedByStreamShell =
             false;
+
+
+        scheduleYouTubeWindowedLayoutRefresh();
     }
 
 

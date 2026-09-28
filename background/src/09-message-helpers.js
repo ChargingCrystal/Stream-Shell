@@ -51,6 +51,21 @@ function isShellHomeUiSender(
 }
 
 
+function isTwitchWorkspaceSlotUiSender(sender, expectedSlotId = null) {
+    const url = String(sender?.url || sender?.tab?.url || "");
+    if (!url.startsWith(TWITCH_WORKSPACE_SLOT_URL)) return false;
+
+    if (!expectedSlotId) return true;
+    try {
+        const parsed = new URL(url);
+        return String(parsed.searchParams.get("slot") || "").toLowerCase() ===
+            String(expectedSlotId || "").toLowerCase();
+    } catch {
+        return false;
+    }
+}
+
+
 function isPopupSender(
     sender
 ) {

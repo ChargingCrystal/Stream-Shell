@@ -1,6 +1,6 @@
 # Unified Remote integration
 
-This folder contains the first-party **Stream Shell Unified Remote v0.8.3** control surface.
+This folder contains the first-party **Stream Shell Unified Remote v0.9.0** control surface.
 
 It talks to Stream Shell through the local Windows control bridge exposed by the installed native titlebar helper. The remote does not duplicate provider/window-management logic and does not connect to the browser extension directly.
 
@@ -52,6 +52,7 @@ Run `uninstall-unified-remote.cmd` to remove only the installed `Stream Shell` c
 ## Behavior
 
 - Provider, Landing, Dashboard, Settings, Volume Boost, Discord and Twitch buttons reflect Stream Shell's exported active state.
+- The Wide Auxiliary row is now a simple 50/50 Discord + Twitch layout; Drops lives inside the Twitch Workspace instead of having a separate remote action.
 - In Wide mode, Settings overlays Dashboard, so both buttons can be active at once.
 - Bringing Discord or Twitch above the right Stream Shell pane clears Dashboard/Settings highlighting.
 - Unrelated external applications do not alter the last internal Stream Shell button state.
@@ -61,6 +62,6 @@ Run `uninstall-unified-remote.cmd` to remove only the installed `Stream Shell` c
 
 ## Files
 
-Historical per-version notes for the custom remote are bundled next to the remote source as `RELEASE_NOTES_v*.txt`, covering the prototype/visual passes through the current v0.8.x state.
+Historical per-version notes for the custom remote are bundled next to the remote source as `RELEASE_NOTES_v*.txt`, covering the prototype/visual passes through the current v0.9.x state.
 
 The actual custom remote lives under `Remotes/Custom/Stream Shell/` so the repository mirrors the directory subtree expected below Unified Remote's data root without embedding a fake `C:` drive tree.

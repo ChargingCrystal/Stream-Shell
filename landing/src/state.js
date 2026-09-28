@@ -262,12 +262,6 @@ const twitchOpenButton =
         "twitch-open"
     );
 
-const twitchDropsButton =
-    document.getElementById(
-        "twitch-drops"
-    );
-
-
 let activePanel =
     null;
 

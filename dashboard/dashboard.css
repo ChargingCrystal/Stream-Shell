@@ -4921,3 +4921,121 @@ body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-re
         margin-top: 4px;
     }
 }
+
+/* ============================================================
+ * TWITCH WORKSPACE V2 BACKDROP
+ * ============================================================ */
+
+.twitch-workspace-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    background: #08080b;
+    color: #efeff1;
+}
+
+.twitch-workspace-backdrop[hidden] {
+    display: none;
+}
+
+.twitch-workspace-cell {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,.055);
+    background:
+        radial-gradient(circle at 50% 38%, rgba(145,70,255,.12), transparent 48%),
+        linear-gradient(145deg, #111116 0%, #09090c 72%);
+}
+
+.twitch-workspace-cell::before {
+    content: attr(data-slot-label);
+    position: absolute;
+    top: 18px;
+    left: 20px;
+    color: rgba(255,255,255,.16);
+    font-size: 42px;
+    font-weight: 800;
+    letter-spacing: .02em;
+}
+
+.twitch-workspace-empty-card {
+    width: min(360px, calc(100% - 52px));
+    padding: 20px;
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 16px;
+    background: rgba(24,24,27,.78);
+    box-shadow: 0 18px 50px rgba(0,0,0,.28);
+}
+
+.twitch-workspace-empty-card h3 {
+    margin: 0 0 5px;
+    font-size: 17px;
+}
+
+.twitch-workspace-empty-card p {
+    margin: 0 0 13px;
+    color: rgba(239,239,241,.53);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.twitch-workspace-empty-row {
+    display: flex;
+    gap: 7px;
+}
+
+.twitch-workspace-empty-row input {
+    min-width: 0;
+    flex: 1;
+    height: 36px;
+    padding: 0 10px;
+    border: 1px solid rgba(255,255,255,.13);
+    border-radius: 9px;
+    outline: none;
+    background: #0e0e10;
+    color: #fff;
+}
+
+.twitch-workspace-empty-row input:focus {
+    border-color: #9147ff;
+    box-shadow: 0 0 0 1px #9147ff;
+}
+
+.twitch-workspace-empty-actions {
+    display: flex;
+    gap: 7px;
+    margin-top: 8px;
+}
+
+.twitch-workspace-empty-actions button {
+    height: 34px;
+    flex: 1;
+    border: 1px solid rgba(255,255,255,.11);
+    border-radius: 9px;
+    background: rgba(255,255,255,.055);
+    color: #efeff1;
+    cursor: pointer;
+}
+
+.twitch-workspace-empty-actions button:first-child {
+    border-color: rgba(169,112,255,.52);
+    background: rgba(145,70,255,.22);
+}
+
+.twitch-workspace-empty-actions button:hover {
+    background: rgba(255,255,255,.11);
+}
+
+.twitch-workspace-empty-error {
+    min-height: 16px;
+    margin-top: 6px;
+    color: #ff8280;
+    font-size: 11px;
+}

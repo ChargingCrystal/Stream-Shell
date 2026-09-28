@@ -111,6 +111,15 @@ const TWITCH_DROPS_URL =
 const TWITCH_WINDOW_STORAGE_KEY =
     "twitchWindowId";
 
+const TWITCH_SPLIT_LAB_STORAGE_KEY =
+    "streamShellTwitchSplitLab";
+
+const TWITCH_WORKSPACE_V2_STORAGE_KEY =
+    "streamShellTwitchWorkspaceV2";
+
+const TWITCH_WORKSPACE_SLOT_URL =
+    chrome.runtime.getURL("twitch-workspace/slot.html");
+
 const TWITCH_DROPS_WORKER_WINDOW_STORAGE_KEY =
     "twitchDropsWorkerWindowId";
 
@@ -135,7 +144,7 @@ const TITLEBAR_NATIVE_HOST =
     "com.streamshell.titlebar";
 
 const TITLEBAR_PROTOCOL_VERSION =
-    4;
+    5;
 
 const TITLEBAR_RECONCILE_INTERVAL_MS =
     1500;
@@ -354,11 +363,6 @@ async function openShellWarmLastProvider() {
 
     await safelyMinimizeWindow(
         windowId
-    );
-
-    await parkWindowOffscreen(
-        windowId,
-        LEFT
     );
 
     await chrome.storage.local.remove(

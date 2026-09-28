@@ -230,6 +230,7 @@ async function connectTitlebarNative() {
         port;
     titlebarProtocolReady =
         true;
+    resetTwitchWorkspaceV2ClaimCache();
 
     const state =
         await chrome.storage.local.get([
@@ -338,6 +339,14 @@ async function connectTitlebarNative() {
             `${state.leftMode || "landing"}|${state.rightMode || "dashboard"}|${state.twitchTarget || "resume"}|${visibilityMode}|${streamShellDisplayProfileCache?.mode || "wide"}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
 
         startTitlebarReconcileLoop();
+
+        /* A native-host restart loses the HWND member map while the browser
+         * windows themselves survive. Re-announce A-D once after reconnect. */
+        getTwitchWorkspaceV2Record()
+            .then(record => {
+                if (record) scheduleTwitchWorkspaceV2Claims(record);
+            })
+            .catch(() => {});
     } catch {
         try {
             port.disconnect();
@@ -372,6 +381,7 @@ function stopTitlebarNative() {
     titlebarFullscreenWindowId =
         null;
 
+    resetTwitchWorkspaceV2ClaimCache();
     stopTitlebarReconcileLoop();
 
     if (
@@ -413,6 +423,8 @@ async function getTitlebarVisibilityMode() {
                     "landingWindowId",
                     "dashboardWindowId",
                     TWITCH_WINDOW_STORAGE_KEY,
+                    TWITCH_SPLIT_LAB_STORAGE_KEY,
+                    TWITCH_WORKSPACE_V2_STORAGE_KEY,
                     "rightMode"
                 ]),
                 chrome.windows.getAll({
@@ -452,6 +464,26 @@ async function getTitlebarVisibilityMode() {
             shellWindowIds.add(
                 state[TWITCH_WINDOW_STORAGE_KEY]
             );
+        }
+
+        const splitWindowIds =
+            Array.isArray(state[TWITCH_SPLIT_LAB_STORAGE_KEY]?.windowIds)
+                ? state[TWITCH_SPLIT_LAB_STORAGE_KEY].windowIds
+                : [];
+
+        for (const windowId of splitWindowIds) {
+            if (Number.isInteger(windowId)) {
+                shellWindowIds.add(windowId);
+            }
+        }
+
+        const workspaceRecord = state[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+        for (const slotId of ["a", "b", "c", "d"]) {
+            const windowId = workspaceRecord?.slots?.[slotId]?.windowId;
+            if (Number.isInteger(windowId)) shellWindowIds.add(windowId);
+        }
+        if (Number.isInteger(workspaceRecord?.chat?.windowId)) {
+            shellWindowIds.add(workspaceRecord.chat.windowId);
         }
 
         for (
@@ -527,6 +559,7 @@ async function claimFocusedTitlebarSurface(
                 "landingWindowId",
                 "dashboardWindowId",
                 TWITCH_WINDOW_STORAGE_KEY,
+                TWITCH_WORKSPACE_V2_STORAGE_KEY,
                 "leftMode",
                 "rightMode"
             ]);
@@ -578,6 +611,7 @@ async function claimFocusedTitlebarSurface(
 
         let surfaceMode = null;
         let surfaceSide = null;
+        let surfaceMember = null;
 
         if (
             focusedWindow.id ===
@@ -602,8 +636,24 @@ async function claimFocusedTitlebarSurface(
         ) {
             surfaceMode = "twitch";
             surfaceSide = "right";
-        } else {
-            const providerEntry =
+        } else if (layoutProfile === "wide") {
+            const workspaceRecord = state[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+            for (const slotId of ["a", "b", "c", "d"]) {
+                if (workspaceRecord?.slots?.[slotId]?.windowId === focusedWindow.id) {
+                    surfaceMode = "twitch";
+                    surfaceSide = "right";
+                    surfaceMember = slotId;
+                    break;
+                }
+            }
+            if (!surfaceMember && workspaceRecord?.chat?.windowId === focusedWindow.id) {
+                surfaceMode = "twitch";
+                surfaceSide = "right";
+                surfaceMember = "chat";
+            }
+
+            if (!surfaceMode) {
+                const providerEntry =
                 Object.entries(
                     state.providerWindows || {}
                 )
@@ -617,10 +667,11 @@ async function claimFocusedTitlebarSurface(
             surfaceMode =
                 providerEntry?.[0] ||
                 null;
-            surfaceSide =
-                surfaceMode
-                    ? "left"
-                    : null;
+                surfaceSide =
+                    surfaceMode
+                        ? "left"
+                        : null;
+            }
         }
 
         if (
@@ -666,7 +717,7 @@ async function claimFocusedTitlebarSurface(
             return false;
         }
 
-        titlebarPort.postMessage({
+        const claim = {
             type:
                 "claim",
 
@@ -682,7 +733,20 @@ async function claimFocusedTitlebarSurface(
                 surfaceMode,
 
             titleHint
-        });
+        };
+
+        if (surfaceMember) {
+            const rect = getTwitchWorkspaceV2Rects()[surfaceMember];
+            if (rect) {
+                claim.member = surfaceMember;
+                claim.left = rect.left;
+                claim.top = rect.top;
+                claim.width = rect.width;
+                claim.height = rect.height;
+            }
+        }
+
+        titlebarPort.postMessage(claim);
 
         return true;
     } catch {

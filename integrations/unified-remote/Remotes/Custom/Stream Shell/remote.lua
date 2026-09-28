@@ -1,4 +1,4 @@
--- Stream Shell Unified Remote v0.8.3
+-- Stream Shell Unified Remote v0.9.0
 -- All controls use the native Stream Shell bridge. The remote queries bridge
 -- state so Wide-only auxiliary actions disappear in Compact.
 
@@ -12,9 +12,8 @@ local neutral_color = "#66707d";
 local active_neutral_color = "#8792a2";
 
 local auxiliary_colors = {
-    discord = "#5865f2",
-    twitch = "#7c3aed",
-    twitch_drops = "#d97706"
+    discord = "#343b68",
+    twitch = "#4c2d63"
 };
 
 local provider_colors = {
@@ -33,7 +32,7 @@ local provider_ids = {
     "crunchyroll"
 };
 
-local function sync_button_highlights(profile, left, right, twitch_target, settings_open, volume_active)
+local function sync_button_highlights(profile, left, right, settings_open, volume_active)
     local updates = {};
 
     for _, provider in ipairs(provider_ids) do
@@ -74,17 +73,9 @@ local function sync_button_highlights(profile, left, right, twitch_target, setti
         color = right == "discord" and auxiliary_colors.discord or neutral_color
     });
 
-    local drops_active = right == "twitch" and twitch_target == "drops";
-    local twitch_active = right == "twitch" and not drops_active;
-
     table.insert(updates, {
         id = "twitch",
-        color = twitch_active and auxiliary_colors.twitch or neutral_color
-    });
-
-    table.insert(updates, {
-        id = "twitch_drops",
-        color = drops_active and auxiliary_colors.twitch_drops or neutral_color
+        color = right == "twitch" and auxiliary_colors.twitch or neutral_color
     });
 
     server.update(unpack(updates));
@@ -136,7 +127,6 @@ local function apply_layout_visibility(profile)
     layout.aux_label.visibility = compact and "gone" or "visible";
     layout.discord.visibility = compact and "gone" or "visible";
     layout.twitch.visibility = compact and "gone" or "visible";
-    layout.twitch_drops.visibility = compact and "gone" or "visible";
 end
 
 local function sync_status()
@@ -150,7 +140,6 @@ local function sync_status()
     local profile = string.match(response, "layout=([^%s]+)") or "unknown";
     local left = string.match(response, "left=([^%s]+)") or "unknown";
     local right = string.match(response, "right=([^%s]+)") or "unknown";
-    local twitch_target = string.match(response, "twitchTarget=([^%s]+)") or "resume";
     local settings = string.match(response, "settings=([^%s]+)") or "0";
     local volume = string.match(response, "volume=([^%s]+)") or "0";
 
@@ -163,7 +152,7 @@ local function sync_status()
         suffix = suffix .. " · Volume Boost";
     end
     set_status("CONNECTED · " .. profile_label .. " · " .. surface .. suffix);
-    sync_button_highlights(profile, left, right, twitch_target, settings == "1", volume == "1");
+    sync_button_highlights(profile, left, right, settings == "1", volume == "1");
 
     return true;
 end
@@ -233,6 +222,5 @@ actions.volume = function () bridge_action("volume") end
 
 actions.discord = function () bridge_action("discord") end
 actions.twitch = function () bridge_action("twitch") end
-actions.twitch_drops = function () bridge_action("twitch-drops") end
 
 actions.kill = function () bridge_action("kill") end

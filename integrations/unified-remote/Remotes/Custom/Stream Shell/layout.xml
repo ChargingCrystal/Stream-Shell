@@ -36,8 +36,7 @@
         <row weight="wrap"><label id="aux_label" text="AUXILIARY · WIDE" /></row>
         <row>
             <button id="discord" image="icons/discord.png" scale="fit" color="#66707d" weight="50" ontap="discord" />
-            <button id="twitch" image="icons/twitch.png" scale="fit" color="#66707d" weight="35" ontap="twitch" />
-            <button id="twitch_drops" image="icons/twitch_drops.png" scale="fit" color="#66707d" weight="15" ontap="twitch_drops" />
+            <button id="twitch" image="icons/twitch.png" scale="fit" color="#66707d" weight="50" ontap="twitch" />
         </row>
 
         <row weight="wrap">

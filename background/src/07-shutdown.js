@@ -1,37 +1,28 @@
 async function killStreamShell() {
-    if (
-        shuttingDown
-    ) {
-        return;
-    }
+    if (shuttingDown) return;
 
     await stopVolumeCapture(false);
-
-    shuttingDown =
-        true;
+    shuttingDown = true;
 
     providerCreationLocks.clear();
-
-    landingCreationLock =
-        null;
-
-    dashboardCreationLock =
-        null;
-
+    landingCreationLock = null;
+    dashboardCreationLock = null;
     stopTitlebarNative();
 
-    const stored =
-        await chrome.storage.local.get([
-            "providerWindows",
-            "landingWindowId",
-            "dashboardWindowId",
-            TWITCH_WINDOW_STORAGE_KEY,
-            TWITCH_DROPS_WORKER_WINDOW_STORAGE_KEY
-        ]);
+    /* Keep the logical A-D definition but close all four physical Twitch
+     * windows concurrently. */
+    await closeTwitchWorkspaceV2Windows(true).catch(() => {});
 
-    const providerWindows =
-        stored.providerWindows ||
-        {};
+    const stored = await chrome.storage.local.get([
+        "providerWindows",
+        "landingWindowId",
+        "dashboardWindowId",
+        TWITCH_WINDOW_STORAGE_KEY,
+        TWITCH_DROPS_WORKER_WINDOW_STORAGE_KEY,
+        TWITCH_SPLIT_LAB_STORAGE_KEY
+    ]);
+
+    const providerWindows = stored.providerWindows || {};
 
     await chrome.storage.local.remove([
         "providerWindows",
@@ -39,46 +30,31 @@ async function killStreamShell() {
         "dashboardWindowId",
         TWITCH_WINDOW_STORAGE_KEY,
         TWITCH_DROPS_WORKER_WINDOW_STORAGE_KEY,
+        TWITCH_SPLIT_LAB_STORAGE_KEY,
         "leftMode",
         "rightMode"
     ]);
 
-    for (
-        const windowId
-        of Object.values(
-            providerWindows
-        )
-    ) {
-        await safelyRemoveWindow(
-            windowId
-        );
-    }
+    const splitLabWindowIds = Array.isArray(stored[TWITCH_SPLIT_LAB_STORAGE_KEY]?.windowIds)
+        ? stored[TWITCH_SPLIT_LAB_STORAGE_KEY].windowIds
+        : [];
 
-    /*
-     * Stream Shell does not own Discord's lifetime. Leave the native app
-     * untouched when killing the shell instead of forcing another Electron
-     * minimize/restore cycle.
-     */
+    const windowIds = new Set([
+        ...Object.values(providerWindows),
+        stored.landingWindowId,
+        stored.dashboardWindowId,
+        stored[TWITCH_WINDOW_STORAGE_KEY],
+        stored[TWITCH_DROPS_WORKER_WINDOW_STORAGE_KEY],
+        ...splitLabWindowIds
+    ].filter(Number.isInteger));
 
-    await safelyRemoveWindow(
-        stored.landingWindowId
+    /* Once shuttingDown is true all window removal listeners are inert, so there
+     * is no reason to serialize independent Opera close round-trips. */
+    await Promise.allSettled(
+        [...windowIds].map(windowId => safelyRemoveWindow(windowId))
     );
 
-    await safelyRemoveWindow(
-        stored.dashboardWindowId
-    );
-
-    await safelyRemoveWindow(
-        stored[TWITCH_WINDOW_STORAGE_KEY]
-    );
-
-    await safelyRemoveWindow(
-        stored[TWITCH_DROPS_WORKER_WINDOW_STORAGE_KEY]
-    );
-
-    await chrome.storage.session.remove(
-        TWITCH_RAID_GUARD_SESSION_KEY
-    ).catch(() => {});
+    /* Stream Shell does not own Discord's lifetime. */
+    await chrome.storage.session.remove(TWITCH_RAID_GUARD_SESSION_KEY).catch(() => {});
 }
-
 

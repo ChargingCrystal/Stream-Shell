@@ -6,7 +6,7 @@
 
 Stream Shell is a personal Opera GX / Chromium extension that turns several streaming services into one managed desktop-style shell. It was built around my own Windows setup and workflow first; other setups may work, but compatibility is best-effort rather than a product promise.
 
-Current public version: **0.18.19**.
+Current package version: **0.19.8**.
 
 ## What it does
 
@@ -17,9 +17,9 @@ Highlights include:
 - Automatic display targeting with 32:9 Wide plus 16:9/16:10 Compact single-surface layouts and provider-aware window management.
 - A unified Landing/Dashboard UI with Watchlist, Continue Watching, Recent and Direct entries.
 - TMDB metadata/search plus streaming availability through TMDB's watch-provider data.
-- Provider automations such as autoplay/skip helpers, playback utilities and provider-specific cleanup; switching away pauses outgoing provider playback before the warm window is parked.
+- Provider automations such as autoplay/skip helpers, playback utilities and provider-specific cleanup; switching away pauses ordinary providers before the warm window is parked, while Twitch Workspace playback can persist while covered.
 - YouTube extras including Windowed Fullscreen, Auto-Like, quality handling, upload-date helpers, Shorts tweaks and optional Return YouTube Dislike ratio integration.
-- Twitch channel-points/Drops automation, raid guard and audio handling.
+- Twitch four-slot Wide Workspace with real top-level Twitch pages, persistent covered playback, channel-points/Drops automation, raid guard and per-slot audio handling.
 - A tab-capture based Volume Booster with a Chromium fullscreen bridge.
 - Optional native Windows helpers for Stream Shell titlebars/window controls and Discord desktop integration.
 - Optional first-party Unified Remote control surface with live Stream Shell active-state highlighting.
@@ -108,3 +108,7 @@ Copyright © 2026 **Sven Rieseler**.
 ## Third-party services and trademarks
 
 Stream Shell is independent and is not affiliated with or endorsed by the services it integrates. Netflix, Prime Video/Amazon, YouTube/Google, Disney+, Crunchyroll, Twitch, Discord, TMDB, JustWatch, Return YouTube Dislike and Unified Remote are names/trademarks/projects of their respective owners.
+
+### Twitch Workspace
+
+On Wide layouts, Twitch uses a persistent four-slot 2×2 workspace backed by real Opera/Twitch popup windows. Slots are created lazily at their final geometry and are covered by Dashboard/Discord rather than rebuilt during ordinary surface switching. Playback that was already running is kept alive while the Workspace is covered or occluded. Bare channel roots can run in a stream-focused cleanup mode, while arbitrary Twitch pages remain normal top-level documents. Drops is simply another Twitch page inside the Workspace, and each slot owns its browser-level mute state.

@@ -77,7 +77,7 @@ internal static class StreamShellTitlebarHost
     private const ushort VT_LPWSTR = 31;
     private const string STREAM_SHELL_APP_ID = "SvenRieseler.StreamShell.Desktop";
     private const string CONTROL_PIPE_NAME = "StreamShell.ControlBridge.v1";
-    private const int TITLEBAR_PROTOCOL_VERSION = 4;
+    private const int TITLEBAR_PROTOCOL_VERSION = 5;
     private const uint HEARTBEAT_TIMEOUT_MS = 6500;
 
     private static readonly HashSet<string> ControlBridgeActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -112,6 +112,8 @@ internal static class StreamShellTitlebarHost
     private static IntPtr leftChromeOverlay = IntPtr.Zero;
     private static IntPtr rightChromeOverlay = IntPtr.Zero;
     private static IntPtr rightCaptionBlockerOverlay = IntPtr.Zero;
+    private static IntPtr rightSplitChromeOverlay = IntPtr.Zero;
+    private static IntPtr rightSplitCaptionBlockerOverlay = IntPtr.Zero;
     private static IntPtr leftOverlay = IntPtr.Zero;
     private static IntPtr rightOverlay = IntPtr.Zero;
     private static IntPtr leftOwner = IntPtr.Zero;
@@ -151,6 +153,8 @@ internal static class StreamShellTitlebarHost
         new Dictionary<string, IntPtr>(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, IntPtr> WideSurfaceWindows =
         new Dictionary<string, IntPtr>(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, IntPtr> WideTwitchClusterWindows =
+        new Dictionary<string, IntPtr>(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, SurfaceClaimState> PendingSurfaceClaims =
         new Dictionary<string, SurfaceClaimState>(StringComparer.OrdinalIgnoreCase);
 
@@ -183,6 +187,17 @@ internal static class StreamShellTitlebarHost
     private static int rightBlockerLastWidth = Int32.MinValue;
     private static int rightBlockerLastHeight = Int32.MinValue;
     private static IntPtr rightBlockerLastTarget = IntPtr.Zero;
+    private static int rightSplitChromeLastX = Int32.MinValue;
+    private static int rightSplitChromeLastY = Int32.MinValue;
+    private static int rightSplitChromeLastWidth = Int32.MinValue;
+    private static int rightSplitChromeLastHeight = Int32.MinValue;
+    private static IntPtr rightSplitChromeLastTarget = IntPtr.Zero;
+    private static bool rightSplitChromePositionLogged;
+    private static int rightSplitBlockerLastX = Int32.MinValue;
+    private static int rightSplitBlockerLastY = Int32.MinValue;
+    private static int rightSplitBlockerLastWidth = Int32.MinValue;
+    private static int rightSplitBlockerLastHeight = Int32.MinValue;
+    private static IntPtr rightSplitBlockerLastTarget = IntPtr.Zero;
 
     // Windows taskbar identity. These are window-level properties applied only
     // to Opera HWNDs that the helper has already identified as Stream Shell
@@ -239,17 +254,31 @@ internal static class StreamShellTitlebarHost
         public string LayoutProfile;
         public string Side;
         public string Mode;
+        public string Member;
         public string TitleHint;
+        public bool HasPaneOverride;
+        public PaneBounds PaneOverride;
         public IntPtr Candidate;
         public int StablePasses;
         public int Attempts;
 
-        public SurfaceClaimState(string layoutProfile, string side, string mode, string titleHint)
+        public SurfaceClaimState(
+            string layoutProfile,
+            string side,
+            string mode,
+            string member,
+            string titleHint,
+            bool hasPaneOverride,
+            PaneBounds paneOverride
+        )
         {
             LayoutProfile = layoutProfile ?? String.Empty;
             Side = side ?? String.Empty;
             Mode = mode ?? String.Empty;
+            Member = member ?? String.Empty;
             TitleHint = titleHint ?? String.Empty;
+            HasPaneOverride = hasPaneOverride;
+            PaneOverride = paneOverride;
             Candidate = IntPtr.Zero;
             StablePasses = 0;
             Attempts = 0;
@@ -834,6 +863,8 @@ internal static class StreamShellTitlebarHost
             leftChromeOverlay = CreateChromeBackdropWindow("Stream Shell Provider Chrome Left");
             rightChromeOverlay = CreateChromeBackdropWindow("Stream Shell Provider Chrome Right");
             rightCaptionBlockerOverlay = CreateOverlayWindow("Stream Shell Right Caption Blocker");
+            rightSplitChromeOverlay = CreateChromeBackdropWindow("Stream Shell Twitch Split Chrome B");
+            rightSplitCaptionBlockerOverlay = CreateOverlayWindow("Stream Shell Twitch Split Caption Blocker B");
             leftOverlay = CreateOverlayWindow("Stream Shell Left Toolbar");
             rightOverlay = IntPtr.Zero;
 
@@ -985,6 +1016,8 @@ internal static class StreamShellTitlebarHost
                 CleanupOverlay(ref leftChromeOverlay);
                 CleanupOverlay(ref rightChromeOverlay);
                 CleanupOverlay(ref rightCaptionBlockerOverlay);
+                CleanupOverlay(ref rightSplitChromeOverlay);
+                CleanupOverlay(ref rightSplitCaptionBlockerOverlay);
                 CleanupOverlay(ref leftOverlay);
                 CleanupOverlay(ref rightOverlay);
                 PostQuitMessage(0);
@@ -994,7 +1027,7 @@ internal static class StreamShellTitlebarHost
             return DefWindowProc(hWnd, msg, wParam, lParam);
         }
 
-        if (hWnd == leftChromeOverlay || hWnd == rightChromeOverlay)
+        if (hWnd == leftChromeOverlay || hWnd == rightChromeOverlay || hWnd == rightSplitChromeOverlay)
         {
             bool leftChrome = hWnd == leftChromeOverlay;
 
@@ -1027,7 +1060,7 @@ internal static class StreamShellTitlebarHost
             return DefWindowProc(hWnd, msg, wParam, lParam);
         }
 
-        if (hWnd == rightCaptionBlockerOverlay)
+        if (hWnd == rightCaptionBlockerOverlay || hWnd == rightSplitCaptionBlockerOverlay)
         {
             if (msg == WM_MOUSEACTIVATE)
             {
@@ -1913,6 +1946,123 @@ internal static class StreamShellTitlebarHost
         }
     }
 
+    private static IntPtr GetWideTwitchClusterHandle(string member)
+    {
+        if (String.IsNullOrWhiteSpace(member)) return IntPtr.Zero;
+        lock (StateLock)
+        {
+            IntPtr hWnd;
+            if (!WideTwitchClusterWindows.TryGetValue(member, out hWnd)) return IntPtr.Zero;
+            if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
+            {
+                WideTwitchClusterWindows.Remove(member);
+                return IntPtr.Zero;
+            }
+            return hWnd;
+        }
+    }
+
+    private static void RaiseWideTwitchClusterOnce(string selectedMember)
+    {
+        string selected = (selectedMember ?? String.Empty).Trim().ToLowerInvariant();
+
+        /* C/D are born one stock-caption height underneath A/B. Always restore
+         * lower members first and upper members second so A/B cover only that
+         * overlap strip. SWP_NOACTIVATE keeps a clicked C/D window focused even
+         * though its caption remains visually tucked behind the upper row. */
+        List<string> order = new List<string>();
+
+        if (String.Equals(selected, "c", StringComparison.OrdinalIgnoreCase))
+        {
+            order.Add("d");
+            order.Add("c");
+        }
+        else if (String.Equals(selected, "d", StringComparison.OrdinalIgnoreCase))
+        {
+            order.Add("c");
+            order.Add("d");
+        }
+        else
+        {
+            order.Add("c");
+            order.Add("d");
+        }
+
+        if (String.Equals(selected, "a", StringComparison.OrdinalIgnoreCase))
+        {
+            order.Add("b");
+            order.Add("a");
+        }
+        else if (String.Equals(selected, "b", StringComparison.OrdinalIgnoreCase))
+        {
+            order.Add("a");
+            order.Add("b");
+        }
+        else
+        {
+            order.Add("a");
+            order.Add("b");
+        }
+
+        order.Add("chat");
+
+        foreach (string member in order)
+        {
+            IntPtr hWnd = GetWideTwitchClusterHandle(member);
+            if (hWnd == IntPtr.Zero || !IsWindow(hWnd) || !IsWindowVisible(hWnd) || IsIconic(hWnd)) continue;
+            SetWindowPos(
+                hWnd,
+                HWND_TOP,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING
+            );
+        }
+    }
+
+    private static bool IsWideTwitchSurfaceHandle(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return false;
+        if (GetWideSurfaceHandle("right", "twitch") == hWnd) return true;
+        lock (StateLock)
+        {
+            foreach (IntPtr known in WideTwitchClusterWindows.Values)
+            {
+                if (known == hWnd) return true;
+            }
+        }
+        return false;
+    }
+
+    private static List<TargetInfo> GetWideTwitchClusterTargets()
+    {
+        List<KeyValuePair<string, IntPtr>> entries;
+        lock (StateLock)
+        {
+            entries = new List<KeyValuePair<string, IntPtr>>(WideTwitchClusterWindows);
+        }
+        entries.Sort(delegate(KeyValuePair<string, IntPtr> a, KeyValuePair<string, IntPtr> b)
+        {
+            return StringComparer.OrdinalIgnoreCase.Compare(a.Key, b.Key);
+        });
+
+        List<TargetInfo> targets = new List<TargetInfo>();
+        HashSet<IntPtr> seen = new HashSet<IntPtr>();
+        foreach (KeyValuePair<string, IntPtr> pair in entries)
+        {
+            if (pair.Value == IntPtr.Zero || !IsWindow(pair.Value) || IsIconic(pair.Value) || seen.Contains(pair.Value)) continue;
+            TargetInfo target = TryBuildTrustedOperaTarget(pair.Value);
+            if (target != null)
+            {
+                seen.Add(pair.Value);
+                targets.Add(target);
+            }
+        }
+        return targets;
+    }
+
     private static bool IsCompactKnownSurfaceHandle(IntPtr hWnd)
     {
         if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
@@ -1950,6 +2100,13 @@ internal static class StreamShellTitlebarHost
                     return true;
                 }
             }
+            foreach (IntPtr known in WideTwitchClusterWindows.Values)
+            {
+                if (known == hWnd)
+                {
+                    return true;
+                }
+            }
         }
 
         return false;
@@ -1981,6 +2138,10 @@ internal static class StreamShellTitlebarHost
                 if (known == hWnd) return true;
             }
             foreach (IntPtr known in WideSurfaceWindows.Values)
+            {
+                if (known == hWnd) return true;
+            }
+            foreach (IntPtr known in WideTwitchClusterWindows.Values)
             {
                 if (known == hWnd) return true;
             }
@@ -2044,62 +2205,60 @@ internal static class StreamShellTitlebarHost
         }
     }
 
-    private static string GetSurfaceClaimKey(string profile, string side, string mode)
+    private static string GetSurfaceClaimKey(string profile, string side, string mode, string member)
     {
         return (profile ?? String.Empty).ToLowerInvariant() + "|" +
             (side ?? String.Empty).ToLowerInvariant() + "|" +
-            (mode ?? String.Empty).ToLowerInvariant();
+            (mode ?? String.Empty).ToLowerInvariant() + "|" +
+            (member ?? String.Empty).ToLowerInvariant();
     }
 
-    private static void QueueSurfaceClaim(string profile, string side, string mode, string titleHint)
+    private static void QueueSurfaceClaim(
+        string profile,
+        string side,
+        string mode,
+        string member,
+        string titleHint,
+        bool hasPaneOverride,
+        PaneBounds paneOverride
+    )
     {
         string normalizedProfile = (profile ?? String.Empty).Trim().ToLowerInvariant();
         string normalizedSide = (side ?? String.Empty).Trim().ToLowerInvariant();
         string normalizedMode = (mode ?? String.Empty).Trim().ToLowerInvariant();
+        string normalizedMember = (member ?? String.Empty).Trim().ToLowerInvariant();
         string normalizedTitleHint = (titleHint ?? String.Empty).Trim();
 
         if ((normalizedProfile != "wide" && normalizedProfile != "compact") ||
             (normalizedSide != "left" && normalizedSide != "right") ||
             String.IsNullOrWhiteSpace(normalizedMode) ||
-            String.IsNullOrWhiteSpace(normalizedTitleHint))
-        {
-            return;
-        }
+            String.IsNullOrWhiteSpace(normalizedTitleHint)) return;
 
-        if (normalizedProfile == "compact" && normalizedSide != "left")
-        {
-            return;
-        }
+        if (normalizedProfile == "compact" && normalizedSide != "left") return;
 
-        string key = GetSurfaceClaimKey(normalizedProfile, normalizedSide, normalizedMode);
-        bool replaced = false;
+        bool memberClaim = !String.IsNullOrWhiteSpace(normalizedMember);
+        if (memberClaim && !(normalizedProfile == "wide" && normalizedSide == "right" && normalizedMode == "twitch")) return;
+        if (memberClaim && (!hasPaneOverride || paneOverride.Width <= 0 || paneOverride.Height <= 0)) return;
+
+        string key = GetSurfaceClaimKey(normalizedProfile, normalizedSide, normalizedMode, normalizedMember);
         lock (StateLock)
         {
             SurfaceClaimState existing;
             if (PendingSurfaceClaims.TryGetValue(key, out existing) &&
-                String.Equals(existing.TitleHint, normalizedTitleHint, StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
+                String.Equals(existing.TitleHint, normalizedTitleHint, StringComparison.OrdinalIgnoreCase)) return;
 
             PendingSurfaceClaims[key] = new SurfaceClaimState(
-                normalizedProfile,
-                normalizedSide,
-                normalizedMode,
-                normalizedTitleHint
+                normalizedProfile, normalizedSide, normalizedMode, normalizedMember, normalizedTitleHint, hasPaneOverride, paneOverride
             );
-            replaced = true;
         }
 
-        if (replaced)
-        {
-            LogDiagnostic(
-                "surface claim queued profile=" + normalizedProfile +
-                " side=" + normalizedSide +
-                " mode=" + normalizedMode +
-                " titleHint=" + normalizedTitleHint
-            );
-        }
+        LogDiagnostic(
+            "surface claim queued profile=" + normalizedProfile +
+            " side=" + normalizedSide +
+            " mode=" + normalizedMode +
+            " member=" + (String.IsNullOrWhiteSpace(normalizedMember) ? "-" : normalizedMember) +
+            " titleHint=" + normalizedTitleHint
+        );
     }
 
     private static bool WindowTitleMatchesHint(IntPtr hWnd, string titleHint)
@@ -2150,8 +2309,15 @@ internal static class StreamShellTitlebarHost
         return found;
     }
 
-    private static IntPtr GetMappedSurfaceHandle(string profile, string side, string mode)
+    private static IntPtr GetMappedSurfaceHandle(string profile, string side, string mode, string member)
     {
+        if (!String.IsNullOrWhiteSpace(member) &&
+            String.Equals(profile, "wide", StringComparison.OrdinalIgnoreCase) &&
+            String.Equals(side, "right", StringComparison.OrdinalIgnoreCase) &&
+            String.Equals(mode, "twitch", StringComparison.OrdinalIgnoreCase))
+        {
+            return GetWideTwitchClusterHandle(member);
+        }
         return String.Equals(profile, "compact", StringComparison.OrdinalIgnoreCase)
             ? GetCompactSurfaceHandle(mode)
             : GetWideSurfaceHandle(side, mode);
@@ -2205,7 +2371,10 @@ internal static class StreamShellTitlebarHost
                 return;
             }
 
-            claim = new SurfaceClaimState(existing.LayoutProfile, existing.Side, existing.Mode, existing.TitleHint);
+            claim = new SurfaceClaimState(
+                existing.LayoutProfile, existing.Side, existing.Mode, existing.Member, existing.TitleHint,
+                existing.HasPaneOverride, existing.PaneOverride
+            );
             claim.Candidate = existing.Candidate;
             claim.StablePasses = existing.StablePasses;
             claim.Attempts = existing.Attempts;
@@ -2250,9 +2419,9 @@ internal static class StreamShellTitlebarHost
             return;
         }
 
-        PaneBounds pane = String.Equals(claim.Side, "right", StringComparison.OrdinalIgnoreCase)
-            ? right
-            : left;
+        PaneBounds pane = claim.HasPaneOverride
+            ? claim.PaneOverride
+            : (String.Equals(claim.Side, "right", StringComparison.OrdinalIgnoreCase) ? right : left);
         bool compact = String.Equals(claim.LayoutProfile, "compact", StringComparison.OrdinalIgnoreCase);
 
         /*
@@ -2260,7 +2429,7 @@ internal static class StreamShellTitlebarHost
          * Alt+Tab caption must not invalidate the mapping simply because the
          * browser tab title no longer equals the native caption we customized.
          */
-        IntPtr mapped = GetMappedSurfaceHandle(claim.LayoutProfile, claim.Side, claim.Mode);
+        IntPtr mapped = GetMappedSurfaceHandle(claim.LayoutProfile, claim.Side, claim.Mode, claim.Member);
         if (mapped != IntPtr.Zero && IsWindow(mapped))
         {
             TargetInfo mappedTarget = compact
@@ -2270,13 +2439,14 @@ internal static class StreamShellTitlebarHost
                 (!compact || IsCompactForegroundTarget(mappedTarget));
             if (mappedEligible)
             {
-                RegisterTaskbarWindow(mapped, "claim-renew-" + claim.LayoutProfile + "-" + claim.Side + "-" + claim.Mode);
+                RegisterTaskbarWindow(mapped, "claim-renew-" + claim.LayoutProfile + "-" + claim.Side + "-" + claim.Mode + "-" + claim.Member);
                 RemovePendingSurfaceClaim(key);
                 WriteJson(
                     "{\"event\":\"claim-accepted\",\"protocolVersion\":" + TITLEBAR_PROTOCOL_VERSION +
                     ",\"layoutProfile\":\"" + JsonEscape(claim.LayoutProfile) +
                     "\",\"side\":\"" + JsonEscape(claim.Side) +
-                    "\",\"mode\":\"" + JsonEscape(claim.Mode) + "\",\"renewed\":true}"
+                    "\",\"mode\":\"" + JsonEscape(claim.Mode) +
+                    "\",\"member\":\"" + JsonEscape(claim.Member) + "\",\"renewed\":true}"
                 );
                 return;
             }
@@ -2371,23 +2541,59 @@ internal static class StreamShellTitlebarHost
             }
             else
             {
-                string wideKey = GetWideSurfaceKey(claim.Side, claim.Mode);
-                WideSurfaceWindows.TryGetValue(wideKey, out previousHandle);
-                List<string> duplicates = new List<string>();
-                foreach (KeyValuePair<string, IntPtr> pair in WideSurfaceWindows)
+                bool twitchMember = !String.IsNullOrWhiteSpace(claim.Member) &&
+                    String.Equals(claim.Side, "right", StringComparison.OrdinalIgnoreCase) &&
+                    String.Equals(claim.Mode, "twitch", StringComparison.OrdinalIgnoreCase);
+
+                if (twitchMember)
                 {
-                    if (pair.Value == candidate.Handle &&
-                        !String.Equals(pair.Key, wideKey, StringComparison.OrdinalIgnoreCase))
+                    WideTwitchClusterWindows.TryGetValue(claim.Member, out previousHandle);
+                    List<string> duplicateMembers = new List<string>();
+                    foreach (KeyValuePair<string, IntPtr> pair in WideTwitchClusterWindows)
                     {
-                        duplicates.Add(pair.Key);
+                        if (pair.Value == candidate.Handle && !String.Equals(pair.Key, claim.Member, StringComparison.OrdinalIgnoreCase))
+                            duplicateMembers.Add(pair.Key);
                     }
+                    foreach (string duplicate in duplicateMembers) WideTwitchClusterWindows.Remove(duplicate);
+                    WideTwitchClusterWindows[claim.Member] = candidate.Handle;
+
+                    string twitchKey = GetWideSurfaceKey("right", "twitch");
+                    IntPtr primary;
+                    bool havePrimary = WideSurfaceWindows.TryGetValue(twitchKey, out primary) && primary != IntPtr.Zero && IsWindow(primary);
+                    if (!havePrimary || String.Equals(claim.Member, "a", StringComparison.OrdinalIgnoreCase))
+                        WideSurfaceWindows[twitchKey] = candidate.Handle;
                 }
-                foreach (string duplicate in duplicates) WideSurfaceWindows.Remove(duplicate);
-                WideSurfaceWindows[wideKey] = candidate.Handle;
+                else
+                {
+                    string wideKey = GetWideSurfaceKey(claim.Side, claim.Mode);
+                    WideSurfaceWindows.TryGetValue(wideKey, out previousHandle);
+                    List<string> duplicates = new List<string>();
+                    foreach (KeyValuePair<string, IntPtr> pair in WideSurfaceWindows)
+                    {
+                        if (pair.Value == candidate.Handle &&
+                            !String.Equals(pair.Key, wideKey, StringComparison.OrdinalIgnoreCase))
+                        {
+                            duplicates.Add(pair.Key);
+                        }
+                    }
+                    foreach (string duplicate in duplicates) WideSurfaceWindows.Remove(duplicate);
+                    WideSurfaceWindows[wideKey] = candidate.Handle;
+                }
             }
         }
 
-        RegisterTaskbarWindow(candidate.Handle, "claim-" + claim.LayoutProfile + "-" + claim.Side + "-" + claim.Mode);
+        if (!compact &&
+            !String.IsNullOrWhiteSpace(claim.Member) &&
+            String.Equals(claim.Side, "right", StringComparison.OrdinalIgnoreCase) &&
+            String.Equals(claim.Mode, "twitch", StringComparison.OrdinalIgnoreCase))
+        {
+            /* Re-establish row ownership exactly when a member becomes known.
+             * This replaces timing-based extension retries with one deterministic
+             * native action per accepted claim. */
+            RaiseWideTwitchClusterOnce(claim.Member);
+        }
+
+        RegisterTaskbarWindow(candidate.Handle, "claim-" + claim.LayoutProfile + "-" + claim.Side + "-" + claim.Mode + "-" + claim.Member);
 
         if (previousHandle != IntPtr.Zero && previousHandle != candidate.Handle)
         {
@@ -2398,6 +2604,7 @@ internal static class StreamShellTitlebarHost
             "surface claim accepted profile=" + claim.LayoutProfile +
             " side=" + claim.Side +
             " mode=" + claim.Mode +
+            " member=" + (String.IsNullOrWhiteSpace(claim.Member) ? "-" : claim.Member) +
             " hwnd=0x" + candidate.Handle.ToInt64().ToString("X") +
             " nativeTitle=" + GetWindowTitle(candidate.Handle)
         );
@@ -2407,7 +2614,8 @@ internal static class StreamShellTitlebarHost
             "{\"event\":\"claim-accepted\",\"protocolVersion\":" + TITLEBAR_PROTOCOL_VERSION +
             ",\"layoutProfile\":\"" + JsonEscape(claim.LayoutProfile) +
             "\",\"side\":\"" + JsonEscape(claim.Side) +
-            "\",\"mode\":\"" + JsonEscape(claim.Mode) + "\"}"
+            "\",\"mode\":\"" + JsonEscape(claim.Mode) +
+            "\",\"member\":\"" + JsonEscape(claim.Member) + "\"}"
         );
     }
 
@@ -2532,6 +2740,8 @@ internal static class StreamShellTitlebarHost
             hWnd == leftChromeOverlay ||
             hWnd == rightChromeOverlay ||
             hWnd == rightCaptionBlockerOverlay ||
+            hWnd == rightSplitChromeOverlay ||
+            hWnd == rightSplitCaptionBlockerOverlay ||
             hWnd == leftOverlay ||
             hWnd == rightOverlay ||
             hWnd == leftOwner ||
@@ -2879,6 +3089,28 @@ internal static class StreamShellTitlebarHost
                 if (pair.Value == IntPtr.Zero || !IsWindow(pair.Value)) wideKeys.Add(pair.Key);
             }
             foreach (string key in wideKeys) WideSurfaceWindows.Remove(key);
+
+            List<string> twitchClusterKeys = new List<string>();
+            foreach (KeyValuePair<string, IntPtr> pair in WideTwitchClusterWindows)
+            {
+                if (pair.Value == IntPtr.Zero || !IsWindow(pair.Value)) twitchClusterKeys.Add(pair.Key);
+            }
+            foreach (string key in twitchClusterKeys) WideTwitchClusterWindows.Remove(key);
+
+            string twitchKey = GetWideSurfaceKey("right", "twitch");
+            IntPtr twitchPrimary;
+            if ((!WideSurfaceWindows.TryGetValue(twitchKey, out twitchPrimary) || twitchPrimary == IntPtr.Zero || !IsWindow(twitchPrimary)) &&
+                WideTwitchClusterWindows.Count > 0)
+            {
+                foreach (KeyValuePair<string, IntPtr> pair in WideTwitchClusterWindows)
+                {
+                    if (pair.Value != IntPtr.Zero && IsWindow(pair.Value))
+                    {
+                        WideSurfaceWindows[twitchKey] = pair.Value;
+                        break;
+                    }
+                }
+            }
         }
 
         lock (TaskbarShellWindows)
@@ -2983,6 +3215,16 @@ internal static class StreamShellTitlebarHost
         TargetInfo rightTarget = !compactLayout && rightBrowserSurface
             ? FindWideSurfaceTarget(right, "right", currentRightMode)
             : null;
+
+        List<TargetInfo> twitchClusterTargets =
+            !compactLayout && String.Equals(currentRightMode, "twitch", StringComparison.OrdinalIgnoreCase)
+                ? GetWideTwitchClusterTargets()
+                : new List<TargetInfo>();
+
+        if (twitchClusterTargets.Count > 0)
+        {
+            rightTarget = twitchClusterTargets[0];
+        }
 
         /*
          * Explorer/taskbar identity is never an HWND discovery mechanism now.
@@ -3102,6 +3344,16 @@ internal static class StreamShellTitlebarHost
         if (!compactLayout && ShouldShowRightChrome(rightTarget, currentRightMode))
         {
             PositionRightChrome(rightTarget);
+            if (String.Equals(currentRightMode, "twitch", StringComparison.OrdinalIgnoreCase) &&
+                twitchClusterTargets.Count > 1 &&
+                ShouldShowRightChrome(twitchClusterTargets[1], currentRightMode))
+            {
+                PositionRightSplitChrome(twitchClusterTargets[1]);
+            }
+            else
+            {
+                HideRightSplitChrome();
+            }
         }
         else
         {
@@ -3840,7 +4092,7 @@ internal static class StreamShellTitlebarHost
                  * owns the user setting that may explicitly minimize it; native
                  * reconciliation must never park a proven Twitch HWND merely
                  * because Dashboard/Discord is currently in front. */
-                if (hWnd != persistentTwitchUtility)
+                if (hWnd != persistentTwitchUtility && !IsWideTwitchSurfaceHandle(hWnd))
                 {
                     ParkMinimizedManagedOperaWindow(hWnd);
                 }
@@ -5331,6 +5583,7 @@ internal static class StreamShellTitlebarHost
     {
         if (hWnd == IntPtr.Zero || hWnd == leftOverlay || hWnd == rightOverlay ||
             hWnd == leftChromeOverlay || hWnd == rightChromeOverlay || hWnd == rightCaptionBlockerOverlay ||
+            hWnd == rightSplitChromeOverlay || hWnd == rightSplitCaptionBlockerOverlay ||
             hWnd == controllerWindow || !IsWindow(hWnd) || !IsWindowVisible(hWnd) || IsIconic(hWnd))
         {
             return null;
@@ -5371,6 +5624,7 @@ internal static class StreamShellTitlebarHost
     {
         if (hWnd == IntPtr.Zero || hWnd == leftOverlay || hWnd == rightOverlay ||
             hWnd == leftChromeOverlay || hWnd == rightChromeOverlay || hWnd == rightCaptionBlockerOverlay ||
+            hWnd == rightSplitChromeOverlay || hWnd == rightSplitCaptionBlockerOverlay ||
             hWnd == controllerWindow || !IsWindowVisible(hWnd) || IsIconic(hWnd))
         {
             return null;
@@ -5818,8 +6072,108 @@ internal static class StreamShellTitlebarHost
         }
     }
 
+    private static void PositionRightSplitChrome(TargetInfo target)
+    {
+        if (rightSplitChromeOverlay == IntPtr.Zero || rightSplitCaptionBlockerOverlay == IntPtr.Zero || target == null)
+        {
+            HideRightSplitChrome();
+            return;
+        }
+
+        bool ownerChanged = rightSplitChromeLastTarget != target.Handle;
+        if (ownerChanged)
+        {
+            SetOwner(rightSplitChromeOverlay, target.Handle);
+            SetOwner(rightSplitCaptionBlockerOverlay, target.Handle);
+        }
+
+        int dpi = target.Dpi;
+        int width = Math.Max(1, target.Rect.Right - target.Rect.Left);
+        int height = Math.Max(Scale(28, dpi), target.TitlebarHeight + Scale(8, dpi));
+        int x = target.Rect.Left;
+        int y = target.Rect.Top;
+
+        bool chromeVisible = IsWindowVisible(rightSplitChromeOverlay);
+        bool chromeChanged =
+            rightSplitChromeLastX != x || rightSplitChromeLastY != y ||
+            rightSplitChromeLastWidth != width || rightSplitChromeLastHeight != height ||
+            rightSplitChromeLastTarget != target.Handle;
+
+        if (!chromeVisible || chromeChanged)
+        {
+            bool positioned = SetWindowPos(
+                rightSplitChromeOverlay, IntPtr.Zero, x, y, width, height,
+                SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW
+            );
+            int positionError = positioned ? 0 : Marshal.GetLastWin32Error();
+            ShowWindow(rightSplitChromeOverlay, SW_SHOWNOACTIVATE);
+            rightSplitChromeLastX = x;
+            rightSplitChromeLastY = y;
+            rightSplitChromeLastWidth = width;
+            rightSplitChromeLastHeight = height;
+            rightSplitChromeLastTarget = target.Handle;
+
+            if (!rightSplitChromePositionLogged)
+            {
+                rightSplitChromePositionLogged = true;
+                LogDiagnostic(
+                    "right split chrome show: ok=" + positioned +
+                    " err=" + positionError +
+                    " rect=" + x + "," + y + " " + width + "x" + height +
+                    " target=0x" + target.Handle.ToInt64().ToString("X")
+                );
+            }
+        }
+
+        int blockerX = target.CaptionLeft;
+        int blockerWidth = Math.Max(Scale(96, dpi), target.Rect.Right - target.CaptionLeft);
+        bool blockerVisible = IsWindowVisible(rightSplitCaptionBlockerOverlay);
+        bool blockerChanged =
+            rightSplitBlockerLastX != blockerX || rightSplitBlockerLastY != y ||
+            rightSplitBlockerLastWidth != blockerWidth || rightSplitBlockerLastHeight != height ||
+            rightSplitBlockerLastTarget != target.Handle;
+
+        if (!blockerVisible || blockerChanged)
+        {
+            SetWindowPos(
+                rightSplitCaptionBlockerOverlay, IntPtr.Zero, blockerX, y, blockerWidth, height,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW
+            );
+            ShowWindow(rightSplitCaptionBlockerOverlay, SW_SHOWNOACTIVATE);
+            rightSplitBlockerLastX = blockerX;
+            rightSplitBlockerLastY = y;
+            rightSplitBlockerLastWidth = blockerWidth;
+            rightSplitBlockerLastHeight = height;
+            rightSplitBlockerLastTarget = target.Handle;
+        }
+
+        if (chromeChanged) InvalidateRect(rightSplitChromeOverlay, IntPtr.Zero, false);
+        if (blockerChanged) InvalidateRect(rightSplitCaptionBlockerOverlay, IntPtr.Zero, false);
+    }
+
+    private static void HideRightSplitChrome()
+    {
+        IntPtr[] windows = new IntPtr[] { rightSplitChromeOverlay, rightSplitCaptionBlockerOverlay };
+        for (int i = 0; i < windows.Length; i++)
+        {
+            IntPtr hWnd = windows[i];
+            if (hWnd == IntPtr.Zero) continue;
+            if (IsWindowVisible(hWnd))
+            {
+                ShowWindow(hWnd, SW_HIDE);
+                SetWindowPos(
+                    hWnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE
+                );
+            }
+        }
+        rightSplitChromeLastTarget = IntPtr.Zero;
+        rightSplitBlockerLastTarget = IntPtr.Zero;
+    }
+
     private static void HideRightChrome()
     {
+        HideRightSplitChrome();
         IntPtr[] windows = new IntPtr[] { rightChromeOverlay, rightCaptionBlockerOverlay };
         for (int i = 0; i < windows.Length; i++)
         {
@@ -6143,8 +6497,10 @@ internal static class StreamShellTitlebarHost
         string compactMap;
         string wideMap;
         string pendingKeys;
+        string twitchClusterMap;
         int compactCount;
         int wideCount;
+        int twitchClusterCount;
         int pendingCount;
         int heartbeatTick;
         bool compatible;
@@ -6156,6 +6512,7 @@ internal static class StreamShellTitlebarHost
             browserVisibility = visibilityMode;
             compactCount = CompactSurfaceWindows.Count;
             wideCount = WideSurfaceWindows.Count;
+            twitchClusterCount = WideTwitchClusterWindows.Count;
             pendingCount = PendingSurfaceClaims.Count;
             heartbeatTick = lastHeartbeatTick;
             compatible = protocolCompatible;
@@ -6174,6 +6531,13 @@ internal static class StreamShellTitlebarHost
                 wideEntries.Add(pair.Key + "=0x" + pair.Value.ToInt64().ToString("X"));
             }
             wideMap = String.Join(";", wideEntries.ToArray());
+
+            List<string> twitchClusterEntries = new List<string>();
+            foreach (KeyValuePair<string, IntPtr> pair in WideTwitchClusterWindows)
+            {
+                twitchClusterEntries.Add(pair.Key + "=0x" + pair.Value.ToInt64().ToString("X"));
+            }
+            twitchClusterMap = String.Join(";", twitchClusterEntries.ToArray());
 
             List<string> claimEntries = new List<string>();
             foreach (string claimKey in PendingSurfaceClaims.Keys)
@@ -6205,6 +6569,8 @@ internal static class StreamShellTitlebarHost
             ",\"compactSurfaceMap\":\"" + JsonEscape(compactMap) +
             "\",\"wideSurfaces\":" + wideCount +
             ",\"wideSurfaceMap\":\"" + JsonEscape(wideMap) +
+            "\",\"twitchClusterMembers\":" + twitchClusterCount +
+            ",\"twitchClusterMap\":\"" + JsonEscape(twitchClusterMap) +
             "\",\"shellWindows\":" + shellCount +
             ",\"pendingClaims\":" + pendingCount +
             ",\"pendingClaimKeys\":\"" + JsonEscape(pendingKeys) +
@@ -6322,6 +6688,17 @@ internal static class StreamShellTitlebarHost
             return;
         }
 
+        if (type.Equals("raise-twitch-cluster", StringComparison.OrdinalIgnoreCase))
+        {
+            string selectedMember = GetJsonString(json, "selectedMember") ?? "a";
+            RaiseWideTwitchClusterOnce(selectedMember);
+            if (controllerWindow != IntPtr.Zero)
+            {
+                PostMessage(controllerWindow, WM_APP_SYNC, IntPtr.Zero, IntPtr.Zero);
+            }
+            return;
+        }
+
         if (type.Equals("claim-cancel", StringComparison.OrdinalIgnoreCase))
         {
             ClearPendingSurfaceClaims();
@@ -6333,9 +6710,19 @@ internal static class StreamShellTitlebarHost
             string claimProfile = GetJsonString(json, "layoutProfile") ?? String.Empty;
             string claimSide = GetJsonString(json, "side") ?? String.Empty;
             string claimMode = GetJsonString(json, "mode") ?? String.Empty;
+            string claimMember = GetJsonString(json, "member") ?? String.Empty;
             string titleHint = GetJsonString(json, "titleHint") ?? String.Empty;
+            bool hasPaneOverride = !String.IsNullOrWhiteSpace(claimMember);
+            PaneBounds claimPane = new PaneBounds(
+                GetJsonInt(json, "left", 0),
+                GetJsonInt(json, "top", 0),
+                GetJsonInt(json, "width", 0),
+                GetJsonInt(json, "height", 0)
+            );
 
-            QueueSurfaceClaim(claimProfile, claimSide, claimMode, titleHint);
+            QueueSurfaceClaim(
+                claimProfile, claimSide, claimMode, claimMember, titleHint, hasPaneOverride, claimPane
+            );
             if (controllerWindow != IntPtr.Zero)
             {
                 PostMessage(controllerWindow, WM_APP_SYNC, IntPtr.Zero, IntPtr.Zero);
@@ -6384,6 +6771,8 @@ internal static class StreamShellTitlebarHost
             if (leftChromeOverlay != IntPtr.Zero) InvalidateRect(leftChromeOverlay, IntPtr.Zero, false);
             if (rightChromeOverlay != IntPtr.Zero) InvalidateRect(rightChromeOverlay, IntPtr.Zero, false);
             if (rightCaptionBlockerOverlay != IntPtr.Zero) InvalidateRect(rightCaptionBlockerOverlay, IntPtr.Zero, false);
+            if (rightSplitChromeOverlay != IntPtr.Zero) InvalidateRect(rightSplitChromeOverlay, IntPtr.Zero, false);
+            if (rightSplitCaptionBlockerOverlay != IntPtr.Zero) InvalidateRect(rightSplitCaptionBlockerOverlay, IntPtr.Zero, false);
             if (leftOverlay != IntPtr.Zero) InvalidateRect(leftOverlay, IntPtr.Zero, false);
             if (rightOverlay != IntPtr.Zero) InvalidateRect(rightOverlay, IntPtr.Zero, false);
             if (controllerWindow != IntPtr.Zero) PostMessage(controllerWindow, WM_APP_SYNC, IntPtr.Zero, IntPtr.Zero);
@@ -6872,12 +7261,15 @@ internal static class StreamShellTitlebarHost
             PendingSurfaceClaims.Clear();
             CompactSurfaceWindows.Clear();
             WideSurfaceWindows.Clear();
+            WideTwitchClusterWindows.Clear();
             protocolCompatible = false;
         }
 
         CleanupOverlay(ref leftChromeOverlay);
         CleanupOverlay(ref rightChromeOverlay);
         CleanupOverlay(ref rightCaptionBlockerOverlay);
+        CleanupOverlay(ref rightSplitChromeOverlay);
+        CleanupOverlay(ref rightSplitCaptionBlockerOverlay);
         CleanupOverlay(ref leftOverlay);
         CleanupOverlay(ref rightOverlay);
         ResetWindowChromeThemes();

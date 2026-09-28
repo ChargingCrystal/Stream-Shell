@@ -47,7 +47,10 @@ const RIGHT_MODE_NAMES = {
         "Dashboard",
 
     discord:
-        "Discord"
+        "Discord",
+
+    twitch:
+        "Twitch Workspace"
 };
 
 

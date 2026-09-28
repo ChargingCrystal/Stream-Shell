@@ -1713,3 +1713,214 @@
 - Extended the native integration installer self-test to verify both reconciliation totals and printable statement generation.
 - Added a truthful GitHub Linguist mapping for `*.cob`; the expanded worker now exceeds the bundled Lua remote by source bytes, allowing COBOL to compete for the repository language sidebar instead of being grouped under Other.
 
+## 0.18.20 — Remote Contrast + YouTube Windowed Reflow
+
+- Updated the first-party Unified Remote to v0.8.4 with darker, less saturated active colors for Twitch and Discord plus a darker Discord idle surface for stronger logo contrast.
+- Left all state-detection semantics intact; this is a visual treatment change only for the two auxiliary buttons.
+- Added a bounded YouTube layout-refresh sequence around Windowed Fullscreen state changes and theater-mode transitions.
+- The refresh pulses force YouTube to recalculate player geometry after Stream Shell changes the root layout marker, preventing black borders when entering Windowed Fullscreen and clipped player geometry when returning to normal Windowed mode.
+- Preserved user-owned YouTube theater state by restoring theater mode only when Stream Shell had forced it.
+
+**Update steps:** reload Stream Shell. Reinstall/restart the Unified Remote custom remote for its v0.8.4 visual changes. No native-helper or COBOL-finance reinstall required.
+
+## 0.18.21 — Unified Remote Active-State Rollback
+
+- Restored the Unified Remote's v0.8.3 `sync_button_highlights` runtime path after the v0.8.4 visual-only pass caused active-state highlighting to stop updating on the installed remote.
+- Kept only the requested lower-intensity active-state colors for Discord and Twitch.
+- Removed the v0.8.4 Discord-specific idle-color branch so inactive Discord again uses the same neutral background as the rest of the remote.
+- Preserved the YouTube Windowed Fullscreen live-reflow fix introduced in 0.18.20 without modification.
+
+**Update steps:** reinstall the bundled Unified Remote custom remote and restart Unified Remote Server. Reloading the extension is only needed for the Stream Shell version bump; no native-helper or COBOL-finance reinstall is required.
+## 0.18.22 — Twitch Workspace Phase 1
+
+- Reworked the Wide Twitch utility from a single-tab window into a managed multi-context container while preserving the existing right-side window identity and layout lifecycle.
+- Added `streamShellTwitchWorkspace` persistent state for logical instances and `streamShellTwitchRuntime` session state for tab mappings and the future workspace-host tab.
+- Kept built-in Content and Drops page instances persistent and reusable; the existing Landing/Unified Remote actions now switch tabs rather than navigating one tab back and forth.
+- Added internal page-instance operations for arbitrary Twitch URLs/channel names so Phase 2 can attach chips and an add flow without another background architecture rewrite.
+- Twitch-originated new tabs/popups are adopted into the managed Twitch window and become page instances.
+- Moved raid guards to per-tab session state and made active Twitch tab changes release any Volume Boost capture belonging to the previously active Twitch tab.
+- Kept `rightMode=twitch` and `twitchTarget=resume|drops` as compatibility projections while the new instance state becomes authoritative.
+- Reserved the workspace-host tab contract but deliberately did not add embeds, layout controls or chat UI in this phase.
+
+## 0.18.23 — Twitch Workspace Phase 2 + Floating Bar Revival
+
+- Promoted the Phase-1 Twitch instance manager into a visible Wide-only workspace surface.
+- Added a draggable floating workspace bar on every managed Twitch page with Multi View, page/stream chips, add, close and layout controls; position persists locally across page switches.
+- Added a dedicated Twitch-origin workspace host tab and simultaneous official Twitch player embeds for stream instances.
+- Added Single, Split, Grid and Focus multi-stream layouts, main-stream selection and local tile reload/close controls.
+- Kept full Twitch pages as real tabs to preserve Twitch frame policy, login/cookies and page behavior while exposing them through the same chip model.
+- Hardened workspace-host restoration with an HTTPS query marker plus a two-step about:blank reservation to avoid the generic tab adopter racing host creation.
+- Preserved the current Twitch/Drops compatibility projection, native titlebar and Unified Remote behavior. Chat switching and Player-API audio ownership remain for the next phase.
+
+**Update:** reload the extension only.
+## 0.18.24 — Twitch Page-Context Window Isolation
+
+- Corrected the Phase-2 runtime assumption that Opera GX would keep additional `chrome.tabs.create(..., windowId=<popup>)` contexts inside the clean Stream Shell Twitch popup. On the tested Opera GX build those extra contexts surfaced as normal browser tabs outside Stream Shell.
+- Changed real Twitch Page instances to dedicated one-tab popup windows managed as one logical Twitch surface group. The selected popup is restored into the existing `RIGHT` bounds; inactive page/workspace popups are parked off-screen instead of being destroyed.
+- Moved the Multi View workspace host onto its own dedicated Twitch-origin popup as well, preserving the HTTPS Twitch origin required by the embed experiment without exposing a normal Opera tab.
+- Extended session runtime state with per-instance window mappings, workspace-host window identity and the currently selected Twitch surface window. Logical instance state remains persistent in `streamShellTwitchWorkspace`.
+- Added best-effort migration for 0.18.23 runtime tab mappings by wrapping known leaked Twitch tabs into popup windows with `chrome.windows.create({ tabId, type: "popup" })`.
+- Updated native-titlebar claims, visibility/focus tracking, shutdown cleanup and Twitch tabCapture routing to use the selected Twitch surface window while keeping `rightMode=twitch` / `twitchTarget=resume|drops` compatibility unchanged.
+- This window-group model is also the intended base for later real Page-instance tiling inside the right viewport; no side-by-side Page layout is enabled in this release yet.
+
+**Update:** reload Stream Shell only. Normal browser tabs leaked by 0.18.23 may need one-time manual closing if extension session state was cleared before migration could identify them.
+## 0.18.25 — Twitch Popup Bootstrap Recovery
+
+- Recovered Landing and native-titlebar Twitch actions after the 0.18.24 runtime migration could leave the Twitch surface path stuck on legacy 0.18.23 tab identities.
+- Runtime schema mismatches now reset only disposable session identity instead of attempting to migrate old tab IDs. Persistent Twitch workspace instances, ordering and layout settings remain preserved.
+- Removed Opera-sensitive `chrome.windows.create({ tabId, ... })` Twitch migration paths. Managed Twitch surfaces are created as fresh popup windows from URLs instead.
+- New Twitch-spawned tabs are copied into a managed popup and then closed rather than moved between window types.
+- Preserved the 0.18.24 one-popup-per-Page-context topology and the 0.18.23 floating workspace controls.
+
+**Update:** extension reload only. No native-helper, COBOL-finance or Unified Remote reinstall is required.
+
+## 0.18.26 — Twitch Popup Bootstrap Geometry + Diagnostics
+
+- Corrected the first-window bootstrap regression left by the 0.18.24/0.18.25 one-popup-per-context migration.
+- Managed Twitch popups are now created on the real `RIGHT` pane coordinates first, matching the last known-good pre-isolation behavior. Only after Chromium/Opera has created the window is an inactive context moved to Stream Shell's off-screen parking bounds.
+- This avoids asking Opera GX to create a new 1920×1080 popup entirely below the virtual desktop, which could fail before `twitchWindowId` or runtime mappings were established and made both Landing and native-titlebar Twitch actions appear inert.
+- Added Flight Recorder events for Twitch activation requests, successful activation and failures with the surfaced error message.
+- Upgraded exported diagnostics to schema v10 with a Twitch workspace snapshot, managed/active window visibility and a dedicated Twitch diagnostics card.
+- Preserved the 0.18.25 runtime reset policy, one-popup-per-Page-context topology, floating workspace bar and legacy `rightMode=twitch` / `twitchTarget` compatibility projection.
+
+**Update:** reload Stream Shell only. No native-helper, COBOL-finance or Unified Remote reinstall is required.
+
+## 0.18.27 — Twitch Multi-View Window Cluster
+
+- Converted Multi View from a dedicated Twitch workspace popup into a layout mode over the managed Twitch instance windows. Each Page and Embed instance keeps its own real popup; selected instances are tiled directly within the Wide right pane.
+- Added per-instance tile membership so real Twitch pages and stream embeds can coexist in Single, Split, Grid and Focus arrangements.
+- Stream embed hosts now render one official player each, while normal Twitch Page instances retain their full logged-in browser context and existing DOM automation capability.
+- Added browser-level per-instance mute via `chrome.tabs.update(..., { muted })`. Twitch's own player state remains logically unmuted, avoiding the need to use Twitch's in-player mute button for Stream Shell audio policy.
+- Upgraded native titlebar protocol v4 -> v5. Twitch claims carry a stable member ID and the native helper stores multiple HWNDs under one logical Wide `right|twitch` cluster, preserving Stream Shell taskbar/Alt+Tab ownership for all visible members.
+- Native Alt+Tab reconciliation explicitly exempts every registered Twitch cluster HWND from the legacy single-Twitch keep-alive minimization path.
+- Diagnostics schema v11 and native status include Twitch Multi View / cluster state.
+
+**Update:** run `native\install-titlebar-helper.cmd` after applying the release, then reload Stream Shell. No COBOL-finance or Unified Remote reinstall is required.
+
+
+## 0.18.28 — Twitch Workspace Stabilization
+
+- Stabilized the 0.18.27 multi-window Twitch cluster without changing its public instance model.
+- Removed normal keep-active switching from the off-screen parking path; sibling Twitch windows remain warm underneath the focused surface.
+- New Page/Embed windows stay on valid RIGHT-pane geometry while loading instead of being immediately moved below the desktop.
+- UI state snapshots are now lightweight and runtime reconciliation is diagnostics-only, preventing an O(n²)-style browser-query/refresh storm as the number of Twitch windows grows.
+- Floating-bar ownership follows local focus and bars hide immediately on blur, preventing double-bar races.
+- Workspace content scripts no longer refresh on every session runtime mapping write.
+- Multi View applies geometry only when bounds/state actually changed and avoids repeated native cluster claim scheduling for already-known windows.
+- Preserved browser-level mute and the v5 native Twitch cluster helper from 0.18.27.
+
+**Update:** extension reload only. No native-helper, COBOL-finance or Unified Remote reinstall is required.
+
+## 0.18.29 — Twitch Workspace Interaction Mapping
+
+- Separated Twitch cluster mode from member selection. While Multi View is active, selecting a navbar chip now keeps `clusterActive=true`, promotes the selected instance into the tiled set when necessary and focuses/reselects it inside the current Multi layout instead of invoking the Single/full-window path.
+- Stream/Page creation preserves the mode that was active when the instance was added instead of implicitly forcing Multi or collapsing it back to Single.
+- Added cluster-state invariant repair for stale `mainInstanceId`, `selectedInstanceId` and zero-member edge cases. Removing the last Multi member exits into a deterministic single instance.
+- Grid preserves explicit instance order; Single/Split/Focus alone use the selected main member as the primary geometry anchor.
+- Normalized non-visible managed Twitch windows to full RIGHT bounds underneath the visible surface when keep-active is enabled. This removes stale half/quarter-window geometry left by prior Split/Grid layouts without returning to the expensive off-screen parking cycle removed in 0.18.28.
+- Single-surface activation applies the same normalization before focusing the target so old Multi geometry cannot leak back through later z-order changes.
+- Migrated Twitch workspace/runtime schema v4 -> v5 while preserving instances, tiled membership and layout preferences; the active Multi flag is intentionally reset once on migration to establish a clean interaction baseline.
+- No native titlebar-helper changes are included.
+
+**Update:** extension reload only. No native-helper, COBOL-finance or Unified Remote reinstall is required.
+
+## 0.18.30 — Twitch Native Tile Layout
+
+- Replaced the prior simulated Multi layout state machine with fixed native-window slot geometry. Twitch Page and Embed instances remain separate real Opera popup contexts and are only moved/resized when their visible slot assignment changes.
+- Added persistent `tileOrder` with a four-window visibility ceiling so chip ordering and tile-slot ordering no longer fight each other.
+- Native Tile geometry is deterministic by count: one full pane, two vertical halves, three with two upper halves plus a centered lower tile, and four in a 2×2 grid.
+- Floating-bar controls now use explicit 1/2/3/4 visible-count presets. The Multi chip toggles Native Tile on/off instead of acting as another ambiguous workspace surface.
+- Selecting an already-visible chip only focuses its existing window. Selecting an untiled chip while the four-slot cluster is full replaces the currently selected slot rather than collapsing Multi or reshuffling every other window.
+- New instances append to the next free native slot while Native Tile is active. Non-visible keep-active windows are no longer normalized to full RIGHT bounds during every layout pass.
+- Added a small upper/lower-row overlap as a best-effort way to hide lower native browser chrome behind upper-row windows. The custom titlebar itself is unchanged.
+- Browser-level tab mute remains the Twitch audio-control mechanism.
+- Twitch workspace/runtime schema is v6; v5 runtime mappings migrate in place, existing membership becomes `tileOrder`, and pre-v6 active Multi state resets once to Single for a clean geometry baseline.
+
+**Update:** extension reload only. No native-helper, COBOL-finance or Unified Remote reinstall is required.
+## 0.18.31 — Twitch Physical Window Ownership Repair
+
+- Enforced one-to-one ownership between logical Twitch instances and physical Opera popup windows.
+- Repaired duplicate runtime mappings during registration and reconciliation instead of allowing several Page/Embed instances to share one `windowId`.
+- Native Tile validates unique physical windows before applying 1/2/3/4 geometry and rebuilds a conflicting instance into a fresh popup when needed.
+- Failed tile allocation now reduces the active tile set rather than presenting a four-tile UI over fewer real windows.
+- Twitch diagnostics now report unique physical-window count and ownership-conflict count.
+- Runtime/workspace schema v7 performs a one-time reset of 0.18.30 managed Twitch windows while preserving the persistent instance list and tile membership.
+- Native titlebar helper v5 is unchanged.
+
+**Update:** extension reload only; existing managed Twitch popups close once during migration and reopen on demand.
+## 0.18.32 — Twitch Multi-View Hard Reset
+
+- Hard-reset the active Twitch implementation to the verified 0.18.21 baseline after diagnostics proved that 0.18.31 already had four distinct physical Opera windows with zero ownership conflicts while the UI still rendered only one usable Twitch surface.
+- Removed the 0.18.22–0.18.31 workspace/multi-window code from the active package rather than layering another compatibility fix on top.
+- Restored the 0.18.21 Twitch single-window lifecycle, Twitch/Drops navigation, DOM automation, audio handling and native titlebar protocol v4.
+- Historical notes for 0.18.22–0.18.31 remain preserved as regression/experiment history.
+
+**Update:** use the clean 0.18.32 package and reinstall `native\install-titlebar-helper.cmd` once.
+## 0.18.33 — Warm Provider Geometry Repair
+
+- Corrected the remembered provider warm-start lifecycle so it can no longer inherit a full 32:9 browser restore rectangle.
+- Warm providers now bootstrap at the normal Wide LEFT-pane geometry before being minimized; they are no longer parked below the virtual desktop while minimized.
+- Restored windows use a small bounded geometry-verification loop before focus/titlebar claiming, making the visible pane bounds the proven state rather than an assumed asynchronous browser update.
+- A stale/off-screen remembered-provider popup is normalized in place during warm-up when its stored geometry is not LEFT-compatible, preserving its loaded tab/session.
+- No Twitch multi-view experiment code is reintroduced; 0.18.32's Twitch hard reset remains intact.
+
+**Update:** extension reload only. No native-helper, Unified Remote or COBOL-finance reinstall is required.
+
+
+## 0.18.34 — Twitch Direct Split Lab
+
+- Added a Wide-only diagnostic split action beside the existing Twitch and Drops controls.
+- Reused the standalone two-window PoC lifecycle inside Stream Shell: both Twitch popups are created directly at their final half-width `RIGHT`-pane coordinates.
+- The left slot resumes the last remembered normal Twitch URL or Twitch Home; the right slot opens Drops Inventory.
+- Shift-click repeats the exact standalone PoC reference pair (`gronkhtv` + `rainbow6`) inside Stream Shell for an A/B integration check.
+- The lab path deliberately excludes off-screen parking, `restoreWindow()` resizing, normal `twitchWindowId` ownership and native titlebar claiming.
+- Existing single-window Twitch state is closed cleanly before the lab pair is created, preserving its current content URL for the left slot.
+- Normal Twitch content scripts remain active so this build specifically tests whether Stream Shell's extension/runtime layer can coexist with the proven direct-popup geometry.
+- Added cleanup when leaving the right Twitch surface, shutdown handling, Flight Recorder events and diagnostics schema v10 with live split-window snapshots.
+
+**Update:** extension reload only. The native helper is intentionally unchanged and unused by the split lab.
+
+## 0.18.35 — Twitch Split Managed-Automation Probe
+
+- Kept the 0.18.34 direct-final-geometry split lifecycle unchanged while allowing both half-width Twitch popups to pass Stream Shell's managed Twitch automation check.
+- Twitch utility content scripts can now enter their managed mode independently in both windows, enabling ordinary points/Drops scans and raid-guard participation without reintroducing workspace geometry logic.
+- The legacy single `twitchWindowId` remains unused for the split pair and native titlebar/window-cluster claiming is still disabled.
+- Split diagnostics now expose whether each physical window is in the automation trust set and whether its document has actually received the `data-stream-shell-twitch` managed marker.
+- Normal `▦` remains Resume/Home + Drops; Shift+`▦` remains the `gronkhtv` + `rainbow6` reference pair.
+
+**Update:** extension reload only. No native helper reinstall is required.
+
+## 0.18.36 — Twitch Persistent Split + Native Cluster Claim
+
+- Preserved the direct-final-geometry split windows across Dashboard/Discord coverage so the same Twitch documents and window IDs survive ordinary right-surface switches.
+- Re-entering the same split mode now raises the existing pair without navigation, resize, parking or recreation.
+- Upgraded the native helper/client back to protocol v5 with narrowly scoped member-aware `a`/`b` Twitch claims carrying exact half-pane bounds.
+- Registered both claimed Twitch HWNDs in Stream Shell taskbar/Alt+Tab identity and added a second native right-chrome pair for the second half-window.
+- Kept the retired workspace/tiler architecture out of the active code path.
+
+**Update:** reinstall `native\install-titlebar-helper.cmd` once, then reload the extension.
+
+
+## 0.18.37 — Twitch Persistent Split Workspace
+
+- Promoted the stable direct-final-geometry pair into a sticky Wide Twitch workspace after first Split View activation.
+- Landing Twitch/Drops controls reuse the same A/B browser documents instead of closing the pair and returning to the legacy single-window path.
+- Twitch focuses member A and Drops focuses member B; an existing matching slot is not navigated or reloaded.
+- Dashboard/Discord coverage and native v5 A/B cluster claiming remain unchanged.
+- Added reuse metadata plus document `performance.timeOrigin` to diagnostics schema v11 for direct reload verification.
+- Shift+Split remains the fixed reference pair and mode changes intentionally rebuild once.
+
+**Update:** extension reload only from 0.18.36; no native-helper reinstall is required.
+
+## 0.19.0 — Twitch Workspace V2 Foundation
+
+- Replaced the active two-window Split Lab state machine with a persistent four-slot A-D Twitch workspace on the Wide RIGHT pane.
+- Each configured slot owns one real top-level Twitch popup created directly at final 2×2 geometry; empty slots own no window and Dashboard/Discord cover live windows without retile/recreate churn.
+- Added explicit Stream/Page slot types, conservative player-only cleanup for bare channel roots, and support for arbitrary normal Twitch pages without iframe embedding.
+- Added one persistent switchable Twitch popout-chat drawer shared across channel-bearing slots.
+- Added Dashboard-backed empty/recovery cells plus per-slot edit/chat/show/remove controls.
+- Preserved protocol-v5 native member claiming and Twitch automation while excluding chat from content automation.
+- Added workspace-v2 diagnostics/state and schema v12.
+- The current native custom right-chrome renderer still has dedicated overlay pairs for only the first two ordered Twitch cluster members; A-D/chat member registration itself is supported.
+
+**Update:** extension reload only from 0.18.37; native helper reinstall is not required.

@@ -42,6 +42,10 @@
         "outside";
 
 
+    let youtubeWindowedLayoutRefreshGeneration =
+        0;
+
+
     let crunchyrollWindowedNavigationTimer =
         null;
 

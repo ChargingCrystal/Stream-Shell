@@ -1,0 +1,7 @@
+Stream Shell Unified Remote v0.8.5
+
+Active-state rollback:
+- Restored the v0.8.3 button-state update path exactly after the v0.8.4 visual pass caused live active-state highlighting to stop updating on the user's installed remote.
+- Kept only the requested lower-intensity active colors: Discord uses #343b68 and Twitch uses #4c2d63 while active.
+- Restored Discord's inactive state to the shared neutral #66707d surface.
+- Provider, navigation, Volume, Drops, Discord and Twitch state detection/polling semantics otherwise match v0.8.3.

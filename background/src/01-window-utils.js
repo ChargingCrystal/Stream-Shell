@@ -1,3 +1,24 @@
+function streamShellWindowBoundsMatch(
+    window,
+    bounds,
+    tolerance = 8
+) {
+    if (
+        !window ||
+        !bounds
+    ) {
+        return false;
+    }
+
+    return (
+        Math.abs(Number(window.left) - Number(bounds.left)) <= tolerance &&
+        Math.abs(Number(window.top) - Number(bounds.top)) <= tolerance &&
+        Math.abs(Number(window.width) - Number(bounds.width)) <= tolerance &&
+        Math.abs(Number(window.height) - Number(bounds.height)) <= tolerance
+    );
+}
+
+
 async function restoreWindow(
     windowId,
     bounds,
@@ -13,11 +34,21 @@ async function restoreWindow(
     }
 
     try {
+        /*
+         * A remembered warm provider can be minimized with a browser-owned
+         * restore rectangle. Opera may briefly restore that rectangle before a
+         * following bounds update lands. Keep focus away until LEFT/RIGHT is
+         * verified so a stale 32:9 restore rectangle can never become the
+         * claimed Stream Shell surface.
+         */
         await chrome.windows.update(
             windowId,
             {
                 state:
-                    "normal"
+                    "normal",
+
+                focused:
+                    false
             }
         );
 
@@ -27,25 +58,94 @@ async function restoreWindow(
             return;
         }
 
-        await chrome.windows.update(
-            windowId,
-            {
-                left:
-                    bounds.left,
+        const delays =
+            [0, 40, 100];
 
-                top:
-                    bounds.top,
+        let geometryReady =
+            false;
 
-                width:
-                    bounds.width,
+        for (
+            let attempt = 0;
+            attempt < delays.length;
+            attempt++
+        ) {
+            const delay =
+                delays[attempt];
 
-                height:
-                    bounds.height,
-
-                focused:
-                    focused
+            if (delay > 0) {
+                await new Promise(
+                    resolve =>
+                        setTimeout(resolve, delay)
+                );
             }
-        );
+
+            if (
+                shuttingDown
+            ) {
+                return;
+            }
+
+            try {
+                await chrome.windows.update(
+                    windowId,
+                    {
+                        left:
+                            bounds.left,
+
+                        top:
+                            bounds.top,
+
+                        width:
+                            bounds.width,
+
+                        height:
+                            bounds.height,
+
+                        focused:
+                            false
+                    }
+                );
+
+                const observed =
+                    await chrome.windows.get(
+                        windowId
+                    );
+
+                if (
+                    streamShellWindowBoundsMatch(
+                        observed,
+                        bounds
+                    )
+                ) {
+                    geometryReady =
+                        true;
+
+                    break;
+                }
+            } catch {
+            }
+        }
+
+        if (
+            focused &&
+            !shuttingDown
+        ) {
+            await chrome.windows.update(
+                windowId,
+                {
+                    focused:
+                        true
+                }
+            );
+        }
+
+        if (!geometryReady) {
+            console.warn(
+                "Could not verify restored window geometry:",
+                windowId,
+                bounds
+            );
+        }
     } catch (error) {
         console.warn(
             "Could not restore window:",

@@ -441,6 +441,12 @@ chrome.runtime.onMessage.addListener(
                             state.streamShellLaunchSelfTest ||
                             null;
 
+                        const twitchSplitLab =
+                            await getTwitchSplitLabDiagnostics();
+
+                        const twitchWorkspaceV2 =
+                            await getTwitchWorkspaceV2Diagnostics();
+
                         let offscreenDocumentAlive = false;
                         try {
                             const contexts = await chrome.runtime.getContexts({
@@ -479,6 +485,8 @@ chrome.runtime.onMessage.addListener(
                             offscreenDocumentAlive,
                             flightRecorder,
                             displayProfile,
+                            twitchSplitLab,
+                            twitchWorkspaceV2,
                             audio:
                                 volumeSession
                                     ? {
@@ -1007,6 +1015,26 @@ chrome.runtime.onMessage.addListener(
 
         if (
             message.type ===
+            "landing-show-twitch-workspace"
+        ) {
+            if (!isShellHomeUiSender(sender)) {
+                sendResponse({ ok: false, error: "Invalid landing sender." });
+                return;
+            }
+
+            showTwitchWorkspaceV2("workspace")
+                .then(status => sendResponse({ ok: true, status }))
+                .catch(error => {
+                    console.error("Twitch workspace failed:", error);
+                    sendResponse({ ok: false, error: error.message });
+                });
+
+            return true;
+        }
+
+
+        if (
+            message.type ===
             "landing-show-twitch"
         ) {
             if (!isShellHomeUiSender(sender)) {
@@ -1022,6 +1050,175 @@ chrome.runtime.onMessage.addListener(
                     sendResponse({ ok: false, error: error.message });
                 });
 
+            return true;
+        }
+
+
+        if (
+            message.type ===
+            "get-stream-shell-twitch-workspace-context"
+        ) {
+            if (!sender.tab || !isTwitchUrl(sender.tab.url)) {
+                sendResponse({ managed: false });
+                return;
+            }
+
+            getTwitchWorkspaceV2Context(sender.tab.windowId)
+                .then(context => sendResponse(context))
+                .catch(() => sendResponse({ managed: false }));
+            return true;
+        }
+
+
+        if (
+            message.type ===
+            "twitch-workspace-v2-assign-slot"
+        ) {
+            const requestedSlotId = String(message.slotId || "").toLowerCase();
+            if (
+                isShellHomeUiSender(sender) ||
+                isTwitchWorkspaceSlotUiSender(sender, requestedSlotId)
+            ) {
+                assignTwitchWorkspaceV2Slot(
+                    requestedSlotId,
+                    message.input,
+                    message.kind,
+                    true
+                )
+                    .then(() => sendResponse({ ok: true }))
+                    .catch(error => sendResponse({ ok: false, error: error.message }));
+                return true;
+            }
+
+            if (!sender.tab) {
+                sendResponse({ ok: false, error: "Unmanaged Twitch workspace sender." });
+                return;
+            }
+
+            isTwitchWorkspaceV2WindowId(sender.tab.windowId)
+                .then(managed => {
+                    if (!managed) throw new Error("Unmanaged Twitch workspace sender.");
+                    return assignTwitchWorkspaceV2Slot(
+                        String(message.slotId || "").toLowerCase(),
+                        message.input,
+                        message.kind,
+                        true
+                    );
+                })
+                .then(() => sendResponse({ ok: true }))
+                .catch(error => sendResponse({ ok: false, error: error.message }));
+            return true;
+        }
+
+
+        if (
+            message.type ===
+            "twitch-workspace-v2-clear-slot"
+        ) {
+            if (!sender.tab) {
+                sendResponse({ ok: false, error: "Unmanaged Twitch workspace sender." });
+                return;
+            }
+
+            isTwitchWorkspaceV2WindowId(sender.tab.windowId)
+                .then(managed => {
+                    if (!managed) throw new Error("Unmanaged Twitch workspace sender.");
+                    return clearTwitchWorkspaceV2Slot(String(message.slotId || "").toLowerCase());
+                })
+                .then(ok => sendResponse({ ok }))
+                .catch(error => sendResponse({ ok: false, error: error.message }));
+            return true;
+        }
+
+
+        if (
+            message.type ===
+            "twitch-workspace-v2-set-muted"
+        ) {
+            if (!sender.tab) {
+                sendResponse({ ok: false, error: "Unmanaged Twitch workspace sender." });
+                return;
+            }
+
+            const slotId = String(message.slotId || "").toLowerCase();
+            isTwitchWorkspaceV2WindowId(sender.tab.windowId)
+                .then(managed => {
+                    if (!managed) throw new Error("Unmanaged Twitch workspace sender.");
+                    return setTwitchWorkspaceV2SlotMuted(slotId, message.muted === true);
+                })
+                .then(muted => sendResponse({ ok: true, muted }))
+                .catch(error => sendResponse({ ok: false, error: error.message }));
+            return true;
+        }
+
+
+        if (
+            message.type ===
+            "twitch-workspace-v2-focus-slot"
+        ) {
+            if (!sender.tab) {
+                sendResponse({ ok: false, error: "Unmanaged Twitch workspace sender." });
+                return;
+            }
+
+            const slotId = String(message.slotId || "").toLowerCase();
+            isTwitchWorkspaceV2WindowId(sender.tab.windowId)
+                .then(async managed => {
+                    if (!managed) throw new Error("Unmanaged Twitch workspace sender.");
+                    if (!TWITCH_WORKSPACE_V2_SLOT_IDS.includes(slotId)) throw new Error("Invalid Twitch workspace slot.");
+                    let record = await getTwitchWorkspaceV2Record();
+                    const targetId = record?.slots?.[slotId]?.windowId;
+                    if (!Number.isInteger(targetId)) return false;
+                    if (record.selectedSlot !== slotId) {
+                        record = { ...record, selectedSlot: slotId, updatedAt: Date.now() };
+                        await chrome.storage.local.set({ [TWITCH_WORKSPACE_V2_STORAGE_KEY]: record });
+                    }
+                    await chrome.windows.update(targetId, { focused: true }).catch(() => {});
+                    raiseTwitchWorkspaceV2NativeCluster(slotId);
+                    return true;
+                })
+                .then(ok => sendResponse({ ok }))
+                .catch(error => sendResponse({ ok: false, error: error.message }));
+            return true;
+        }
+
+
+        if (
+            message.type ===
+            "twitch-workspace-v2-raise"
+        ) {
+            if (!sender.tab) {
+                sendResponse({ ok: false, error: "Unmanaged Twitch workspace sender." });
+                return;
+            }
+
+            isTwitchWorkspaceV2WindowId(sender.tab.windowId)
+                .then(managed => {
+                    if (!managed) throw new Error("Unmanaged Twitch workspace sender.");
+                    return raiseExistingTwitchWorkspaceV2(String(message.slotId || "").toLowerCase());
+                })
+                .then(ok => sendResponse({ ok }))
+                .catch(error => sendResponse({ ok: false, error: error.message }));
+            return true;
+        }
+
+
+        if (
+            message.type ===
+            "twitch-workspace-v2-show"
+        ) {
+            if (!sender.tab) {
+                sendResponse({ ok: false, error: "Unmanaged Twitch workspace sender." });
+                return;
+            }
+
+            isTwitchWorkspaceV2WindowId(sender.tab.windowId)
+                .then(managed => {
+                    if (!managed) throw new Error("Unmanaged Twitch workspace sender.");
+                    return showTwitchWorkspaceV2("workspace");
+                })
+                .then(() => sendResponse({ ok: true }))
+                .catch(error => sendResponse({ ok: false, error: error.message }));
             return true;
         }
 
@@ -1579,13 +1776,15 @@ chrome.runtime.onMessage.addListener(
                     "rightMode"
                 ]),
                 isLandingExposed(),
-                getStreamShellDisplayProfile()
+                getStreamShellDisplayProfile(),
+                getTwitchWorkspaceV2Summary()
             ])
                 .then(
                     ([
                         state,
                         landingExposed,
-                        displayProfile
+                        displayProfile,
+                        twitchWorkspace
                     ]) => {
                         sendResponse({
                             activeProvider:
@@ -1608,6 +1807,8 @@ chrome.runtime.onMessage.addListener(
 
                             displayTarget:
                                 displayProfile?.targetDisplay?.referenceTarget || null,
+
+                            twitchWorkspace,
 
                             landingExposed
                         });

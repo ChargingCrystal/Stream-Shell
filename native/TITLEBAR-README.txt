@@ -199,3 +199,18 @@ after its initial claim, and Alt+Tab caption/icon reassertion is throttled to a
 5-second drift audit instead of rewriting Opera every 500 ms. Re-run
 install-titlebar-helper.cmd after upgrading because StreamShellTitlebarHost.cs
 changed.
+0.18.36 Twitch split cluster claims
+-----------------------------------
+Wide Twitch split mode uses native protocol v5. Each direct-final-geometry half-window is
+claimed independently with a stable member id plus its exact half-pane bounds, while both
+HWNDs keep the shared Stream Shell taskbar / Alt+Tab identity. A second right-side chrome
+pair covers the stock Opera caption on the second member. Re-run
+install-titlebar-helper.cmd after upgrading because StreamShellTitlebarHost.cs changed.
+
+
+0.19.1 Twitch 4-slot chrome / z-order repair
+--------------------------------------------
+Wide Twitch workspace mode keeps protocol v5 but expands member chrome ownership from the
+legacy A/B pair to A/B/C/D plus the optional chat drawer. The helper also reasserts claimed
+Twitch members above Dashboard without activation while a Stream Shell HWND owns foreground
+focus. Re-run install-titlebar-helper.cmd because StreamShellTitlebarHost.cs changed.

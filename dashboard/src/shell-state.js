@@ -1,3 +1,66 @@
+
+let twitchWorkspaceBackdrop = null;
+
+function ensureTwitchWorkspaceBackdrop() {
+    if (twitchWorkspaceBackdrop?.isConnected) return twitchWorkspaceBackdrop;
+
+    twitchWorkspaceBackdrop = document.createElement("section");
+    twitchWorkspaceBackdrop.id = "twitch-workspace-backdrop";
+    twitchWorkspaceBackdrop.className = "twitch-workspace-backdrop";
+    twitchWorkspaceBackdrop.hidden = true;
+    twitchWorkspaceBackdrop.setAttribute("aria-label", "Twitch Workspace");
+
+    twitchWorkspaceBackdrop.addEventListener("click", async event => {
+        const button = event.target?.closest?.("button[data-workspace-action]");
+        if (!button) return;
+        const cell = button.closest(".twitch-workspace-cell");
+        const slotId = cell?.dataset?.slotId;
+        const input = cell?.querySelector("input[data-workspace-input]");
+        const error = cell?.querySelector(".twitch-workspace-empty-error");
+        if (!slotId || !input) return;
+
+        const value = String(input.value || "").trim();
+        if (!value) {
+            if (error) error.textContent = "Channel or Twitch URL required.";
+            input.focus();
+            return;
+        }
+
+        if (error) error.textContent = "";
+        button.disabled = true;
+        try {
+            const response = await chrome.runtime.sendMessage({
+                type: "twitch-workspace-v2-assign-slot",
+                slotId,
+                input: value,
+                kind: button.dataset.workspaceAction === "page" ? "page" : "stream"
+            });
+            if (!response?.ok) throw new Error(response?.error || "Could not create Twitch slot.");
+        } catch (e) {
+            if (error) error.textContent = String(e?.message || e || "Could not create Twitch slot.");
+        } finally {
+            button.disabled = false;
+        }
+    });
+
+    document.querySelector(".dashboard")?.appendChild(twitchWorkspaceBackdrop);
+    return twitchWorkspaceBackdrop;
+}
+
+function renderTwitchWorkspaceBackdrop(state, rightMode) {
+    const host = ensureTwitchWorkspaceBackdrop();
+
+    /*
+     * 0.19.1 moved empty-cell controls into their own top-level slot windows.
+     * Dashboard is now only a cover surface and must never become a second,
+     * competing Twitch workspace UI underneath/above the real compositor.
+     */
+    host.hidden = true;
+    host.replaceChildren();
+}
+
+
+
 /*
  * ============================================================
  * STREAM SHELL STATE
@@ -109,6 +172,9 @@ function renderState(
     const rightMode =
         state.rightMode ||
         "dashboard";
+
+
+    renderTwitchWorkspaceBackdrop(state, rightMode);
 
 
     currentLeftMode =

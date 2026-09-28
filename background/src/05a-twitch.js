@@ -4,10 +4,10 @@
  * ============================================================
  *
  * Twitch is intentionally not a core provider. It is a Wide-only utility
- * surface used for normal Twitch viewing and Drops. The visible Twitch popup is
- * strictly single-tab and is the only live Twitch browser window Stream Shell
- * intentionally keeps. Drops automation runs in that managed document whenever
- * Twitch exposes claim UI; no companion Inventory browser window is created.
+ * surface used for normal Twitch viewing and Drops. Wide mode can keep either
+ * the legacy single Twitch popup or the persistent two-member Split View. Each
+ * Twitch window remains single-tab; Split View keeps the two browser documents
+ * alive while Dashboard/Discord covers them.
  */
 
 function isTwitchUrl(url) {
@@ -49,11 +49,23 @@ async function syncTwitchAutoMuteForTab(tab) {
     const tabUrl = tab.url || tab.pendingUrl;
     if (!isTwitchUrl(tabUrl)) return false;
 
-    const windowId = await getTwitchWindowId();
-    if (!Number.isInteger(windowId) || tab.windowId !== windowId) return false;
+    if (!(await isStreamShellTwitchAutomationWindow(tab.windowId))) return false;
 
     if (tab.autoDiscardable !== false) {
         await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
+    }
+
+    /* Workspace V2 owns mute per slot. A manual HUD unmute must survive
+     * Twitch SPA/tab updates instead of being immediately re-muted by the
+     * legacy global Auto Mute policy. Non-workspace Twitch keeps the old
+     * setting behavior. */
+    const workspaceAudio = await getTwitchWorkspaceV2AudioPolicy(tab.windowId).catch(() => null);
+    if (workspaceAudio) {
+        const desiredMuted = workspaceAudio.muted === true;
+        if ((tab.mutedInfo?.muted === true) !== desiredMuted) {
+            await chrome.tabs.update(tab.id, { muted: desiredMuted }).catch(() => {});
+        }
+        return desiredMuted;
     }
 
     if (isTwitchDropsUrl(tabUrl)) return false;
@@ -348,7 +360,16 @@ async function cleanupLegacyTwitchDropsWorker() {
 
 async function isStreamShellTwitchAutomationWindow(windowId) {
     if (shuttingDown || !Number.isInteger(windowId)) return false;
-    return (await getTwitchWindowId()) === windowId;
+
+    if ((await getTwitchWindowId()) === windowId) {
+        return true;
+    }
+
+    if (await isTwitchWorkspaceV2ContentWindowId(windowId)) {
+        return true;
+    }
+
+    return isTwitchSplitLabWindowId(windowId);
 }
 
 async function getTwitchLastContentUrl() {
@@ -376,6 +397,519 @@ async function getTwitchSetting(key, fallback) {
         return fallback;
     }
 }
+
+
+function getTwitchSplitLabRects() {
+    const widthA = Math.floor(RIGHT.width / 2);
+    const widthB = RIGHT.width - widthA;
+
+    return {
+        a: {
+            left: RIGHT.left,
+            top: RIGHT.top,
+            width: widthA,
+            height: RIGHT.height
+        },
+        b: {
+            left: RIGHT.left + widthA,
+            top: RIGHT.top,
+            width: widthB,
+            height: RIGHT.height
+        }
+    };
+}
+
+async function getTwitchSplitLabRecord() {
+    try {
+        const stored = await chrome.storage.local.get(TWITCH_SPLIT_LAB_STORAGE_KEY);
+        const record = stored[TWITCH_SPLIT_LAB_STORAGE_KEY];
+        return record && typeof record === "object" ? record : null;
+    } catch {
+        return null;
+    }
+}
+
+async function isTwitchSplitLabWindowId(windowId) {
+    if (shuttingDown || !Number.isInteger(windowId)) return false;
+
+    const record = await getTwitchSplitLabRecord();
+    return Array.isArray(record?.windowIds) && record.windowIds.includes(windowId);
+}
+
+async function getTwitchSplitLabWindowSnapshot(record = null) {
+    const activeRecord = record || await getTwitchSplitLabRecord();
+    const ids = Array.isArray(activeRecord?.windowIds)
+        ? activeRecord.windowIds.filter(Number.isInteger)
+        : [];
+    const windows = [];
+
+    for (const id of ids) {
+        try {
+            windows.push(await chrome.windows.get(id, { populate: true }));
+        } catch {
+            windows.push(null);
+        }
+    }
+
+    return windows;
+}
+
+async function focusExistingTwitchSplitLab(record, preferredMember = null) {
+    const windows = await getTwitchSplitLabWindowSnapshot(record);
+    if (windows.length !== 2 || windows.some(window => !Number.isInteger(window?.id))) {
+        return false;
+    }
+
+    /*
+     * Do not resize or navigate the proven Twitch surfaces on resume. The two
+     * popups keep their original compositor surfaces while Dashboard/Discord
+     * merely cover them. Raise both halves, then focus the requested member.
+     * This gives the Landing Twitch/Drops buttons useful focus semantics
+     * without replacing either document.
+     */
+    const preferredIndex = preferredMember === "a"
+        ? 0
+        : preferredMember === "b"
+            ? 1
+            : 1;
+    const order = preferredIndex === 0 ? [1, 0] : [0, 1];
+
+    for (const index of order) {
+        const window = windows[index];
+        if (window.state === "minimized") {
+            await chrome.windows.update(window.id, { state: "normal" });
+        }
+        await chrome.windows.update(window.id, { focused: true });
+    }
+
+    return true;
+}
+
+async function getTwitchSplitMemberTab(record, member) {
+    const index = member === "b" ? 1 : 0;
+    const windowId = Array.isArray(record?.windowIds) ? record.windowIds[index] : null;
+    if (!Number.isInteger(windowId)) return null;
+
+    try {
+        const tabs = await chrome.tabs.query({ windowId });
+        return tabs.find(tab => tab.active) || tabs[0] || null;
+    } catch {
+        return null;
+    }
+}
+
+async function ensureTwitchSplitTarget(record, target) {
+    if (!record || record.mode !== "mixed") return false;
+
+    if (target === "drops") {
+        const tab = await getTwitchSplitMemberTab(record, "b");
+        const currentUrl = String(tab?.url || tab?.pendingUrl || "");
+        if (!Number.isInteger(tab?.id)) return false;
+        if (!isTwitchDropsUrl(currentUrl)) {
+            await chrome.tabs.update(tab.id, { url: TWITCH_DROPS_URL });
+        }
+        return true;
+    }
+
+    const tab = await getTwitchSplitMemberTab(record, "a");
+    const currentUrl = String(tab?.url || tab?.pendingUrl || "");
+    if (!Number.isInteger(tab?.id)) return false;
+
+    if (!isTwitchUrl(currentUrl) || isTwitchDropsUrl(currentUrl)) {
+        const fallback = (await getTwitchLastContentUrl()) || TWITCH_HOME_URL;
+        await chrome.tabs.update(tab.id, { url: fallback });
+    }
+    return true;
+}
+
+async function markTwitchSplitReuse(record, preferredMember, reason) {
+    const next = {
+        ...record,
+        reuseCount: Number(record?.reuseCount || 0) + 1,
+        lastActivatedAt: Date.now(),
+        lastFocusedMember: preferredMember === "a" ? "a" : "b",
+        lastActivationReason: String(reason || "resume")
+    };
+    await chrome.storage.local.set({ [TWITCH_SPLIT_LAB_STORAGE_KEY]: next });
+    return next;
+}
+
+async function claimTwitchSplitLabNativeWindow(windowId, member, rect) {
+    if (shuttingDown || !Number.isInteger(windowId) || !rect) return false;
+
+    if (!titlebarPort) {
+        await ensureTitlebarNative();
+    }
+    if (!titlebarPort || !titlebarProtocolReady) return false;
+
+    try {
+        const win = await chrome.windows.get(windowId, { populate: true });
+        if (!Number.isInteger(win?.id) || win.state === "minimized") return false;
+
+        const tab = win.tabs?.find(candidate => candidate.active) || win.tabs?.[0] || null;
+        const titleHint = typeof tab?.title === "string"
+            ? tab.title.trim().slice(0, 180)
+            : "";
+        if (!titleHint) return false;
+
+        titlebarPort.postMessage({
+            type: "claim",
+            protocolVersion: TITLEBAR_PROTOCOL_VERSION,
+            layoutProfile: "wide",
+            side: "right",
+            mode: "twitch",
+            member,
+            titleHint,
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+function scheduleTwitchSplitLabNativeClaims(record) {
+    const ids = Array.isArray(record?.windowIds) ? record.windowIds : [];
+    const rects = record?.layout || {};
+    const members = [
+        { id: ids[0], member: "a", rect: rects.a },
+        { id: ids[1], member: "b", rect: rects.b }
+    ];
+    const delays = [0, 100, 250, 500, 900, 1500, 2500, 4000, 6500];
+
+    for (const delay of delays) {
+        setTimeout(() => {
+            if (shuttingDown) return;
+            for (const entry of members) {
+                claimTwitchSplitLabNativeWindow(entry.id, entry.member, entry.rect).catch(() => {});
+            }
+        }, delay);
+    }
+}
+
+async function closeTwitchSplitLab() {
+    const record = await getTwitchSplitLabRecord();
+    const windowIds = Array.isArray(record?.windowIds)
+        ? record.windowIds.filter(Number.isInteger)
+        : [];
+
+    /*
+     * Clear ownership before removing windows so the generic onRemoved path
+     * cannot mistake deliberate lab teardown for a user-closing transition.
+     */
+    await chrome.storage.local.remove(TWITCH_SPLIT_LAB_STORAGE_KEY).catch(() => {});
+
+    for (const windowId of windowIds) {
+        await safelyRemoveWindow(windowId);
+    }
+}
+
+async function createDirectTwitchSplitPopup(url, rect, focused) {
+    const win = await chrome.windows.create({
+        type: "popup",
+        url,
+        state: "normal",
+        focused,
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height
+    });
+
+    if (!Number.isInteger(win?.id)) {
+        throw new Error("Opera did not return a Twitch split-lab window id.");
+    }
+
+    return win;
+}
+
+async function closeManagedTwitchWindowForSplitLab() {
+    const windowId = await getTwitchWindowId();
+    if (!Number.isInteger(windowId)) return;
+
+    const tabs = await getTwitchWindowTabs(windowId);
+    const activeTab = tabs.find(tab => tab.active) || tabs[0] || null;
+    const currentUrl = String(activeTab?.url || activeTab?.pendingUrl || "");
+
+    if (isTwitchUrl(currentUrl) && !isTwitchDropsUrl(currentUrl)) {
+        await rememberTwitchContentUrl(currentUrl);
+    }
+
+    /*
+     * Remove logical ownership before the physical popup. The ordinary
+     * Twitch-window onRemoved handler would otherwise restore Dashboard while
+     * the two replacement lab windows are being created.
+     */
+    await chrome.storage.local.remove(TWITCH_WINDOW_STORAGE_KEY).catch(() => {});
+    await safelyRemoveWindow(windowId);
+}
+
+async function getTwitchSplitLabDiagnostics() {
+    const record = await getTwitchSplitLabRecord();
+    if (!record) {
+        return {
+            active: false,
+            windowCount: 0,
+            windows: []
+        };
+    }
+
+    const ids = Array.isArray(record.windowIds)
+        ? record.windowIds.filter(Number.isInteger)
+        : [];
+    const windows = [];
+
+    for (const id of ids) {
+        try {
+            const win = await chrome.windows.get(id, { populate: true });
+            const tab = win.tabs?.find(candidate => candidate.active) || win.tabs?.[0] || null;
+            const automationManaged = await isTwitchSplitLabWindowId(id);
+            let automationMarker = false;
+            let documentIdentity = null;
+
+            if (Number.isInteger(tab?.id)) {
+                const markerResults = await chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    func: () => document.documentElement?.dataset?.streamShellTwitch === "true"
+                }).catch(() => []);
+                automationMarker = markerResults.some(result => result?.result === true);
+
+                const identityResults = await chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    func: () => ({
+                        href: location.href,
+                        timeOrigin: Number.isFinite(performance.timeOrigin)
+                            ? Math.round(performance.timeOrigin)
+                            : null,
+                        navigationType: performance.getEntriesByType("navigation")?.[0]?.type || null
+                    })
+                }).catch(() => []);
+                documentIdentity = identityResults.find(result => result?.result)?.result || null;
+            }
+
+            windows.push({
+                id: win.id,
+                state: win.state,
+                focused: win.focused === true,
+                left: win.left,
+                top: win.top,
+                width: win.width,
+                height: win.height,
+                automationManaged,
+                automationMarker,
+                documentIdentity,
+                tab: tab
+                    ? {
+                        id: tab.id,
+                        status: tab.status,
+                        url: tab.url || tab.pendingUrl || null,
+                        title: tab.title || null,
+                        audible: tab.audible === true,
+                        muted: tab.mutedInfo?.muted === true,
+                        discarded: tab.discarded === true
+                    }
+                    : null
+            });
+        } catch {
+            windows.push({
+                id,
+                missing: true
+            });
+        }
+    }
+
+    const surfaceState = await chrome.storage.local.get("rightMode").catch(() => ({}));
+
+    return {
+        active: true,
+        visible: surfaceState.rightMode === "twitch",
+        covered: surfaceState.rightMode !== "twitch",
+        createdAt: record.createdAt || null,
+        urls: record.urls || null,
+        layout: record.layout || null,
+        mode: record.mode || "mixed",
+        lifecycle: record.lifecycle || null,
+        nativeTitlebarClaimed: record.nativeTitlebarClaimed || null,
+        nativeClusterMembers: Number.isInteger(titlebarLastNativeStatus?.twitchClusterMembers)
+            ? titlebarLastNativeStatus.twitchClusterMembers
+            : null,
+        nativeClusterMap: titlebarLastNativeStatus?.twitchClusterMap || null,
+        reuseCount: Number(record.reuseCount || 0),
+        lastActivatedAt: record.lastActivatedAt || record.createdAt || null,
+        lastFocusedMember: record.lastFocusedMember || null,
+        lastActivationReason: record.lastActivationReason || null,
+        windowCount: windows.filter(window => window?.missing !== true).length,
+        windows
+    };
+}
+
+async function showTwitchSplitLab(mode = "mixed", preferredMember = null) {
+    if (shuttingDown) return;
+
+    const profile = await getStreamShellDisplayProfile().catch(() => null);
+    if (profile?.mode === "compact") {
+        throw new Error("Twitch split lab is available from the Wide Landing layout.");
+    }
+
+    const dashboardId = await ensureDashboardWindow();
+    await hideDiscordForDashboard();
+    await restoreWindow(dashboardId, RIGHT, false);
+    await closeManagedTwitchWindowForSplitLab();
+
+    const referenceMode = mode === "reference";
+    const requestedMode = referenceMode ? "reference" : "mixed";
+    const existing = await getTwitchSplitLabRecord();
+
+    if (existing?.mode === requestedMode) {
+        const member = preferredMember === "a" || preferredMember === "b"
+            ? preferredMember
+            : (existing.lastFocusedMember === "a" ? "a" : "b");
+
+        await chrome.storage.local.set({
+            rightMode: "twitch",
+            twitchTarget: member === "b" ? "drops" : "resume"
+        });
+
+        if (await focusExistingTwitchSplitLab(existing, member)) {
+            const reused = await markTwitchSplitReuse(existing, member, "split-button");
+            scheduleTwitchSplitLabNativeClaims(reused);
+            await recordFlightEvent({
+                source: "background",
+                category: "twitch-split-lab",
+                action: "resumed",
+                provider: "twitch",
+                detail: {
+                    windowIds: reused.windowIds,
+                    mode: reused.mode,
+                    preferredMember: member,
+                    reuseCount: reused.reuseCount,
+                    lifecycle: "persistent-cover-resume"
+                }
+            }).catch(() => {});
+            await broadcastState();
+            return getTwitchSplitLabDiagnostics();
+        }
+    }
+
+    /* A deliberate mode change or a partially missing pair gets one clean
+     * rebuild. Ordinary Dashboard/Discord switches no longer come through here
+     * as teardown, so Drops/stream documents survive those transitions. */
+    await closeTwitchSplitLab();
+
+    const rects = getTwitchSplitLabRects();
+    const urlA = referenceMode
+        ? "https://www.twitch.tv/gronkhtv"
+        : (await getTwitchLastContentUrl()) || TWITCH_HOME_URL;
+    const urlB = referenceMode
+        ? "https://www.twitch.tv/rainbow6"
+        : TWITCH_DROPS_URL;
+
+    let winA = null;
+    let winB = null;
+
+    try {
+        winA = await createDirectTwitchSplitPopup(urlA, rects.a, false);
+        winB = await createDirectTwitchSplitPopup(urlB, rects.b, true);
+    } catch (error) {
+        if (Number.isInteger(winA?.id)) await safelyRemoveWindow(winA.id);
+        if (Number.isInteger(winB?.id)) await safelyRemoveWindow(winB.id);
+        throw error;
+    }
+
+    const record = {
+        createdAt: Date.now(),
+        urls: { a: urlA, b: urlB },
+        windowIds: [winA.id, winB.id],
+        layout: {
+            rightPane: { ...RIGHT },
+            a: rects.a,
+            b: rects.b
+        },
+        nativeTitlebarClaimed: "requested",
+        lifecycle: "direct-final-geometry+persistent-cover",
+        management: "twitch-content-automation+native-cluster",
+        mode: requestedMode,
+        reuseCount: 0,
+        lastActivatedAt: Date.now(),
+        lastFocusedMember: preferredMember === "a" ? "a" : "b",
+        lastActivationReason: "created"
+    };
+
+    await chrome.storage.local.set({
+        [TWITCH_SPLIT_LAB_STORAGE_KEY]: record,
+        rightMode: "twitch",
+        twitchTarget: record.lastFocusedMember === "b" ? "drops" : "resume"
+    });
+
+    scheduleTwitchSplitLabNativeClaims(record);
+
+    await recordFlightEvent({
+        source: "background",
+        category: "twitch-split-lab",
+        action: "created",
+        provider: "twitch",
+        detail: {
+            windowIds: record.windowIds,
+            urls: record.urls,
+            layout: record.layout,
+            nativeTitlebarClaimed: "requested",
+            mode: record.mode
+        }
+    }).catch(() => {});
+
+    await broadcastState();
+    return getTwitchSplitLabDiagnostics();
+}
+
+
+async function reconcileClosedTwitchSplitLabWindow(windowId) {
+    if (!Number.isInteger(windowId)) return;
+
+    const record = await getTwitchSplitLabRecord();
+    if (!Array.isArray(record?.windowIds) || !record.windowIds.includes(windowId)) {
+        return;
+    }
+
+    const remaining = record.windowIds.filter(id => id !== windowId && Number.isInteger(id));
+
+    await recordFlightEvent({
+        source: "background",
+        category: "twitch-split-lab",
+        action: "window-closed",
+        provider: "twitch",
+        detail: {
+            windowId,
+            remainingWindowIds: remaining
+        }
+    }).catch(() => {});
+
+    if (remaining.length) {
+        await chrome.storage.local.set({
+            [TWITCH_SPLIT_LAB_STORAGE_KEY]: {
+                ...record,
+                windowIds: remaining
+            }
+        });
+        return;
+    }
+
+    await chrome.storage.local.remove(TWITCH_SPLIT_LAB_STORAGE_KEY).catch(() => {});
+
+    const state = await chrome.storage.local.get(["rightMode", TWITCH_WINDOW_STORAGE_KEY]);
+    if (
+        state.rightMode === "twitch" &&
+        !Number.isInteger(state[TWITCH_WINDOW_STORAGE_KEY])
+    ) {
+        await showDashboard().catch(async () => {
+            await chrome.storage.local.set({ rightMode: "dashboard" });
+            await broadcastState();
+        });
+    }
+}
+
 
 async function ensureTwitchWindow() {
     if (shuttingDown) {
@@ -500,17 +1034,33 @@ async function activateTwitchTargetInMainWindow(windowId, target = "resume") {
 }
 
 async function deactivateTwitchForRightSurface(options = {}) {
-    const windowId = await getTwitchWindowId();
-    if (!Number.isInteger(windowId)) return;
+    await deactivateTwitchWorkspaceV2(options).catch(() => {});
 
     const forceMinimize = options.forceMinimize === true;
     const keepActive = await getTwitchSetting("streamShellTwitchKeepActive", true);
 
+    const splitRecord = await getTwitchSplitLabRecord();
+    const splitIds = Array.isArray(splitRecord?.windowIds)
+        ? splitRecord.windowIds.filter(Number.isInteger)
+        : [];
+
+    if (splitIds.length) {
+        if (forceMinimize || !keepActive) {
+            for (const windowId of splitIds) {
+                await safelyMinimizeWindow(windowId);
+            }
+        }
+        /* Wide keep-active mirrors the established single Twitch behavior: do
+         * not destroy, park, navigate or resize the Twitch surfaces. Dashboard
+         * or Discord simply covers the two warm half-windows. */
+    }
+
+    const windowId = await getTwitchWindowId();
+    if (!Number.isInteger(windowId)) return;
+
     if (forceMinimize || !keepActive) {
         await safelyMinimizeWindow(windowId);
     }
-    /* Keep-active deliberately means do nothing: the real on-screen Twitch
-     * window remains at RIGHT and the next restored surface simply covers it. */
 }
 
 async function syncManagedTwitchTargetFromUrl(windowId, url) {
@@ -532,37 +1082,21 @@ async function showTwitch(target = "resume") {
     if (shuttingDown) return;
 
     const twitchTarget = target === "drops" ? "drops" : "resume";
-
-    const profile = await getStreamShellDisplayProfile().catch(() => null);
-    if (profile?.mode === "compact") {
-        throw new Error("Twitch utility is available from the Wide Landing layout.");
-    }
-
-    const dashboardId = await ensureDashboardWindow();
-    const twitchWindowId = await ensureTwitchWindow();
-
-    await hideDiscordForDashboard();
-    await restoreWindow(dashboardId, RIGHT, false);
-
-    await activateTwitchTargetInMainWindow(twitchWindowId, twitchTarget);
-
-    await syncTwitchAutoMuteForWindow(twitchWindowId);
-
-    await chrome.storage.local.set({
-        rightMode: "twitch",
-        twitchTarget
-    });
-
-    await restoreWindow(twitchWindowId, RIGHT, true);
-    await claimFocusedTitlebarSurface(twitchWindowId);
-    scheduleTitlebarClaimRetries(twitchWindowId);
-
-    await broadcastState();
+    await showTwitchWorkspaceV2(twitchTarget);
 }
 
 async function isManagedTwitchWindow(windowId) {
     if (shuttingDown || !Number.isInteger(windowId)) return false;
-    return (await getTwitchWindowId()) === windowId;
+
+    if ((await getTwitchWindowId()) === windowId) {
+        return true;
+    }
+
+    if (await isTwitchWorkspaceV2ContentWindowId(windowId)) {
+        return true;
+    }
+
+    return isTwitchSplitLabWindowId(windowId);
 }
 
 async function armTwitchRaidGuard(tab, sourceUrl) {
@@ -636,6 +1170,11 @@ chrome.tabs.onRemoved.addListener(tabId => {
     twitchSpawnCandidates.delete(tabId);
 });
 
+chrome.windows.onRemoved.addListener(windowId => {
+    reconcileClosedTwitchSplitLabWindow(windowId).catch(() => {});
+    reconcileClosedTwitchWorkspaceV2Window(windowId).catch(() => {});
+});
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     const url = changeInfo.url || tab?.url || tab?.pendingUrl;
 
@@ -653,6 +1192,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
             })
             .catch(() => {});
         syncManagedTwitchTargetFromUrl(tab.windowId, url).catch(() => {});
+        syncTwitchWorkspaceV2Location(tab).catch(() => {});
         syncTwitchAutoMuteForTab(tab).catch(() => {});
     }
 });

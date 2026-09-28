@@ -90,6 +90,9 @@ async function _ensureProviderWindow(
         );
     }
 
+    const parkedCreation =
+        options?.parked === true;
+
     const windows =
         await getProviderWindows();
 
@@ -102,9 +105,41 @@ async function _ensureProviderWindow(
         windowId
     ) {
         try {
-            await chrome.windows.get(
-                windowId
-            );
+            const existingWindow =
+                await chrome.windows.get(
+                    windowId
+                );
+
+            /*
+             * The remembered warm provider is the only provider created while
+             * hidden. Older builds created it minimized without a target
+             * restore rectangle, allowing Opera to remember the full 32:9
+             * display. Repair that stale window once instead of letting it
+             * restore fullscreen and fail the native LEFT-pane claim.
+             */
+            if (
+                parkedCreation &&
+                !streamShellWindowBoundsMatch(
+                    existingWindow,
+                    LEFT
+                )
+            ) {
+                /*
+                 * Home deliberately parks provider windows below the virtual
+                 * desktop. Normalize the remembered provider's restore bounds
+                 * in place instead of recreating its tab/session. Landing is
+                 * already visible above it and restoreWindow keeps it unfocused.
+                 */
+                await restoreWindow(
+                    windowId,
+                    LEFT,
+                    false
+                );
+
+                await safelyMinimizeWindow(
+                    windowId
+                );
+            }
 
             return windowId;
         } catch {
@@ -115,6 +150,9 @@ async function _ensureProviderWindow(
             await saveProviderWindows(
                 windows
             );
+
+            windowId =
+                null;
         }
     }
 
@@ -126,24 +164,21 @@ async function _ensureProviderWindow(
         );
     }
 
-    const parkedCreation =
-        options?.parked === true;
-
+    /*
+     * Always create provider popups at their real LEFT-pane geometry. A warm
+     * provider is minimized immediately afterwards, but its native restore
+     * rectangle remains the same 16:9 pane as every normally opened provider.
+     */
     const createData = {
         type: "popup",
-        state: parkedCreation ? "minimized" : "normal",
+        state: "normal",
         focused: false,
-        url: provider.url
+        url: provider.url,
+        left: LEFT.left,
+        top: LEFT.top,
+        width: LEFT.width,
+        height: LEFT.height
     };
-
-    if (!parkedCreation) {
-        Object.assign(createData, {
-            left: LEFT.left,
-            top: LEFT.top,
-            width: LEFT.width,
-            height: LEFT.height
-        });
-    }
 
     const win =
         await chrome.windows.create(
@@ -192,8 +227,9 @@ async function _ensureProviderWindow(
     );
 
     if (parkedCreation) {
-        await safelyMinimizeWindow(windowId);
-        await parkWindowOffscreen(windowId, LEFT);
+        await safelyMinimizeWindow(
+            windowId
+        );
     }
 
     recordFlightEvent({

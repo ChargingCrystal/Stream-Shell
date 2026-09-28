@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Stream Shell — Twitch Slot</title>
+  <link rel="stylesheet" href="slot.css">
+</head>
+<body>
+  <main class="slot-shell">
+    <div class="slot-mark" id="slot-mark">?</div>
+    <section class="card" aria-labelledby="slot-title">
+      <div class="eyebrow">TWITCH WORKSPACE</div>
+      <h1 id="slot-title">Empty slot</h1>
+      <p>Add a stream or any normal Twitch page. This cell will reuse the same top-level Opera window.</p>
+      <label class="field">
+        <span>Channel or twitch.tv URL</span>
+        <input id="slot-input" type="text" spellcheck="false" autocomplete="off" placeholder="gronkhtv or https://www.twitch.tv/drops/inventory">
+      </label>
+      <div class="actions">
+        <button id="add-stream" class="primary" type="button">Add stream</button>
+        <button id="add-page" type="button">Add page</button>
+      </div>
+      <div id="slot-error" class="error" aria-live="polite"></div>
+    </section>
+  </main>
+  <script src="slot.js"></script>
+</body>
+</html>

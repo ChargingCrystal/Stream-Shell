@@ -262,12 +262,6 @@ const twitchOpenButton =
         "twitch-open"
     );
 
-const twitchDropsButton =
-    document.getElementById(
-        "twitch-drops"
-    );
-
-
 let activePanel =
     null;
 
@@ -5402,30 +5396,21 @@ discordButton.addEventListener(
 );
 
 
-if (twitchUtility && twitchOpenButton && twitchDropsButton) {
-    const openTwitchTarget = async target => {
+if (twitchUtility && twitchOpenButton) {
+    twitchOpenButton.addEventListener("click", async () => {
         twitchUtility.classList.add("busy");
         try {
             const response = await chrome.runtime.sendMessage({
-                type: "landing-show-twitch",
-                target
+                type: "landing-show-twitch-workspace"
             });
             if (response?.ok === false) {
-                throw new Error(response.error || "Twitch utility failed.");
+                throw new Error(response.error || "Twitch workspace failed.");
             }
         } catch (error) {
-            console.error("Twitch utility failed:", error);
+            console.error("Twitch workspace failed:", error);
         } finally {
             twitchUtility.classList.remove("busy");
         }
-    };
-
-    twitchOpenButton.addEventListener("click", () => {
-        openTwitchTarget("resume");
-    });
-
-    twitchDropsButton.addEventListener("click", () => {
-        openTwitchTarget("drops");
     });
 }
 

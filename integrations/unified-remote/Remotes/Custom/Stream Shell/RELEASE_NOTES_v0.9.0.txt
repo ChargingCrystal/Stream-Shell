@@ -1,0 +1,9 @@
+Stream Shell Unified Remote v0.9.0
+====================================
+
+Twitch Workspace consolidation
+-------------------------------
+- Auxiliary is now Discord 50% / Twitch 50%.
+- Removed the dedicated Drops button; Drops is a page inside the persistent Twitch Workspace.
+- Twitch highlighting is based only on right=twitch; the legacy twitchTarget resume/drops distinction is no longer exposed in the remote UI.
+- Compact behavior is unchanged: the Wide-only Auxiliary row stays hidden.

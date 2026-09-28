@@ -1,0 +1,7 @@
+Stream Shell Unified Remote v0.8.4
+
+Auxiliary active-state contrast:
+- Reduced the Discord active-state saturation so the branded glyph no longer disappears into an almost identical button background.
+- Gave inactive Discord a darker neutral surface to increase effective logo contrast without changing the rest of the remote palette.
+- Reduced Twitch active-state intensity so the purple Twitch mark remains legible while the button still reads as active.
+- Drops coloring and all active-state semantics remain unchanged.
