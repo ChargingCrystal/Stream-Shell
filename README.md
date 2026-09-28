@@ -108,7 +108,3 @@ Copyright © 2026 **Sven Rieseler**.
 ## Third-party services and trademarks
 
 Stream Shell is independent and is not affiliated with or endorsed by the services it integrates. Netflix, Prime Video/Amazon, YouTube/Google, Disney+, Crunchyroll, Twitch, Discord, TMDB, JustWatch, Return YouTube Dislike and Unified Remote are names/trademarks/projects of their respective owners.
-
-### Twitch Workspace
-
-On Wide layouts, Twitch uses a persistent four-slot 2×2 workspace backed by real Opera/Twitch popup windows. Slots are created lazily at their final geometry and are covered by Dashboard/Discord rather than rebuilt during ordinary surface switching. Playback that was already running is kept alive while the Workspace is covered or occluded. Bare channel roots can run in a stream-focused cleanup mode, while arbitrary Twitch pages remain normal top-level documents. Drops is simply another Twitch page inside the Workspace, and each slot owns its browser-level mute state.
