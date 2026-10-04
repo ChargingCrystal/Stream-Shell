@@ -2,10 +2,6 @@
   <img src="assets/brand/stream-shell-wordmark.png" alt="Stream Shell" width="620">
 </p>
 
-<p align="center">
-  <img src="assets/brand/stream-shell-wordmark.png" alt="Stream Shell" width="620">
-</p>
-
 # Stream Shell
 
 Stream Shell is a personal Opera GX / Chromium extension that turns several streaming services into one managed desktop-style shell. It is built around my own Windows setup and workflow first; compatibility with other setups is best-effort.
