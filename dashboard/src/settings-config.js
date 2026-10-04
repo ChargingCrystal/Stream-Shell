@@ -40,6 +40,7 @@ const SETTINGS_DEFAULTS = {
     streamShellTwitchAutoClaimPoints: true,
     streamShellTwitchAutoClaimDrops: true,
     streamShellTwitchPreventRaids: true,
+    streamShellTwitchMarblesAutoJoin: true,
     streamShellTwitchAutoMute: true,
     streamShellVolumeBoost_twitch: 100,
     streamShellAudioProfile_twitch: "normal",

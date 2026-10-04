@@ -214,3 +214,14 @@ Wide Twitch workspace mode keeps protocol v5 but expands member chrome ownership
 legacy A/B pair to A/B/C/D plus the optional chat drawer. The helper also reasserts claimed
 Twitch members above Dashboard without activation while a Stream Shell HWND owns foreground
 focus. Re-run install-titlebar-helper.cmd because StreamShellTitlebarHost.cs changed.
+
+0.19.12 Twitch pane-fullscreen browser geometry ownership
+---------------------------------------------------------
+Native protocol v6 removes all helper-side HWND movement from Twitch pane fullscreen.
+Chromium now owns both the caption overscan and the return-to-grid bounds through
+chrome.windows.update(); the helper only tracks which Twitch cluster member remains on top.
+Accepted Twitch claims report the measured Opera titlebar height so the extension can size the
+browser-owned overscan without a fixed local caption assumption. This prevents visual/input
+coordinate drift and black compositor surfaces after fullscreen restore. Re-run
+install-titlebar-helper.cmd after upgrading because both protocol peers changed.
+

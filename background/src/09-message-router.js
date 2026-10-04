@@ -1154,6 +1154,84 @@ chrome.runtime.onMessage.addListener(
 
         if (
             message.type ===
+            "twitch-workspace-v2-set-raid-protection"
+        ) {
+            if (!sender.tab) {
+                sendResponse({ ok: false, error: "Unmanaged Twitch workspace sender." });
+                return;
+            }
+
+            const slotId = String(message.slotId || "").toLowerCase();
+            isTwitchWorkspaceV2WindowId(sender.tab.windowId)
+                .then(async managed => {
+                    if (!managed) throw new Error("Unmanaged Twitch workspace sender.");
+                    const record = await getTwitchWorkspaceV2Record();
+                    if (getTwitchWorkspaceV2SlotByWindowId(record, sender.tab.windowId) !== slotId) {
+                        throw new Error("Twitch workspace slot mismatch.");
+                    }
+                    return setTwitchWorkspaceV2SlotRaidProtection(
+                        slotId,
+                        message.enabled === true
+                    );
+                })
+                .then(enabled => sendResponse({ ok: true, enabled }))
+                .catch(error => sendResponse({ ok: false, error: error.message }));
+            return true;
+        }
+
+
+        if (
+            message.type ===
+            "twitch-workspace-v2-reload-slot"
+        ) {
+            if (!sender.tab) {
+                sendResponse({ ok: false, error: "Unmanaged Twitch workspace sender." });
+                return;
+            }
+
+            const slotId = String(message.slotId || "").toLowerCase();
+            isTwitchWorkspaceV2WindowId(sender.tab.windowId)
+                .then(async managed => {
+                    if (!managed) throw new Error("Unmanaged Twitch workspace sender.");
+                    const record = await getTwitchWorkspaceV2Record();
+                    if (getTwitchWorkspaceV2SlotByWindowId(record, sender.tab.windowId) !== slotId) {
+                        throw new Error("Twitch workspace slot mismatch.");
+                    }
+                    return reloadTwitchWorkspaceV2Slot(slotId);
+                })
+                .then(ok => sendResponse({ ok }))
+                .catch(error => sendResponse({ ok: false, error: error.message }));
+            return true;
+        }
+
+
+        if (
+            message.type ===
+            "twitch-workspace-v2-toggle-pane-fullscreen"
+        ) {
+            if (!sender.tab) {
+                sendResponse({ ok: false, error: "Unmanaged Twitch workspace sender." });
+                return;
+            }
+
+            const slotId = String(message.slotId || "").toLowerCase();
+            isTwitchWorkspaceV2WindowId(sender.tab.windowId)
+                .then(async managed => {
+                    if (!managed) throw new Error("Unmanaged Twitch workspace sender.");
+                    const record = await getTwitchWorkspaceV2Record();
+                    if (getTwitchWorkspaceV2SlotByWindowId(record, sender.tab.windowId) !== slotId) {
+                        throw new Error("Twitch workspace slot mismatch.");
+                    }
+                    return toggleTwitchWorkspaceV2PaneFullscreen(slotId);
+                })
+                .then(result => sendResponse({ ok: true, ...result }))
+                .catch(error => sendResponse({ ok: false, error: error.message }));
+            return true;
+        }
+
+
+        if (
+            message.type ===
             "twitch-workspace-v2-focus-slot"
         ) {
             if (!sender.tab) {

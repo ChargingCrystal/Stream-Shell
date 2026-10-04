@@ -144,10 +144,10 @@ const TITLEBAR_NATIVE_HOST =
     "com.streamshell.titlebar";
 
 const TITLEBAR_PROTOCOL_VERSION =
-    5;
+    6;
 
 const TITLEBAR_RECONCILE_INTERVAL_MS =
-    1500;
+    2500;
 
 
 const DISCORD_EXECUTABLE_PATH =

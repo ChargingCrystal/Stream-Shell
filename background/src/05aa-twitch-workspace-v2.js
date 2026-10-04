@@ -16,14 +16,36 @@
  *   - stream slots get content-side cleanup instead of iframe embedding;
  *   - audio mute is owned per slot and persists across Twitch navigation.
  *
- * No content window is resized after creation. Reassigning a slot navigates the
- * existing tab by explicit user action; showing the workspace is z-order only.
+ * Normal surface switching never resizes content windows. Reassigning a slot
+ * navigates the existing tab by explicit user action; pane fullscreen is the
+ * only deliberate geometry transition and restores the exact 2x2 slot bounds.
  */
 
-const TWITCH_WORKSPACE_V2_VERSION = 6;
-const TWITCH_WORKSPACE_V2_LIFECYCLE = "direct-final-geometry-4slot+persistent-controllers+caption-overlap-20+chatless-audio+event-claims+surface-wake";
+const TWITCH_WORKSPACE_V2_VERSION = 7;
+const TWITCH_WORKSPACE_V2_LIFECYCLE = "direct-final-geometry-4slot+persistent-controllers+caption-overlap-20+chatless-audio+event-claims+surface-wake+pane-fullscreen";
 const TWITCH_WORKSPACE_V2_SLOT_IDS = ["a", "b", "c", "d"];
+const TWITCH_WORKSPACE_V2_STREAM_REFRESH_ALARM_PREFIX = "streamShellTwitchWorkspaceStreamRefresh:";
+const TWITCH_WORKSPACE_V2_STREAM_REFRESH_MINUTES = 60;
+const TWITCH_WORKSPACE_V2_STREAM_REFRESH_STAGGER_MINUTES = 3;
+const TWITCH_WORKSPACE_V2_STREAM_REFRESH_DEFER_MINUTES = 10;
 const TWITCH_WORKSPACE_V2_CAPTION_OVERLAP = 20;
+const TWITCH_WORKSPACE_V2_PANE_CAPTION_FALLBACK = 34;
+const twitchWorkspaceV2NativeCaptionHeights = new Map();
+
+function rememberTwitchWorkspaceV2NativeCaption(message) {
+    const member = String(message?.member || "").trim().toLowerCase();
+    const height = Number(message?.titlebarHeight);
+    if (!TWITCH_WORKSPACE_V2_SLOT_IDS.includes(member) || !Number.isFinite(height)) return false;
+    if (height < 8 || height > 96) return false;
+    twitchWorkspaceV2NativeCaptionHeights.set(member, Math.round(height));
+    return true;
+}
+
+function getTwitchWorkspaceV2PaneCaptionOverscan(slotId) {
+    const measured = Number(twitchWorkspaceV2NativeCaptionHeights.get(slotId));
+    if (Number.isFinite(measured) && measured >= 8 && measured <= 96) return Math.round(measured);
+    return TWITCH_WORKSPACE_V2_PANE_CAPTION_FALLBACK;
+}
 
 function twitchWorkspaceV2EmptySlot(id) {
     return {
@@ -33,6 +55,7 @@ function twitchWorkspaceV2EmptySlot(id) {
         url: null,
         label: `Slot ${id.toUpperCase()}`,
         audioMuted: true,
+        raidProtectionEnabled: false,
         windowId: null,
         tabId: null,
         createdAt: null,
@@ -61,6 +84,81 @@ function getTwitchWorkspaceV2Rects() {
 function twitchWorkspaceV2ControllerUrl(slotId) {
     const id = TWITCH_WORKSPACE_V2_SLOT_IDS.includes(slotId) ? slotId : "a";
     return `${TWITCH_WORKSPACE_SLOT_URL}?slot=${encodeURIComponent(id)}`;
+}
+
+function twitchWorkspaceV2StreamRefreshAlarmName(slotId) {
+    return `${TWITCH_WORKSPACE_V2_STREAM_REFRESH_ALARM_PREFIX}${slotId}`;
+}
+
+async function scheduleTwitchWorkspaceV2StreamRefresh(slotId, delayMinutes = null) {
+    if (!TWITCH_WORKSPACE_V2_SLOT_IDS.includes(slotId)) return false;
+    const index = TWITCH_WORKSPACE_V2_SLOT_IDS.indexOf(slotId);
+    const firstDelay = Number.isFinite(delayMinutes)
+        ? Math.max(1, Number(delayMinutes))
+        : TWITCH_WORKSPACE_V2_STREAM_REFRESH_MINUTES +
+            index * TWITCH_WORKSPACE_V2_STREAM_REFRESH_STAGGER_MINUTES;
+    chrome.alarms.create(twitchWorkspaceV2StreamRefreshAlarmName(slotId), {
+        delayInMinutes: firstDelay,
+        periodInMinutes: TWITCH_WORKSPACE_V2_STREAM_REFRESH_MINUTES
+    });
+    return true;
+}
+
+async function syncTwitchWorkspaceV2StreamRefreshAlarms(record = null) {
+    const current = record || await getTwitchWorkspaceV2Record();
+    for (const slotId of TWITCH_WORKSPACE_V2_SLOT_IDS) {
+        const name = twitchWorkspaceV2StreamRefreshAlarmName(slotId);
+        const slot = current?.slots?.[slotId];
+        const shouldRefresh = slot?.kind === "stream" && isTwitchUrl(slot?.url);
+        const existing = await chrome.alarms.get(name).catch(() => null);
+        if (shouldRefresh) {
+            if (!existing) await scheduleTwitchWorkspaceV2StreamRefresh(slotId);
+        } else if (existing) {
+            await chrome.alarms.clear(name).catch(() => {});
+        }
+    }
+}
+
+async function handleTwitchWorkspaceV2StreamRefreshAlarm(alarm) {
+    const name = String(alarm?.name || "");
+    if (!name.startsWith(TWITCH_WORKSPACE_V2_STREAM_REFRESH_ALARM_PREFIX)) return;
+
+    const slotId = name.slice(TWITCH_WORKSPACE_V2_STREAM_REFRESH_ALARM_PREFIX.length);
+    if (!TWITCH_WORKSPACE_V2_SLOT_IDS.includes(slotId) || shuttingDown) return;
+
+    const record = await getTwitchWorkspaceV2Record();
+    const slot = record?.slots?.[slotId];
+    if (!slot || slot.kind !== "stream" || !isTwitchUrl(slot.url)) {
+        await chrome.alarms.clear(name).catch(() => {});
+        return;
+    }
+
+    const win = await getTwitchWorkspaceV2Window(slot.windowId);
+    const tab = win?.tabs?.find(candidate => candidate.active) || win?.tabs?.[0] || null;
+    if (!Number.isInteger(tab?.id)) return;
+
+    /* Maintenance must not yank an actively used Twitch pane out from under the
+     * user. If this slot is focused/fullscreen, retry in ten minutes. Covered
+     * background streams can refresh immediately. */
+    const surface = await chrome.storage.local.get("rightMode").catch(() => ({}));
+    if (record.paneFullscreenSlot === slotId || (surface.rightMode === "twitch" && win.focused === true)) {
+        await scheduleTwitchWorkspaceV2StreamRefresh(
+            slotId,
+            TWITCH_WORKSPACE_V2_STREAM_REFRESH_DEFER_MINUTES
+        );
+        return;
+    }
+
+    await chrome.tabs.reload(tab.id).catch(() => {});
+    await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
+
+    await recordFlightEvent({
+        source: "background",
+        category: "twitch-workspace-v2",
+        action: "maintenance-reload",
+        provider: "twitch",
+        detail: { slotId, intervalMinutes: TWITCH_WORKSPACE_V2_STREAM_REFRESH_MINUTES }
+    }).catch(() => {});
 }
 
 function isTwitchWorkspaceV2ControllerUrl(url) {
@@ -132,6 +230,21 @@ async function getTwitchWorkspaceV2Record() {
         if (!record || typeof record !== "object") return null;
 
         if (record.version === TWITCH_WORKSPACE_V2_VERSION) return record;
+
+        /* 0.19.10 adds only transient pane-fullscreen state. Keep every live
+         * v6 A-D window exactly where it is; no recreation or navigation is
+         * needed for this schema step. */
+        if (record.version === 6) {
+            const upgraded = {
+                ...record,
+                version: TWITCH_WORKSPACE_V2_VERSION,
+                lifecycle: TWITCH_WORKSPACE_V2_LIFECYCLE,
+                paneFullscreenSlot: null,
+                updatedAt: Date.now()
+            };
+            await chrome.storage.local.set({ [TWITCH_WORKSPACE_V2_STORAGE_KEY]: upgraded });
+            return upgraded;
+        }
 
         /*
          * 0.19.6 is the last geometry calibration pass for this compositor:
@@ -234,6 +347,7 @@ async function createInitialTwitchWorkspaceV2Record() {
         lifecycle: TWITCH_WORKSPACE_V2_LIFECYCLE,
         selectedSlot: "a",
         activationCount: 0,
+        paneFullscreenSlot: null,
         slots,
         chat: null
     };
@@ -489,6 +603,125 @@ function raiseTwitchWorkspaceV2NativeCluster(preferredSlot = null) {
     }
 }
 
+async function setTwitchWorkspaceV2NativePaneFullscreen(slotId, enabled, rect) {
+    if (shuttingDown || !TWITCH_WORKSPACE_V2_SLOT_IDS.includes(slotId) || !rect) return false;
+    if (!titlebarPort) await ensureTitlebarNative();
+    if (!titlebarPort || !titlebarProtocolReady) return false;
+    try {
+        titlebarPort.postMessage({
+            type: "set-twitch-pane-fullscreen",
+            protocolVersion: TITLEBAR_PROTOCOL_VERSION,
+            member: slotId,
+            enabled: enabled === true,
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function applyTwitchWorkspaceV2PaneFullscreenGeometry(record, slotId) {
+    if (!record || !TWITCH_WORKSPACE_V2_SLOT_IDS.includes(slotId)) return false;
+    const windowId = record.slots?.[slotId]?.windowId;
+    if (!Number.isInteger(windowId)) return false;
+
+    /* IMPORTANT: browser geometry must remain browser-owned. 0.19.10/0.19.11
+     * moved the Opera HWND a second time through SetWindowPos after
+     * chrome.windows.update(). Opera then kept Chromium's input/compositor
+     * coordinates for the browser-owned rect while Windows painted the HWND at
+     * the native rect. The visible page could therefore sit roughly one caption
+     * height below its hit targets, and Page slots could lose their compositor
+     * surface entirely after returning to the grid.
+     *
+     * Keep the same borderless trick, but ask Chromium itself to overscan the
+     * caption above the pane. The native helper now only tracks cluster/fullscreen
+     * ownership and never mutates this HWND's geometry. */
+    const caption = getTwitchWorkspaceV2PaneCaptionOverscan(slotId);
+    const paneRect = {
+        left: RIGHT.left,
+        top: RIGHT.top - caption,
+        width: RIGHT.width,
+        height: RIGHT.height + caption
+    };
+
+    await setTwitchWorkspaceV2NativePaneFullscreen(slotId, true, RIGHT).catch(() => false);
+    const patch = {
+        state: "normal",
+        left: paneRect.left,
+        top: paneRect.top,
+        width: paneRect.width,
+        height: paneRect.height,
+        focused: true
+    };
+    await chrome.windows.update(windowId, patch).catch(() => {});
+
+    /* One bounded verification only. If Opera rejects the negative top on this
+     * machine, leave the browser-owned pane geometry intact rather than falling
+     * back to native SetWindowPos and reintroducing input/compositor desync. */
+    await new Promise(resolve => setTimeout(resolve, 90));
+    const observed = await chrome.windows.get(windowId).catch(() => null);
+    if (!twitchWorkspaceV2WindowMatchesRect(observed, paneRect, 3)) {
+        await chrome.windows.update(windowId, patch).catch(() => {});
+    }
+    return true;
+}
+
+function twitchWorkspaceV2WindowMatchesRect(win, rect, tolerance = 2) {
+    if (!win || !rect) return false;
+    const near = (a, b) => Number.isFinite(a) && Math.abs(a - b) <= tolerance;
+    return near(win.left, rect.left) && near(win.top, rect.top) &&
+        near(win.width, rect.width) && near(win.height, rect.height);
+}
+
+async function restoreTwitchWorkspaceV2GridGeometry(record, slotId, focused = true) {
+    if (!record || !TWITCH_WORKSPACE_V2_SLOT_IDS.includes(slotId)) return false;
+    const slot = record.slots?.[slotId];
+    const windowId = slot?.windowId;
+    const rect = getTwitchWorkspaceV2Rects()[slotId];
+    if (!Number.isInteger(windowId) || !rect) return false;
+
+    /* Browser API owns both halves of the transition. Do not ask the native
+     * helper to move the HWND before/after this resize: that was the source of
+     * the one-caption hit-test offset and the persistent black Page surface. */
+    const patch = {
+        state: "normal",
+        left: rect.left,
+        top: rect.top,
+        width: rect.width,
+        height: rect.height,
+        focused: focused === true
+    };
+    await chrome.windows.update(windowId, patch).catch(() => {});
+
+    await new Promise(resolve => setTimeout(resolve, 90));
+    const observed = await chrome.windows.get(windowId).catch(() => null);
+    if (!twitchWorkspaceV2WindowMatchesRect(observed, rect)) {
+        await chrome.windows.update(windowId, patch).catch(() => {});
+        await new Promise(resolve => setTimeout(resolve, 70));
+    }
+
+    /* Drop native fullscreen ownership only after Chromium has committed the
+     * grid rect. This keeps the helper chrome from racing a still-overscanned
+     * browser window and exposing a second Opera titlebar underneath it. */
+    await setTwitchWorkspaceV2NativePaneFullscreen(slotId, false, rect).catch(() => false);
+    resetTwitchWorkspaceV2ClaimCache(windowId);
+    await claimTwitchWorkspaceV2Window(windowId, slotId, rect).catch(() => false);
+    raiseTwitchWorkspaceV2NativeCluster(slotId);
+
+    if (Number.isInteger(slot.tabId)) {
+        for (const delay of [0, 120, 320]) {
+            setTimeout(() => {
+                chrome.tabs.sendMessage(slot.tabId, { type: "stream-shell-twitch-workspace-wake" }).catch(() => {});
+            }, delay);
+        }
+    }
+    return true;
+}
+
 async function raiseTwitchWorkspaceV2(record, preferredSlot = null) {
     let next = record;
     const live = [];
@@ -502,15 +735,21 @@ async function raiseTwitchWorkspaceV2(record, preferredSlot = null) {
         if (Number.isInteger(ensured.window?.id)) live.push({ id, windowId: ensured.window.id });
     }
 
-    const focusId = TWITCH_WORKSPACE_V2_SLOT_IDS.includes(preferredSlot)
+    const fullscreenId = TWITCH_WORKSPACE_V2_SLOT_IDS.includes(next.paneFullscreenSlot)
+        ? next.paneFullscreenSlot
+        : null;
+    const focusId = fullscreenId || (TWITCH_WORKSPACE_V2_SLOT_IDS.includes(preferredSlot)
         ? preferredSlot
-        : (TWITCH_WORKSPACE_V2_SLOT_IDS.includes(next.selectedSlot) ? next.selectedSlot : live[0]?.id);
+        : (TWITCH_WORKSPACE_V2_SLOT_IDS.includes(next.selectedSlot) ? next.selectedSlot : live[0]?.id));
     const selected = live.find(entry => entry.id === focusId) || live[0] || null;
 
-    /* One browser focus transition only. The native helper raises the other
-     * already-claimed members once, without activation or geometry changes. */
+    /* One browser focus transition only. Pane fullscreen intentionally keeps
+     * the other three cells underneath the selected member. */
     if (selected) {
         await chrome.windows.update(selected.windowId, { focused: true }).catch(() => {});
+    }
+    if (fullscreenId && selected?.id === fullscreenId) {
+        await setTwitchWorkspaceV2NativePaneFullscreen(fullscreenId, true, RIGHT).catch(() => false);
     }
     raiseTwitchWorkspaceV2NativeCluster(selected?.id || focusId || "a");
 
@@ -597,6 +836,10 @@ async function showTwitchWorkspaceV2(target = "workspace") {
         preferredSlot = record.slots?.a?.kind !== "empty" ? "a" : (record.selectedSlot || "a");
     }
 
+    if (TWITCH_WORKSPACE_V2_SLOT_IDS.includes(record.paneFullscreenSlot)) {
+        preferredSlot = record.paneFullscreenSlot;
+    }
+
     const coldStart = !TWITCH_WORKSPACE_V2_SLOT_IDS.every(
         id => Number.isInteger(record.slots?.[id]?.windowId)
     );
@@ -617,6 +860,7 @@ async function showTwitchWorkspaceV2(target = "workspace") {
     record = await raiseTwitchWorkspaceV2(record, preferredSlot);
     scheduleTwitchWorkspaceV2Claims(record);
     scheduleTwitchWorkspaceV2SurfaceWake(record, preferredSlot, coldStart);
+    await syncTwitchWorkspaceV2StreamRefreshAlarms(record).catch(() => {});
 
     await recordFlightEvent({
         source: "background",
@@ -653,6 +897,10 @@ async function assignTwitchWorkspaceV2Slot(slotId, input, preferredKind = null, 
         if (Number.isInteger(tabId)) {
             const currentUrl = String(tab?.url || tab?.pendingUrl || "");
             if (currentUrl !== normalized.url) {
+                /* Editing a workspace slot is always deliberate navigation.
+                 * Clear any short-lived anti-raid guard before moving away so
+                 * it cannot restore the previous channel. */
+                await disarmTwitchRaidGuard({ id: tabId, windowId: liveWindow.id }).catch(() => {});
                 await chrome.tabs.update(tabId, { url: normalized.url, active: true });
             }
             await chrome.tabs.update(tabId, { autoDiscardable: false }).catch(() => {});
@@ -693,6 +941,7 @@ async function assignTwitchWorkspaceV2Slot(slotId, input, preferredKind = null, 
         raiseTwitchWorkspaceV2NativeCluster(slotId);
     }
     scheduleTwitchWorkspaceV2Claims(record);
+    await syncTwitchWorkspaceV2StreamRefreshAlarms(record).catch(() => {});
     await broadcastState().catch(() => {});
     return record;
 }
@@ -703,12 +952,18 @@ async function clearTwitchWorkspaceV2Slot(slotId) {
     if (!record) return false;
 
     const slot = record.slots?.[slotId] || twitchWorkspaceV2EmptySlot(slotId);
+    if (record.paneFullscreenSlot === slotId) {
+        record = { ...record, paneFullscreenSlot: null, updatedAt: Date.now() };
+        await chrome.storage.local.set({ [TWITCH_WORKSPACE_V2_STORAGE_KEY]: record });
+        await restoreTwitchWorkspaceV2GridGeometry(record, slotId, true).catch(() => false);
+    }
     const liveWindow = await getTwitchWorkspaceV2Window(slot.windowId);
     const tab = liveWindow?.tabs?.find(candidate => candidate.active) || liveWindow?.tabs?.[0] || null;
 
     const empty = {
         ...twitchWorkspaceV2EmptySlot(slotId),
         audioMuted: slot.audioMuted !== false,
+        raidProtectionEnabled: slot.raidProtectionEnabled === true,
         windowId: Number.isInteger(liveWindow?.id) ? liveWindow.id : null,
         tabId: Number.isInteger(tab?.id) ? tab.id : null,
         createdAt: slot.createdAt || Date.now()
@@ -737,6 +992,7 @@ async function clearTwitchWorkspaceV2Slot(slotId) {
         await chrome.windows.update(record.slots[slotId].windowId, { focused: true }).catch(() => {});
     }
     raiseTwitchWorkspaceV2NativeCluster(slotId);
+    await syncTwitchWorkspaceV2StreamRefreshAlarms(record).catch(() => {});
     await broadcastState().catch(() => {});
     return true;
 }
@@ -768,6 +1024,100 @@ async function setTwitchWorkspaceV2SlotMuted(slotId, muted) {
     return desired;
 }
 
+async function setTwitchWorkspaceV2SlotRaidProtection(slotId, enabled) {
+    if (!TWITCH_WORKSPACE_V2_SLOT_IDS.includes(slotId)) {
+        throw new Error("Invalid Twitch workspace slot.");
+    }
+
+    let record = await getTwitchWorkspaceV2Record();
+    if (!record) throw new Error("Twitch Workspace is not initialized.");
+
+    const slot = record.slots?.[slotId];
+    if (!slot) throw new Error("Twitch workspace slot is missing.");
+
+    const desired = enabled === true;
+    record = {
+        ...record,
+        slots: {
+            ...record.slots,
+            [slotId]: { ...slot, raidProtectionEnabled: desired, updatedAt: Date.now() }
+        }
+    };
+    record = await setTwitchWorkspaceV2Record(record, false);
+
+    if (!desired) {
+        const tab = await getTwitchWorkspaceV2SlotTab(record.slots[slotId]);
+        if (Number.isInteger(tab?.id)) {
+            await disarmTwitchRaidGuard(tab).catch(() => {});
+        }
+    }
+
+    return desired;
+}
+
+async function reloadTwitchWorkspaceV2Slot(slotId) {
+    if (!TWITCH_WORKSPACE_V2_SLOT_IDS.includes(slotId)) throw new Error("Invalid Twitch workspace slot.");
+    const record = await getTwitchWorkspaceV2Record();
+    if (!record) throw new Error("Twitch Workspace is not initialized.");
+    const tab = await getTwitchWorkspaceV2SlotTab(record.slots?.[slotId]);
+    if (!Number.isInteger(tab?.id)) throw new Error("Twitch workspace slot has no live tab.");
+    await chrome.tabs.reload(tab.id);
+    await chrome.tabs.update(tab.id, { autoDiscardable: false }).catch(() => {});
+    return true;
+}
+
+async function toggleTwitchWorkspaceV2PaneFullscreen(slotId) {
+    if (!TWITCH_WORKSPACE_V2_SLOT_IDS.includes(slotId)) throw new Error("Invalid Twitch workspace slot.");
+    let record = await getTwitchWorkspaceV2Record();
+    if (!record) throw new Error("Twitch Workspace is not initialized.");
+
+    const currentFullscreen = TWITCH_WORKSPACE_V2_SLOT_IDS.includes(record.paneFullscreenSlot)
+        ? record.paneFullscreenSlot
+        : null;
+
+    /* Exit the currently expanded member first. This also handles switching
+     * directly from one full-pane slot to another without recreating either. */
+    if (currentFullscreen) {
+        const previous = record.slots?.[currentFullscreen];
+        const previousWindowId = previous?.windowId;
+        record = { ...record, paneFullscreenSlot: null, updatedAt: Date.now() };
+        await chrome.storage.local.set({ [TWITCH_WORKSPACE_V2_STORAGE_KEY]: record });
+        if (Number.isInteger(previousWindowId)) {
+            await restoreTwitchWorkspaceV2GridGeometry(
+                record,
+                currentFullscreen,
+                currentFullscreen === slotId
+            );
+        }
+
+        if (currentFullscreen === slotId) {
+            raiseTwitchWorkspaceV2NativeCluster(slotId);
+            await broadcastState().catch(() => {});
+            return { fullscreen: false, slotId };
+        }
+    }
+
+    const slot = record.slots?.[slotId];
+    if (!slot || !Number.isInteger(slot.windowId)) throw new Error("Twitch workspace slot has no live window.");
+
+    record = {
+        ...record,
+        selectedSlot: slotId,
+        paneFullscreenSlot: slotId,
+        updatedAt: Date.now()
+    };
+    await chrome.storage.local.set({ [TWITCH_WORKSPACE_V2_STORAGE_KEY]: record });
+
+    /* Storage changes make Stream slots expose their normal Page chrome before
+     * the window grows. The persisted kind itself is untouched, so leaving
+     * fullscreen automatically restores Stream cleanup when that was the prior mode. */
+    await new Promise(resolve => setTimeout(resolve, 70));
+    await applyTwitchWorkspaceV2PaneFullscreenGeometry(record, slotId);
+    raiseTwitchWorkspaceV2NativeCluster(slotId);
+    await broadcastState().catch(() => {});
+    return { fullscreen: true, slotId };
+}
+
 async function getTwitchWorkspaceV2Context(windowId) {
     const record = await getTwitchWorkspaceV2Record();
     if (!record || !Number.isInteger(windowId)) return { managed: false };
@@ -776,6 +1126,8 @@ async function getTwitchWorkspaceV2Context(windowId) {
     if (!slotId) return { managed: false };
     const slot = record.slots[slotId];
     const muted = slot.audioMuted !== false;
+    const paneFullscreen = record.paneFullscreenSlot === slotId;
+    const effectiveKind = paneFullscreen && slot.kind === "stream" ? "page" : slot.kind;
 
     return {
         managed: true,
@@ -783,18 +1135,23 @@ async function getTwitchWorkspaceV2Context(windowId) {
         slotId,
         selectedSlot: record.selectedSlot || "a",
         kind: slot.kind,
+        effectiveKind,
+        paneFullscreen,
         kindSource: slot.kindSource || "auto",
         label: slot.label,
         url: slot.url,
         channel: twitchWorkspaceV2ChannelFromUrl(slot.url),
         muted,
+        raidControlVisible: await getTwitchSetting("streamShellTwitchPreventRaids", true),
+        raidProtectionEnabled: slot.raidProtectionEnabled === true,
         selected: record.selectedSlot === slotId,
         slots: TWITCH_WORKSPACE_V2_SLOT_IDS.map(id => ({
             id,
             kind: record.slots?.[id]?.kind || "empty",
             label: record.slots?.[id]?.label || `Slot ${id.toUpperCase()}`,
             channel: twitchWorkspaceV2ChannelFromUrl(record.slots?.[id]?.url),
-            muted: record.slots?.[id]?.audioMuted !== false
+            muted: record.slots?.[id]?.audioMuted !== false,
+            raidProtectionEnabled: record.slots?.[id]?.raidProtectionEnabled === true
         }))
     };
 }
@@ -831,7 +1188,8 @@ async function syncTwitchWorkspaceV2Location(tab) {
             }
         }
     };
-    await setTwitchWorkspaceV2Record(record, false);
+    record = await setTwitchWorkspaceV2Record(record, false);
+    await syncTwitchWorkspaceV2StreamRefreshAlarms(record).catch(() => {});
     if (!isTwitchDropsUrl(url)) await rememberTwitchContentUrl(url);
     return true;
 }
@@ -846,6 +1204,7 @@ async function reconcileClosedTwitchWorkspaceV2Window(windowId) {
     if (!slotId) return;
     record = {
         ...record,
+        paneFullscreenSlot: record.paneFullscreenSlot === slotId ? null : record.paneFullscreenSlot,
         slots: {
             ...record.slots,
             [slotId]: { ...record.slots[slotId], windowId: null, tabId: null, updatedAt: Date.now() }
@@ -890,6 +1249,7 @@ async function closeTwitchWorkspaceV2Windows(preserveDefinition = true) {
         record = {
             ...record,
             lifecycle: TWITCH_WORKSPACE_V2_LIFECYCLE,
+            paneFullscreenSlot: null,
             slots,
             chat: null,
             updatedAt: Date.now()
@@ -908,6 +1268,7 @@ async function getTwitchWorkspaceV2Summary() {
         active: true,
         version: record.version,
         selectedSlot: record.selectedSlot,
+        paneFullscreenSlot: record.paneFullscreenSlot || null,
         activationCount: Number(record.activationCount || 0),
         slots: TWITCH_WORKSPACE_V2_SLOT_IDS.map(id => ({
             id,
@@ -918,7 +1279,8 @@ async function getTwitchWorkspaceV2Summary() {
             alive: Number.isInteger(record.slots?.[id]?.windowId),
             controller: (record.slots?.[id]?.kind || "empty") === "empty",
             channel: twitchWorkspaceV2ChannelFromUrl(record.slots?.[id]?.url),
-            muted: record.slots?.[id]?.audioMuted !== false
+            muted: record.slots?.[id]?.audioMuted !== false,
+            raidProtectionEnabled: record.slots?.[id]?.raidProtectionEnabled === true
         }))
     };
 }
@@ -953,6 +1315,7 @@ async function getTwitchWorkspaceV2Diagnostics() {
             kindSource: slot?.kindSource || "auto",
             configuredUrl: slot?.url || null,
             configuredMuted: slot?.audioMuted !== false,
+            raidProtectionEnabled: slot?.raidProtectionEnabled === true,
             configuredRect: rects[id],
             id: win?.id || null,
             state: win?.state || null,
@@ -978,6 +1341,7 @@ async function getTwitchWorkspaceV2Diagnostics() {
         active: true,
         version: record.version,
         lifecycle: record.lifecycle,
+        paneFullscreenSlot: record.paneFullscreenSlot || null,
         visible: surfaceState.rightMode === "twitch",
         covered: surfaceState.rightMode !== "twitch",
         createdAt: record.createdAt,
@@ -992,3 +1356,14 @@ async function getTwitchWorkspaceV2Diagnostics() {
         windows
     };
 }
+
+chrome.alarms.onAlarm.addListener(alarm => {
+    handleTwitchWorkspaceV2StreamRefreshAlarm(alarm).catch(() => {});
+});
+
+/* Alarms normally persist, but Chromium does not guarantee that across every
+ * browser restart/update. Reconcile them whenever the service worker starts. */
+getTwitchWorkspaceV2Record()
+    .then(record => syncTwitchWorkspaceV2StreamRefreshAlarms(record))
+    .catch(() => {});
+

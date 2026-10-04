@@ -6,7 +6,7 @@
 
 Stream Shell is a personal Opera GX / Chromium extension that turns several streaming services into one managed desktop-style shell. It was built around my own Windows setup and workflow first; other setups may work, but compatibility is best-effort rather than a product promise.
 
-Current package version: **0.19.8**.
+Current package version: **0.19.21**.
 
 ## What it does
 
@@ -19,12 +19,16 @@ Highlights include:
 - TMDB metadata/search plus streaming availability through TMDB's watch-provider data.
 - Provider automations such as autoplay/skip helpers, playback utilities and provider-specific cleanup; switching away pauses ordinary providers before the warm window is parked, while Twitch Workspace playback can persist while covered.
 - YouTube extras including Windowed Fullscreen, Auto-Like, quality handling, upload-date helpers, Shorts tweaks and optional Return YouTube Dislike ratio integration.
-- Twitch four-slot Wide Workspace with real top-level Twitch pages, persistent covered playback, channel-points/Drops automation, raid guard and per-slot audio handling.
+- Twitch four-slot Wide Workspace with real top-level Twitch pages, persistent covered playback, channel-points/Drops automation, raid guard, optional per-slot Marbles `!play` auto-join and per-slot audio handling.
 - A tab-capture based Volume Booster with a Chromium fullscreen bridge.
 - Optional native Windows helpers for Stream Shell titlebars/window controls and Discord desktop integration.
 - Optional first-party Unified Remote control surface with live Stream Shell active-state highlighting.
 - Optional Wide-only COBOL-backed subscription financial report with local price/cadence input, native reconciliation and a COBOL-generated printer-ready A4 statement.
 - Settings export/import, diagnostics, self-test/repair paths and resource-governor logic.
+
+### Twitch Workspace
+
+On Wide layouts, Twitch uses a persistent four-slot 2×2 workspace backed by real Opera/Twitch popup windows. Slots are created lazily at their final geometry and are covered by Dashboard/Discord rather than rebuilt during ordinary surface switching. Playback that was already running is kept alive while the Workspace is covered or occluded. Bare channel roots can run in a lightweight Stream mode that hides only Twitch's global header and left sidebar while preserving the native player, chat and channel page content; arbitrary Twitch pages remain normal top-level documents. Each populated slot has its own draggable compact control HUD for mute, reload, editing and pane fullscreen. Pane fullscreen temporarily exposes the normal Page interface and expands that existing Twitch window across the complete right pane without destroying the other slots. Chromium owns both the borderless overscan and the grid restore geometry so native window management never desynchronizes Opera input/compositor coordinates. Drops is simply another Twitch page inside the Workspace, and each slot owns its browser-level mute state plus an independent anti-raid state. The Settings anti-raid switch only controls whether that per-window shield toggle is shown in the Twitch HUD. An optional Marbles auto-join watches each slot chat independently for a burst of 5-10 unique `!play` messages, adds a short 1-4 second jitter, and enforces a 120-second cooldown per slot before it can submit another `!play`.
 
 ## Reality check / support policy
 
@@ -108,3 +112,4 @@ Copyright © 2026 **Sven Rieseler**.
 ## Third-party services and trademarks
 
 Stream Shell is independent and is not affiliated with or endorsed by the services it integrates. Netflix, Prime Video/Amazon, YouTube/Google, Disney+, Crunchyroll, Twitch, Discord, TMDB, JustWatch, Return YouTube Dislike and Unified Remote are names/trademarks/projects of their respective owners.
+

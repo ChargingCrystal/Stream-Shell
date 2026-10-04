@@ -1,3 +1,110 @@
+## 0.19.21 — Twitch Per-Window Anti-Raid Controls
+
+- Repurposes the Twitch Settings anti-raid switch into a master **HUD visibility** switch; hiding the control no longer changes raid behavior by itself.
+- Adds an independent anti-raid shield toggle to every Twitch Workspace window. Each slot keeps its own state, so one MoS window can follow raids while another blocks them.
+- Per-window anti-raid starts disabled on existing/new slots to preserve the post-0.19.18 behavior until explicitly enabled.
+- Restores raid detection for enabled slots by requiring a currently visible raid surface rather than a stale raid-labelled DOM node.
+- Stores short-lived redirect guards per Twitch tab instead of globally, so simultaneous slots cannot overwrite each other's raid guard.
+- Explicit Twitch channel-link navigation and Stream Shell slot edits still disarm the affected tab's guard; ordinary clicks no longer accidentally disable anti-raid.
+- No YouTube / YouTube Music behavior changed in this release.
+
+## 0.19.20 — Twitch Auto-Mode Scope Correction
+
+- Corrects the 0.19.19 interpretation of Stream availability: only **Auto** is constrained by the detected Twitch surface.
+- Auto resolves a bare streamer profile/offline channel to `Page`, and switches to `Stream` only when the current document is actually a live watch surface.
+- Manual `Stream` remains an explicit override and is selectable on any managed Twitch page, as it was before 0.19.19.
+- The HUD still highlights the effective visible mode (`Stream` or `Page`) instead of painting `Auto` as the active mode.
+- No Marbles, navigation, maintenance reload, pane-fullscreen, workspace geometry or native-helper behavior changed.
+
+## 0.19.19 — Twitch HUD Mode-State Fix
+
+- The Twitch slot editor no longer paints `Auto` purple unconditionally. The purple state now follows the actually visible mode: `Stream` on a confirmed live watch surface, otherwise `Page`.
+- `Stream` can only be selected while the slot is currently on a live Twitch channel watch surface. Channel profile/sub-pages, Drops, directories and offline channel roots keep Stream disabled.
+- Stream cleanup is now gated by the live-surface check too, so a persisted/auto `stream` kind cannot hide Twitch chrome on a streamer profile.
+- Live-state rechecks are finite and event-driven (load/navigation/player events); no new permanent polling loop was added.
+- Workspace persistence, Marbles automation, hourly maintenance reloads, pane-fullscreen geometry and native-helper behavior are unchanged.
+
+## 0.19.17 — Twitch Long-Session Maintenance
+
+- Restores a 5-second Marbles chat hydration grace period after every Twitch channel transition, so old `!play` backlog cannot trigger a mid-round join.
+- Cuts Twitch automation fallback DOM scans from every 5 seconds to every 30 seconds; mutation-driven claims remain immediate.
+- Reduces covered-stream playback polling from 1.25 seconds to a 15-second safety audit while preserving event-driven resume on pause.
+- Removes the 500 ms Twitch workspace URL poll and uses browser navigation/storage events instead.
+- Ignores irrelevant `chrome.storage` changes in Twitch automation instead of rebuilding observers and rescanning the DOM.
+- Makes titlebar/native reconciliation less aggressive while retaining event-driven updates and heartbeat safety.
+- Stream-mode Twitch slots receive a staggered maintenance reload roughly once per hour; a focused or pane-fullscreen slot is deferred for 10 minutes instead of being interrupted.
+
+## 0.19.15 — Twitch Marbles Submission Transaction Hotfix
+
+- Fixed overlapping Marbles send attempts: a slot now has an explicit in-flight guard, so a continuing `!play` burst cannot schedule a second auto-join while the first Twitch chat submission is still settling.
+- Removed the paste-then-`insertText` race that could asynchronously produce `!play!play`. The real Twitch editor now uses one Chromium editing path and waits for Twitch/Slate state to settle before any recovery action.
+- Existing `!play` residue is treated as the same pending auto-command instead of appending another copy; failed auto-drafts are cleaned up so they cannot leak into the next round.
+- A send counts as successful only after Twitch actually clears the chat editor. Merely placing `!play` in the box no longer starts the 120-second cooldown.
+- Re-resolves the live Send button around React renders, retries submission without reinserting text, and avoids overwriting unrelated user-written chat drafts.
+- Preserves a newer user click/focus if one happens during the tiny send transaction. The initial 5-second chat hydration buffer and all per-slot trigger/cooldown behavior remain unchanged.
+- No native-helper or Unified Remote reinstall is required.
+
+## 0.19.14 — Twitch Chat Editor Input Repair
+
+- Fixed Marbles auto-join writing `!play` into Twitch's outer chat-input shell instead of the real nested editor, which could visually overlap the `Send a message` placeholder without becoming valid chat input.
+- Twitch chat submission now resolves the actual nested contenteditable/textarea first and never falls back to direct `textContent` mutation.
+- Added Slate-friendly paste insertion with Chromium `insertText` fallback, followed by a short wait for Twitch to enable its native Send button.
+- Added an Enter-submit fallback for Twitch layouts that do not render a send button after valid editor input.
+- Marbles detection, randomized 5-10-user trigger, 1-4 second delay and per-slot 120-second cooldown are unchanged.
+- No native-helper or Unified Remote reinstall is required.
+
+## 0.19.13 — Twitch Marbles Chat Auto-Join
+
+- Added optional Marbles on Stream auto-join to managed Twitch Workspace windows. Each Twitch document observes only its own chat and detects fresh `!play` bursts locally.
+- A round trigger is randomized between 5 and 10 unique chat users within a rolling 30-second window; after detection Stream Shell waits a 1-4 second jitter before submitting one `!play` through Twitch's native chat UI.
+- Added a 120-second cooldown per Workspace slot (A-D), persisted in extension storage so parallel Marbles channels remain independent and a reload cannot immediately re-trigger the same slot.
+- Added a 5-second initial chat-hydration guard so re-rendered history after navigation/reload does not immediately look like a new round.
+- Added a Twitch Settings toggle for Marbles auto-join. The feature remains local DOM automation and does not use Twitch OAuth or chat APIs.
+- Twitch Workspace geometry, pane fullscreen, draggable HUD, persistent playback and native-helper protocol are unchanged.
+
+## 0.19.12 — Twitch Pane Fullscreen Browser-Geometry Repair
+
+- Moved pane-fullscreen overscan and grid restore geometry entirely back to Chromium (`chrome.windows.update`). The native helper no longer moves the Opera HWND with `SetWindowPos` during fullscreen transitions.
+- Fixed the fullscreen page being painted roughly one Opera-caption height away from its actual hit targets after native/browser geometry diverged.
+- Fixed Page-mode Twitch slots that could return from pane fullscreen as a permanently black compositor surface even though playback/UI continued underneath and reload did not recover the pixels.
+- Native Twitch claims now report the measured Opera titlebar height; Stream Shell uses that value for browser-owned top overscan, with a bounded fallback when no measurement is available yet.
+- Pane-fullscreen exit now restores the browser grid rectangle first, then drops native fullscreen ownership and reclaims cluster chrome. This prevents the stock Opera titlebar from appearing underneath the Stream Shell chrome after restore.
+- Kept per-layout draggable HUD positions and extended the post-transition viewport settle window slightly; no Twitch URL, mode, mute or playback state is recreated.
+- Titlebar native protocol bumped to v6 so an older helper cannot reintroduce the deprecated native HWND-resize path.
+
+**Native helper:** Re-run `native\install-titlebar-helper.cmd` after updating.
+
+## 0.19.11 — Twitch Pane Fullscreen Restore & HUD Position Repair
+
+- Made pane-fullscreen exit deterministic: restore the existing slot HWND to its calibrated grid rectangle, verify the resulting Opera outer bounds once, and issue at most one repair resize when the first transition was not accepted exactly.
+- Re-announced the restored Twitch cluster member and repaired cluster z-order without recreating or navigating the Twitch tab.
+- Native helper now rebuilds the right-side Twitch chrome ownership after pane fullscreen so the restored A/B window does not keep an exposed stock Opera titlebar.
+- Stored draggable Twitch HUD positions separately for Grid and Pane Fullscreen. A HUD dragged beyond the normal 960px slot area while fullscreen therefore returns to its previous reachable Grid position when the slot shrinks.
+- Added post-resize HUD settle/clamp passes and stale-drag cleanup to prevent off-screen or intermittently unresponsive HUDs after fullscreen transitions.
+
+**Native helper:** Re-run `native\install-titlebar-helper.cmd` after updating.
+
+## 0.19.10 — Twitch Workspace HUD & Pane Fullscreen
+
+- Replaced the single selected-slot Twitch control bar with one compact draggable HUD in every populated Twitch slot. The collapsed launcher is a four-dot circle; click expands/collapses it and dragging the launcher moves it within that window. Positions persist per slot.
+- Simplified the expanded HUD to the local slot only: mode status, mute/unmute, reload, right-pane fullscreen, Edit and clear. A/B/C/D cross-slot selectors are no longer needed because every Twitch window owns its own controls.
+- Added per-slot reload without workspace-wide navigation, focus cycling or provider reconciliation.
+- Added explicit right-pane fullscreen for a Twitch slot. The selected popup expands over the full 1920x1080 right pane while the other three windows stay alive underneath, then returns to its calibrated 2x2 bounds without reloading.
+- Pane fullscreen temporarily exposes the normal Twitch Page interface for Stream slots; leaving fullscreen automatically restores the prior Stream cleanup because the persisted slot mode itself is never changed. Page slots remain Page throughout.
+- Extended the native titlebar helper with one-shot Twitch pane fullscreen geometry. It overscans the Opera caption above the pane so the expanded Twitch surface is visually borderless without browser F11, and existing cluster raises keep only the expanded member on top while active.
+- Workspace schema v7 migrates v6 in place without recreating A-D. Shutdown clears only transient pane-fullscreen state; URLs, modes and per-slot mute settings remain persistent.
+
+**Native helper:** Re-run `native\install-titlebar-helper.cmd` after updating.
+
+## 0.19.9 — Twitch Stream Chrome Cleanup
+
+- Relaxed Twitch Workspace Stream mode so it now removes only Twitch's global top navigation/header and left navigation sidebar.
+- Kept the native Twitch player layout, chat, channel information, action row and lower channel content intact instead of forcing a full-window player.
+- Removed the automatic theatre-mode click from Stream mode; switching a slot between Page and Stream no longer changes Twitch's own theatre state.
+- Page mode remains completely untouched and continues to expose the normal Twitch UI for Drops, Browse, Inventory and arbitrary Twitch routes.
+- Added a minimal app-shell offset correction so the channel page can reclaim the vertical strip previously occupied by Twitch's hidden top navigation without resizing or recreating the Opera window.
+- Workspace geometry, persistent playback, per-slot mute state, compositor wake behavior and native helper protocol are unchanged.
+
 ## 0.19.8 — Twitch Workspace Lifecycle & Compositor Wake Pass
 
 - Added event-driven A-D native claiming: a workspace slot is claimed as soon as its first real Twitch title/status arrives, eliminating the fixed 700 ms startup race that could leave B-D behind Dashboard after a cold launch. Claims are cached per live window and re-announced once after a native-helper reconnect.

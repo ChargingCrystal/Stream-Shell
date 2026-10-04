@@ -77,7 +77,7 @@ internal static class StreamShellTitlebarHost
     private const ushort VT_LPWSTR = 31;
     private const string STREAM_SHELL_APP_ID = "SvenRieseler.StreamShell.Desktop";
     private const string CONTROL_PIPE_NAME = "StreamShell.ControlBridge.v1";
-    private const int TITLEBAR_PROTOCOL_VERSION = 5;
+    private const int TITLEBAR_PROTOCOL_VERSION = 6;
     private const uint HEARTBEAT_TIMEOUT_MS = 6500;
 
     private static readonly HashSet<string> ControlBridgeActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -125,6 +125,7 @@ internal static class StreamShellTitlebarHost
     private static string leftMode = "landing";
     private static string rightMode = "dashboard";
     private static string twitchTarget = "resume";
+    private static string twitchPaneFullscreenMember = String.Empty;
     private static bool settingsOpen = false;
     private static bool volumeActive = false;
     private static bool fullscreenActive = false;
@@ -899,7 +900,10 @@ internal static class StreamShellTitlebarHost
             controlBridge.Name = "StreamShellControlBridge";
             controlBridge.Start();
 
-            SetTimer(controllerWindow, new UIntPtr(1), 500, IntPtr.Zero);
+            /* WM_APP_SYNC handles real state changes immediately. The timer is
+             * only a drift/audit fallback, so 1 s is enough and halves the
+             * long-session HWND/overlay reconciliation churn. */
+            SetTimer(controllerWindow, new UIntPtr(1), 1000, IntPtr.Zero);
 
             MSG msg;
             while (!shuttingDown && GetMessage(out msg, IntPtr.Zero, 0, 0) > 0)
@@ -1966,6 +1970,36 @@ internal static class StreamShellTitlebarHost
     {
         string selected = (selectedMember ?? String.Empty).Trim().ToLowerInvariant();
 
+        string fullscreenMember;
+        lock (StateLock)
+        {
+            fullscreenMember = twitchPaneFullscreenMember ?? String.Empty;
+        }
+        if (!String.IsNullOrWhiteSpace(fullscreenMember))
+        {
+            IntPtr fullscreenHandle = GetWideTwitchClusterHandle(fullscreenMember);
+            if (fullscreenHandle != IntPtr.Zero && IsWindow(fullscreenHandle) && IsWindowVisible(fullscreenHandle) && !IsIconic(fullscreenHandle))
+            {
+                SetWindowPos(
+                    fullscreenHandle,
+                    HWND_TOP,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING
+                );
+                return;
+            }
+            lock (StateLock)
+            {
+                if (String.Equals(twitchPaneFullscreenMember, fullscreenMember, StringComparison.OrdinalIgnoreCase))
+                {
+                    twitchPaneFullscreenMember = String.Empty;
+                }
+            }
+        }
+
         /* C/D are born one stock-caption height underneath A/B. Always restore
          * lower members first and upper members second so A/B cover only that
          * overlap strip. SWP_NOACTIVATE keeps a clicked C/D window focused even
@@ -2019,6 +2053,49 @@ internal static class StreamShellTitlebarHost
                 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING
             );
+        }
+    }
+
+    private static void SetWideTwitchPaneFullscreen(string member, bool enabled, PaneBounds pane)
+    {
+        string normalized = (member ?? String.Empty).Trim().ToLowerInvariant();
+        if (String.IsNullOrWhiteSpace(normalized)) return;
+
+        IntPtr hWnd = GetWideTwitchClusterHandle(normalized);
+        if (hWnd == IntPtr.Zero || !IsWindow(hWnd)) return;
+
+        /* Geometry is deliberately NOT changed here. 0.19.10/0.19.11 used
+         * SetWindowPos to overscan the Opera HWND after Chromium had already
+         * committed a chrome.windows geometry. Opera GX could then paint one
+         * rectangle while hit-testing/compositing another, producing a caption-
+         * height input offset and, for Page slots, a permanently black surface
+         * after returning to the grid.
+         *
+         * From protocol v6 onward Chromium owns the overscan and restore rects.
+         * Native only tracks which cluster member must remain above its siblings. */
+        lock (StateLock)
+        {
+            if (enabled)
+            {
+                twitchPaneFullscreenMember = normalized;
+            }
+            else if (String.Equals(twitchPaneFullscreenMember, normalized, StringComparison.OrdinalIgnoreCase))
+            {
+                twitchPaneFullscreenMember = String.Empty;
+            }
+        }
+
+        RaiseWideTwitchClusterOnce(normalized);
+        LogDiagnostic(
+            "twitch pane fullscreen " + (enabled ? "enabled" : "disabled") +
+            " member=" + normalized +
+            " browser-owned-geometry=true" +
+            " pane=" + pane.Left + "," + pane.Top + " " + pane.Width + "x" + pane.Height
+        );
+
+        if (controllerWindow != IntPtr.Zero)
+        {
+            PostMessage(controllerWindow, WM_APP_SYNC, IntPtr.Zero, IntPtr.Zero);
         }
     }
 
@@ -2446,7 +2523,8 @@ internal static class StreamShellTitlebarHost
                     ",\"layoutProfile\":\"" + JsonEscape(claim.LayoutProfile) +
                     "\",\"side\":\"" + JsonEscape(claim.Side) +
                     "\",\"mode\":\"" + JsonEscape(claim.Mode) +
-                    "\",\"member\":\"" + JsonEscape(claim.Member) + "\",\"renewed\":true}"
+                    "\",\"member\":\"" + JsonEscape(claim.Member) +
+                    "\",\"titlebarHeight\":" + mappedTarget.TitlebarHeight + ",\"renewed\":true}"
                 );
                 return;
             }
@@ -2615,7 +2693,8 @@ internal static class StreamShellTitlebarHost
             ",\"layoutProfile\":\"" + JsonEscape(claim.LayoutProfile) +
             "\",\"side\":\"" + JsonEscape(claim.Side) +
             "\",\"mode\":\"" + JsonEscape(claim.Mode) +
-            "\",\"member\":\"" + JsonEscape(claim.Member) + "\"}"
+            "\",\"member\":\"" + JsonEscape(claim.Member) +
+            "\",\"titlebarHeight\":" + candidate.TitlebarHeight + "}"
         );
     }
 
@@ -3792,7 +3871,7 @@ internal static class StreamShellTitlebarHost
          * Chromium/Explorer may rewrite a popup's window property store after
          * navigation or fullscreen transitions. A successful first claim is
          * therefore not proof that the AppUserModelID will remain intact for the
-         * lifetime of the HWND. Claim renewals are already bounded by the 1.5 s
+         * lifetime of the HWND. Claim renewals are deliberately slower than the
          * extension heartbeat; use them as a cheap drift detector and repair only
          * an identity that has actually changed.
          */
@@ -6685,6 +6764,20 @@ internal static class StreamShellTitlebarHost
                 "{\"event\":\"ready\",\"protocolVersion\":" + TITLEBAR_PROTOCOL_VERSION + "}"
             );
             SendNativeStatus();
+            return;
+        }
+
+        if (type.Equals("set-twitch-pane-fullscreen", StringComparison.OrdinalIgnoreCase))
+        {
+            string member = GetJsonString(json, "member") ?? String.Empty;
+            bool enabled = GetJsonBool(json, "enabled", false);
+            PaneBounds pane = new PaneBounds(
+                GetJsonInt(json, "left", rightPane.Left),
+                GetJsonInt(json, "top", rightPane.Top),
+                GetJsonInt(json, "width", rightPane.Width),
+                GetJsonInt(json, "height", rightPane.Height)
+            );
+            SetWideTwitchPaneFullscreen(member, enabled, pane);
             return;
         }
 

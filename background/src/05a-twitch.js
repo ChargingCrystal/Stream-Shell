@@ -113,6 +113,10 @@ async function markTwitchUserInteraction(tab) {
     if (!tab?.id || !Number.isInteger(tab.windowId)) return false;
     if (!(await isManagedTwitchWindow(tab.windowId))) return false;
 
+    /* Pointer activity is still useful for spawned-window adoption, but it is
+     * not itself proof that the user wants to cancel an armed raid guard.
+     * Explicit Twitch channel-link navigation and Stream Shell slot edits
+     * disarm their own tab guard at the point of navigation instead. */
     twitchRecentUserInteractionUntil = Date.now() + 3000;
     return true;
 }
@@ -1099,6 +1103,36 @@ async function isManagedTwitchWindow(windowId) {
     return isTwitchSplitLabWindowId(windowId);
 }
 
+function normalizeTwitchRaidGuardMap(value) {
+    if (!value || typeof value !== "object") return {};
+
+    /* Migrate the short-lived legacy single-guard shape in place. */
+    if (Number.isInteger(value.tabId)) {
+        return { [String(value.tabId)]: value };
+    }
+
+    const guards = {};
+    for (const [key, guard] of Object.entries(value)) {
+        if (!guard || typeof guard !== "object" || !Number.isInteger(guard.tabId)) continue;
+        guards[String(guard.tabId)] = guard;
+    }
+    return guards;
+}
+
+async function getTwitchRaidGuardMap() {
+    const stored = await chrome.storage.session.get(TWITCH_RAID_GUARD_SESSION_KEY).catch(() => ({}));
+    return normalizeTwitchRaidGuardMap(stored[TWITCH_RAID_GUARD_SESSION_KEY]);
+}
+
+async function setTwitchRaidGuardMap(guards) {
+    const entries = Object.entries(guards || {});
+    if (!entries.length) {
+        await chrome.storage.session.remove(TWITCH_RAID_GUARD_SESSION_KEY).catch(() => {});
+        return;
+    }
+    await chrome.storage.session.set({ [TWITCH_RAID_GUARD_SESSION_KEY]: Object.fromEntries(entries) });
+}
+
 async function armTwitchRaidGuard(tab, sourceUrl) {
     if (!tab?.id || !Number.isInteger(tab.windowId)) return false;
     if (!(await isManagedTwitchWindow(tab.windowId))) return false;
@@ -1107,16 +1141,15 @@ async function armTwitchRaidGuard(tab, sourceUrl) {
     if (!sourceChannel) return false;
 
     const normalizedSource = `https://www.twitch.tv/${sourceChannel}`;
-    await chrome.storage.session.set({
-        [TWITCH_RAID_GUARD_SESSION_KEY]: {
-            tabId: tab.id,
-            windowId: tab.windowId,
-            sourceUrl: normalizedSource,
-            sourceChannel,
-            expiresAt: Date.now() + 45000
-        }
-    });
-
+    const guards = await getTwitchRaidGuardMap();
+    guards[String(tab.id)] = {
+        tabId: tab.id,
+        windowId: tab.windowId,
+        sourceUrl: normalizedSource,
+        sourceChannel,
+        expiresAt: Date.now() + 45000
+    };
+    await setTwitchRaidGuardMap(guards);
     return true;
 }
 
@@ -1124,33 +1157,36 @@ async function disarmTwitchRaidGuard(tab) {
     if (!tab?.id || !Number.isInteger(tab.windowId)) return false;
     if (!(await isManagedTwitchWindow(tab.windowId))) return false;
 
-    const stored = await chrome.storage.session.get(TWITCH_RAID_GUARD_SESSION_KEY).catch(() => ({}));
-    const guard = stored[TWITCH_RAID_GUARD_SESSION_KEY];
-    if (!guard || guard.tabId !== tab.id) return false;
-
-    await chrome.storage.session.remove(TWITCH_RAID_GUARD_SESSION_KEY).catch(() => {});
+    const guards = await getTwitchRaidGuardMap();
+    const key = String(tab.id);
+    if (!guards[key]) return false;
+    delete guards[key];
+    await setTwitchRaidGuardMap(guards);
     return true;
 }
-
 
 async function enforceTwitchRaidGuard(tabId, url) {
     if (!isTwitchUrl(url)) return;
 
-    const stored = await chrome.storage.session.get(TWITCH_RAID_GUARD_SESSION_KEY).catch(() => ({}));
-    const guard = stored[TWITCH_RAID_GUARD_SESSION_KEY];
-    if (!guard || guard.tabId !== tabId) return;
+    const guards = await getTwitchRaidGuardMap();
+    const key = String(tabId);
+    const guard = guards[key];
+    if (!guard) return;
 
     if (!Number.isFinite(guard.expiresAt) || guard.expiresAt < Date.now()) {
-        await chrome.storage.session.remove(TWITCH_RAID_GUARD_SESSION_KEY).catch(() => {});
+        delete guards[key];
+        await setTwitchRaidGuardMap(guards);
         return;
     }
 
     const nextChannel = twitchChannelKey(url);
     if (!nextChannel || nextChannel === guard.sourceChannel) return;
 
-    await chrome.storage.session.remove(TWITCH_RAID_GUARD_SESSION_KEY).catch(() => {});
+    delete guards[key];
+    await setTwitchRaidGuardMap(guards);
     await chrome.tabs.update(tabId, { url: guard.sourceUrl }).catch(() => {});
 }
+
 
 chrome.tabs.onCreated.addListener(tab => {
     adoptTwitchSpawnedTab(tab).catch(() => {});
@@ -1176,14 +1212,20 @@ chrome.windows.onRemoved.addListener(windowId => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const urlChanged = typeof changeInfo.url === "string";
+    const loadCompleted = changeInfo.status === "complete";
+    const muteChanged = Object.prototype.hasOwnProperty.call(changeInfo, "mutedInfo");
     const url = changeInfo.url || tab?.url || tab?.pendingUrl;
 
-    if (url) {
+    /* Most tab updates are title/favicon/audible noise. Do the expensive
+     * workspace/storage lookups only for actual navigation, completed loads or
+     * mute-policy changes. */
+    if (urlChanged && url) {
         enforceTwitchRaidGuard(tabId, url).catch(() => {});
         resolveTwitchSpawnCandidate(tabId, url, tab).catch(() => {});
     }
 
-    if (tab?.windowId) {
+    if (tab?.windowId && urlChanged) {
         getTwitchWindowId()
             .then(windowId => {
                 if (windowId === tab.windowId && isTwitchUrl(url) && !isTwitchDropsUrl(url)) {
@@ -1193,9 +1235,27 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
             .catch(() => {});
         syncManagedTwitchTargetFromUrl(tab.windowId, url).catch(() => {});
         syncTwitchWorkspaceV2Location(tab).catch(() => {});
+    }
+
+    if (tab?.windowId && (urlChanged || loadCompleted || muteChanged)) {
         syncTwitchAutoMuteForTab(tab).catch(() => {});
     }
 });
+
+if (chrome.webNavigation?.onHistoryStateUpdated) {
+    chrome.webNavigation.onHistoryStateUpdated.addListener(details => {
+        if (details.frameId !== 0 || !isTwitchUrl(details.url)) return;
+        chrome.tabs.get(details.tabId)
+            .then(tab => {
+                if (!tab?.windowId) return;
+                return Promise.allSettled([
+                    syncManagedTwitchTargetFromUrl(tab.windowId, details.url),
+                    syncTwitchWorkspaceV2Location({ ...tab, url: details.url })
+                ]);
+            })
+            .catch(() => {});
+    });
+}
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "local") return;
@@ -1214,9 +1274,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
             .catch(() => {});
     }
 
-    if (Object.prototype.hasOwnProperty.call(changes, "streamShellTwitchPreventRaids") && changes.streamShellTwitchPreventRaids.newValue === false) {
-        chrome.storage.session.remove(TWITCH_RAID_GUARD_SESSION_KEY).catch(() => {});
-    }
 });
 
 /* Remove the obsolete 0.16.0-0.16.2 Inventory worker immediately after

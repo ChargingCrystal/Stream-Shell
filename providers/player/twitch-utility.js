@@ -2,7 +2,7 @@
     const DEFAULTS = {
         streamShellTwitchAutoClaimPoints: true,
         streamShellTwitchAutoClaimDrops: true,
-        streamShellTwitchPreventRaids: true
+        streamShellTwitchMarblesAutoJoin: true
     };
 
     const RESERVED_CHANNEL_PATHS = new Set([
@@ -24,13 +24,42 @@
         '[role="dialog"]'
     ].join(",");
 
+    const MARBLES_CHAT_LINE_SELECTOR = [
+        '[data-a-target="chat-line-message"]',
+        '[data-test-selector="chat-line-message"]',
+        '.chat-line__message'
+    ].join(",");
+
+    const MARBLES_CONFIG = Object.freeze({
+        burstWindowMs: 30000,
+        cooldownMs: 120000,
+        minTriggerCount: 5,
+        maxTriggerCount: 10,
+        minDelayMs: 1000,
+        maxDelayMs: 4000,
+        initialHydrationGuardMs: 5000,
+        fallbackScanMs: 30000,
+        coveredPlaybackWatchdogMs: 15000
+    });
+
     let settings = { ...DEFAULTS };
     let observer = null;
     let fallbackTimer = null;
     let scanTimer = null;
     let lastStableChannelUrl = null;
     let raidGuardCooldownUntil = 0;
+    let raidProtectionEnabled = false;
     const recentClicks = new WeakMap();
+
+    let workspaceSlotId = null;
+    let marblesLastAutoPlayAt = 0;
+    let marblesPendingTimer = null;
+    let marblesTriggerCount = 0;
+    let marblesObservedChannel = null;
+    let marblesHydrationGuardUntil = Date.now() + MARBLES_CONFIG.initialHydrationGuardMs;
+    let marblesUnknownUserCounter = 0;
+    const marblesPlayEvents = [];
+    const processedMarblesLines = new WeakSet();
 
     /*
      * Workspace playback is intentionally different from core-provider
@@ -102,7 +131,10 @@
         }
 
         if (workspaceResumeInterval === null) {
-            workspaceResumeInterval = setInterval(tryResumeCoveredWorkspacePlayback, 1250);
+            workspaceResumeInterval = setInterval(
+                tryResumeCoveredWorkspacePlayback,
+                MARBLES_CONFIG.coveredPlaybackWatchdogMs
+            );
         }
     }
 
@@ -155,6 +187,307 @@
         const first = (parts[0] || "").toLowerCase();
         if (!first || RESERVED_CHANNEL_PATHS.has(first)) return null;
         return `https://www.twitch.tv/${first}`;
+    }
+
+    function randomIntInclusive(min, max) {
+        return Math.floor(Math.random() * (max - min + 1)) + min;
+    }
+
+    function resetMarblesBurst({ reroll = true } = {}) {
+        marblesPlayEvents.length = 0;
+        if (reroll || !marblesTriggerCount) {
+            marblesTriggerCount = randomIntInclusive(
+                MARBLES_CONFIG.minTriggerCount,
+                MARBLES_CONFIG.maxTriggerCount
+            );
+        }
+    }
+
+    function cancelPendingMarblesJoin() {
+        if (marblesPendingTimer !== null) {
+            clearTimeout(marblesPendingTimer);
+            marblesPendingTimer = null;
+        }
+    }
+
+    function armMarblesHydrationGuard(channel = currentChannelUrl()) {
+        marblesObservedChannel = channel || null;
+        marblesHydrationGuardUntil = Date.now() + MARBLES_CONFIG.initialHydrationGuardMs;
+        cancelPendingMarblesJoin();
+        resetMarblesBurst();
+    }
+
+    function marblesCooldownStorageKey() {
+        return `streamShellTwitchMarblesLastPlayAt_${workspaceSlotId || "legacy"}`;
+    }
+
+    function marblesChatMessageText(line) {
+        const fragments = Array.from(line.querySelectorAll(
+            '[data-a-target="chat-message-text"], [data-test-selector="chat-message-text"], .text-fragment'
+        ));
+        const text = fragments.length
+            ? fragments.map(node => node.textContent || "").join(" ")
+            : (line.textContent || "");
+        return text.trim().replace(/\s+/g, " ");
+    }
+
+    function marblesChatUserKey(line) {
+        const username = line.querySelector(
+            '[data-a-target="chat-message-username"], [data-test-selector="chat-message-username"], .chat-author__display-name'
+        );
+        const value = String(username?.textContent || username?.getAttribute?.("data-a-user") || "")
+            .trim().toLowerCase();
+        if (value) return value;
+        marblesUnknownUserCounter += 1;
+        return `unknown-${marblesUnknownUserCounter}`;
+    }
+
+    function isMarblesPlayCommand(text) {
+        return /(?:^|\s)!play(?:\s|$)/i.test(String(text || ""));
+    }
+
+    function collectMarblesChatLines(node) {
+        if (!(node instanceof Element)) return [];
+        const lines = [];
+        if (node.matches(MARBLES_CHAT_LINE_SELECTOR)) lines.push(node);
+        for (const match of node.querySelectorAll(MARBLES_CHAT_LINE_SELECTOR)) lines.push(match);
+        return lines;
+    }
+
+    function findTwitchChatEditor() {
+        const root = document.querySelector('[data-a-target="chat-input"]');
+        const candidates = [
+            root?.matches?.('textarea, input, [contenteditable="true"]') ? root : null,
+            root?.querySelector?.('[contenteditable="true"][role="textbox"]'),
+            root?.querySelector?.('[contenteditable="true"]'),
+            root?.querySelector?.('textarea, input'),
+            document.querySelector('[data-a-target="chat-input"] [contenteditable="true"]'),
+            document.querySelector('.chat-wysiwyg-input__editor [contenteditable="true"]'),
+            document.querySelector('[role="textbox"][contenteditable="true"]'),
+            document.querySelector('textarea[data-a-target="chat-input"]')
+        ];
+
+        return candidates.find(element =>
+            element instanceof HTMLElement &&
+            element.isConnected &&
+            !element.hasAttribute("disabled") &&
+            element.getAttribute("aria-disabled") !== "true"
+        ) || null;
+    }
+
+    function selectEditableContents(element) {
+        const selection = window.getSelection();
+        if (!selection) return false;
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+    }
+
+    function editableText(element) {
+        if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
+            return String(element.value || "");
+        }
+        return String(element.innerText || element.textContent || "");
+    }
+
+    function normalizedChatText(element) {
+        return editableText(element)
+            .replace(/[\u200B-\u200D\uFEFF]/g, "")
+            .replace(/\s+/g, " ")
+            .trim();
+    }
+
+    async function waitForChatText(element, predicate, timeoutMs = 500) {
+        const started = Date.now();
+        while (Date.now() - started < timeoutMs) {
+            if (!element?.isConnected) return false;
+            if (predicate(normalizedChatText(element))) return true;
+            await new Promise(resolve => setTimeout(resolve, 25));
+        }
+        return Boolean(element?.isConnected && predicate(normalizedChatText(element)));
+    }
+
+    async function setTwitchChatText(element, value) {
+        const wanted = String(value || "").trim();
+        if (!wanted) return false;
+
+        const before = normalizedChatText(element);
+
+        /* Reuse a previous unsent !play instead of appending another copy. */
+        if (before === wanted) return true;
+
+        /* Do not overwrite something the user is typing. The only stale text
+         * we replace is residue made entirely from our own !play attempts. */
+        if (before && !/^(?:!play\s*)+$/i.test(before)) return false;
+
+        if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
+            const proto = element instanceof HTMLTextAreaElement
+                ? HTMLTextAreaElement.prototype
+                : HTMLInputElement.prototype;
+            const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+            if (setter) setter.call(element, wanted);
+            else element.value = wanted;
+            element.dispatchEvent(new InputEvent("input", {
+                bubbles: true,
+                inputType: "insertText",
+                data: wanted
+            }));
+            return waitForChatText(element, text => text === wanted, 500);
+        }
+
+        if (!element?.isContentEditable) return false;
+
+        /* Keep the exact 0.19.14 Slate/paste path that actually inserts into
+         * Twitch. Do it once and wait for Twitch to acknowledge it. No second
+         * insertText fallback -> no delayed !play!play race. */
+        element.focus();
+        selectEditableContents(element);
+
+        try {
+            const transfer = new DataTransfer();
+            transfer.setData("text/plain", wanted);
+            element.dispatchEvent(new ClipboardEvent("paste", {
+                bubbles: true,
+                cancelable: true,
+                clipboardData: transfer
+            }));
+        } catch {
+            return false;
+        }
+
+        return waitForChatText(element, text => text === wanted, 500);
+    }
+
+    async function waitForTwitchSendButton(timeoutMs = 1500) {
+        const started = Date.now();
+        while (Date.now() - started < timeoutMs) {
+            const button = document.querySelector(
+                'button[data-a-target="chat-send-button"], button[data-test-selector="chat-send-button"]'
+            );
+            if (isEnabled(button)) return button;
+            await new Promise(resolve => setTimeout(resolve, 40));
+        }
+        return null;
+    }
+
+    async function submitTwitchChat(input) {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            const liveInput = findTwitchChatEditor();
+            if (!liveInput || normalizedChatText(liveInput) !== "!play") return false;
+
+            const button = await waitForTwitchSendButton(attempt === 0 ? 1500 : 500);
+            if (button?.isConnected && isEnabled(button)) {
+                try { button.click(); } catch {}
+                if (await waitForChatText(liveInput, text => text === "", 500)) return true;
+            }
+
+            /* If Twitch replaced the button during a React render, submit the
+             * SAME already-populated draft through the live form. We never
+             * insert !play again here. */
+            const refreshedInput = findTwitchChatEditor();
+            if (!refreshedInput || normalizedChatText(refreshedInput) !== "!play") return false;
+
+            const liveButton = document.querySelector(
+                'button[data-a-target="chat-send-button"], button[data-test-selector="chat-send-button"]'
+            );
+            const form = liveButton?.closest?.("form") || refreshedInput.closest?.("form");
+            if (form?.requestSubmit) {
+                try {
+                    if (liveButton?.isConnected && isEnabled(liveButton)) form.requestSubmit(liveButton);
+                    else form.requestSubmit();
+                } catch {}
+                if (await waitForChatText(refreshedInput, text => text === "", 500)) return true;
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 80));
+        }
+
+        return false;
+    }
+
+    async function sendMarblesPlayCommand() {
+        const channel = currentChannelUrl();
+        if (!channel) return false;
+
+        const input = findTwitchChatEditor();
+        if (!input) return false;
+
+        if (!await setTwitchChatText(input, "!play")) return false;
+
+        /* Only report success after Twitch actually consumed the chat draft.
+         * If submission misses, the existing !play is left in place so the
+         * next retry submits it rather than appending another one. */
+        return submitTwitchChat(input);
+    }
+
+    function scheduleMarblesAutoJoin() {
+        if (!settings.streamShellTwitchMarblesAutoJoin || marblesPendingTimer !== null) return;
+        const now = Date.now();
+        if (now - marblesLastAutoPlayAt < MARBLES_CONFIG.cooldownMs) return;
+
+        const delay = randomIntInclusive(MARBLES_CONFIG.minDelayMs, MARBLES_CONFIG.maxDelayMs);
+        marblesPendingTimer = setTimeout(async () => {
+            marblesPendingTimer = null;
+            if (!settings.streamShellTwitchMarblesAutoJoin) return;
+            if (Date.now() - marblesLastAutoPlayAt < MARBLES_CONFIG.cooldownMs) return;
+
+            const sent = await sendMarblesPlayCommand().catch(() => false);
+            if (!sent) {
+                resetMarblesBurst({ reroll: false });
+                return;
+            }
+
+            marblesLastAutoPlayAt = Date.now();
+            chrome.storage.local.set({
+                [marblesCooldownStorageKey()]: marblesLastAutoPlayAt
+            }).catch(() => {});
+            resetMarblesBurst();
+        }, delay);
+    }
+
+    function recordMarblesPlay(line) {
+        if (!settings.streamShellTwitchMarblesAutoJoin) return;
+        if (processedMarblesLines.has(line)) return;
+        processedMarblesLines.add(line);
+
+        const channel = currentChannelUrl();
+        if (!channel) return;
+
+        /* Twitch can hydrate old chat lines after a channel/stream navigation.
+         * Treat every channel transition like a fresh content-script start:
+         * arm a new 5 s grace period and discard the first arriving line. This
+         * prevents an old !play burst from joining a round already in progress. */
+        if (channel !== marblesObservedChannel) {
+            armMarblesHydrationGuard(channel);
+            return;
+        }
+
+        if (Date.now() < marblesHydrationGuardUntil) return;
+
+        const text = marblesChatMessageText(line);
+        if (!isMarblesPlayCommand(text)) return;
+
+        const now = Date.now();
+        const cutoff = now - MARBLES_CONFIG.burstWindowMs;
+        while (marblesPlayEvents.length && marblesPlayEvents[0].time < cutoff) {
+            marblesPlayEvents.shift();
+        }
+
+        const userKey = marblesChatUserKey(line);
+        marblesPlayEvents.push({ time: now, userKey });
+        const uniqueUsers = new Set(marblesPlayEvents.map(event => event.userKey));
+        if (uniqueUsers.size >= marblesTriggerCount) scheduleMarblesAutoJoin();
+    }
+
+    function observeMarblesChat(records) {
+        if (!settings.streamShellTwitchMarblesAutoJoin) return;
+        for (const mutation of records || []) {
+            for (const node of mutation.addedNodes || []) {
+                for (const line of collectMarblesChatLines(node)) recordMarblesPlay(line);
+            }
+        }
     }
 
     function claimChannelPoints() {
@@ -218,32 +551,38 @@
         ));
     }
 
+    function isVisiblyRendered(element) {
+        if (!(element instanceof Element)) return false;
+        const style = getComputedStyle(element);
+        if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) return false;
+        return element.getClientRects().length > 0;
+    }
+
     function preventRaid() {
-        if (!settings.streamShellTwitchPreventRaids || Date.now() < raidGuardCooldownUntil) return;
+        if (!raidProtectionEnabled || Date.now() < raidGuardCooldownUntil) return;
 
         const source = currentChannelUrl();
         if (source) lastStableChannelUrl = source;
         if (!lastStableChannelUrl) return;
 
         for (const container of raidContainers()) {
+            /* Twitch keeps stale raid-labelled nodes around. Only a currently
+             * rendered raid surface is allowed to arm this slot's redirect
+             * guard; this restores anti-raid without reviving the 0.19.17
+             * "old stream snaps back forever" failure mode. */
+            if (!isVisiblyRendered(container)) continue;
+
             const text = String(container.textContent || "").toLowerCase().replace(/\s+/g, " ").slice(0, 1800);
             if (!/\braid(?:ing)?\b/.test(text)) continue;
-
-            const markerText = `${container.getAttribute("data-test-selector") || ""} ${container.getAttribute("data-a-target") || ""} ${container.getAttribute("aria-label") || ""}`.toLowerCase();
-            const raidSpecificMarker = markerText.includes("raid");
-            let raidActionFound = false;
 
             const buttons = container.querySelectorAll('button, [role="button"]');
             for (const button of buttons) {
                 const label = `${button.textContent || ""} ${button.getAttribute("aria-label") || ""}`.trim().toLowerCase().replace(/\s+/g, " ");
                 if (/leave raid|cancel raid|raid verlassen|raid abbrechen/.test(label)) {
-                    raidActionFound = true;
                     clickOnce(button, 15000);
                     break;
                 }
             }
-
-            if (!raidSpecificMarker && !raidActionFound) continue;
 
             raidGuardCooldownUntil = Date.now() + 12000;
             chrome.runtime.sendMessage({
@@ -257,7 +596,8 @@
     function automationEnabled() {
         return settings.streamShellTwitchAutoClaimPoints ||
             settings.streamShellTwitchAutoClaimDrops ||
-            settings.streamShellTwitchPreventRaids;
+            raidProtectionEnabled ||
+            settings.streamShellTwitchMarblesAutoJoin;
     }
 
     function mutationTouchesAutomation(records) {
@@ -326,6 +666,8 @@
                 type: "get-stream-shell-twitch-workspace-context"
             });
             workspacePlaybackGuardEnabled = workspaceContext?.managed === true;
+            workspaceSlotId = workspaceContext?.slotId || null;
+            raidProtectionEnabled = workspaceContext?.raidProtectionEnabled === true;
         } catch {
             workspacePlaybackGuardEnabled = false;
         }
@@ -333,10 +675,15 @@
         try {
             const stored = await chrome.storage.local.get([
                 ...Object.keys(DEFAULTS),
-                "rightMode"
+                "rightMode",
+                marblesCooldownStorageKey()
             ]);
             settings = { ...DEFAULTS, ...stored };
             workspaceRightMode = stored.rightMode || "twitch";
+            marblesLastAutoPlayAt = Number(stored[marblesCooldownStorageKey()] || 0);
+            resetMarblesBurst();
+            marblesObservedChannel = currentChannelUrl();
+            marblesHydrationGuardUntil = Date.now() + MARBLES_CONFIG.initialHydrationGuardMs;
         } catch {}
 
         if (workspacePlaybackGuardEnabled) {
@@ -372,6 +719,7 @@
         }
 
         observer = new MutationObserver(records => {
+            observeMarblesChat(records);
             if (mutationTouchesAutomation(records)) {
                 scheduleScan();
             }
@@ -408,7 +756,7 @@
             }
 
             if (automationEnabled()) {
-                fallbackTimer = setInterval(scan, 5000);
+                fallbackTimer = setInterval(scan, MARBLES_CONFIG.fallbackScanMs);
             }
         };
 
@@ -416,10 +764,45 @@
 
         chrome.storage.onChanged.addListener((changes, areaName) => {
             if (areaName !== "local") return;
+
+            let automationSettingsChanged = false;
             for (const key of Object.keys(DEFAULTS)) {
                 if (Object.prototype.hasOwnProperty.call(changes, key)) {
                     settings[key] = changes[key].newValue ?? DEFAULTS[key];
+                    automationSettingsChanged = true;
                 }
+            }
+
+            const marblesCooldownKey = marblesCooldownStorageKey();
+            if (Object.prototype.hasOwnProperty.call(changes, marblesCooldownKey)) {
+                marblesLastAutoPlayAt = Number(changes[marblesCooldownKey].newValue || 0);
+            }
+
+            /* Workspace navigation is persisted by the background. Use that
+             * event to arm the Marbles hydration guard immediately on a channel
+             * transition; recordMarblesPlay still has its own fallback check in
+             * case Twitch emits chat before the storage event arrives. */
+            if (workspaceSlotId &&
+                Object.prototype.hasOwnProperty.call(changes, "streamShellTwitchWorkspaceV2")) {
+                const channel = currentChannelUrl();
+                if (channel !== marblesObservedChannel) {
+                    armMarblesHydrationGuard(channel);
+                }
+
+                const workspace = changes.streamShellTwitchWorkspaceV2.newValue;
+                const nextRaidProtectionEnabled = workspace?.slots?.[workspaceSlotId]?.raidProtectionEnabled === true;
+                if (nextRaidProtectionEnabled !== raidProtectionEnabled) {
+                    raidProtectionEnabled = nextRaidProtectionEnabled;
+                    automationSettingsChanged = true;
+                    if (!raidProtectionEnabled) {
+                        chrome.runtime.sendMessage({ type: "twitch-disarm-raid-guard" }).catch(() => {});
+                    }
+                }
+            }
+            if (Object.prototype.hasOwnProperty.call(changes, "streamShellTwitchMarblesAutoJoin") &&
+                !settings.streamShellTwitchMarblesAutoJoin) {
+                cancelPendingMarblesJoin();
+                resetMarblesBurst();
             }
 
             if (workspacePlaybackGuardEnabled && Object.prototype.hasOwnProperty.call(changes, "rightMode")) {
@@ -432,9 +815,15 @@
                 handleWorkspaceVisibilityTransition();
             }
 
-            syncObserver();
-            syncFallbackTimer();
-            scan();
+            /* Workspace/HUD/cooldown writes happen frequently enough that
+             * rebuilding the observer, restarting the fallback interval and
+             * rescanning the Twitch DOM for every unrelated storage change is
+             * pure churn. Only automation-setting changes need that work. */
+            if (automationSettingsChanged) {
+                syncObserver();
+                syncFallbackTimer();
+                scheduleScan();
+            }
         });
 
         document.addEventListener("pointerdown", event => {
@@ -462,7 +851,7 @@
         }, true);
 
         document.addEventListener("click", event => {
-            if (!event.isTrusted || !settings.streamShellTwitchPreventRaids) return;
+            if (!event.isTrusted || !raidProtectionEnabled) return;
             const anchor = event.target?.closest?.('a[href]');
             if (!anchor) return;
 
@@ -484,6 +873,7 @@
             if (fallbackTimer) clearInterval(fallbackTimer);
             if (scanTimer !== null) clearTimeout(scanTimer);
             clearWorkspaceResumeTimers();
+            cancelPendingMarblesJoin();
             observer?.disconnect();
         }, { once: true });
     }

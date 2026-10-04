@@ -853,6 +853,8 @@ function startTitlebarReconcileLoop() {
         return;
     }
 
+    let titlebarReconcileTick = 0;
+
     titlebarReconcileTimer =
         setInterval(
             () => {
@@ -878,15 +880,19 @@ function startTitlebarReconcileLoop() {
                 }
 
                 /*
-                 * Re-announce the focused managed surface. Claims are
-                 * idempotent, so a missed focus/title event heals itself while
-                 * an unrelated Opera/native app simply fails the managed-window
-                 * checks above and reaches no native trust path.
+                 * Heartbeats need to remain comfortably inside the native
+                 * 6.5-second freshness window. Surface claims are already
+                 * event-driven, so use the periodic path only as a 10-second
+                 * self-heal instead of re-querying browser/native state on
+                 * every heartbeat.
                  */
-                claimFocusedTitlebarSurface()
-                    .catch(
-                        () => {}
-                    );
+                titlebarReconcileTick += 1;
+                if (titlebarReconcileTick % 4 === 0) {
+                    claimFocusedTitlebarSurface()
+                        .catch(
+                            () => {}
+                        );
+                }
             },
             TITLEBAR_RECONCILE_INTERVAL_MS
         );
@@ -1107,6 +1113,10 @@ function handleTitlebarNativeMessage(
         message?.event ===
             "claim-accepted"
     ) {
+        try {
+            rememberTwitchWorkspaceV2NativeCaption(message);
+        } catch {
+        }
         /*
          * Claims are idempotent. Leave any already scheduled onboarding probes
          * alive so concurrent Wide surfaces cannot cancel each other. A real

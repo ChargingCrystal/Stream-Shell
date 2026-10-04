@@ -2961,6 +2961,7 @@ const SETTINGS_DEFAULTS = {
     streamShellTwitchAutoClaimPoints: true,
     streamShellTwitchAutoClaimDrops: true,
     streamShellTwitchPreventRaids: true,
+    streamShellTwitchMarblesAutoJoin: true,
     streamShellTwitchAutoMute: true,
     streamShellVolumeBoost_twitch: 100,
     streamShellAudioProfile_twitch: "normal",
@@ -3561,8 +3562,13 @@ function renderTwitchUtilitySettings() {
             ) +
             settingSwitch(
                 "streamShellTwitchPreventRaids",
-                "Prevent raids",
-                "Leave/cancel detected raids and block the immediate raid redirect without interfering with normal manual channel navigation."
+                "Show anti-raid control",
+                "Show the per-window anti-raid toggle in each Twitch Workspace HUD. This setting only controls HUD visibility; every Twitch slot keeps its own anti-raid state."
+            ) +
+            settingSwitch(
+                "streamShellTwitchMarblesAutoJoin",
+                "Marbles auto-join",
+                "Watch this Twitch window's chat for a burst of 5-10 unique !play messages, then send one !play after a 1-4 second jitter. Each Workspace slot has its own 120-second cooldown."
             ),
             "All Twitch automation is local DOM automation; Stream Shell does not use Twitch OAuth or a Twitch API token."
         ) +
