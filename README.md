@@ -2,114 +2,77 @@
   <img src="assets/brand/stream-shell-wordmark.png" alt="Stream Shell" width="620">
 </p>
 
+<p align="center">
+  <img src="assets/brand/stream-shell-wordmark.png" alt="Stream Shell" width="620">
+</p>
+
 # Stream Shell
 
-Stream Shell is a personal Opera GX / Chromium extension that turns several streaming services into one managed desktop-style shell. It was built around my own Windows setup and workflow first; other setups may work, but compatibility is best-effort rather than a product promise.
+Stream Shell is a personal Opera GX / Chromium extension that turns several streaming services into one managed desktop-style shell. It is built around my own Windows setup and workflow first; compatibility with other setups is best-effort.
 
 Current package version: **0.19.21**.
 
-## What it does
+## Features
 
-Stream Shell currently integrates **Netflix, Prime Video, Disney+, Crunchyroll and YouTube** as core providers, with **Twitch** and **Discord** as utility surfaces.
+Stream Shell integrates **Netflix, Prime Video, Disney+, Crunchyroll and YouTube** as core providers, with **Twitch** and **Discord** as utility surfaces.
 
-Highlights include:
-
-- Automatic display targeting with 32:9 Wide plus 16:9/16:10 Compact single-surface layouts and provider-aware window management.
-- A unified Landing/Dashboard UI with Watchlist, Continue Watching, Recent and Direct entries.
-- TMDB metadata/search plus streaming availability through TMDB's watch-provider data.
-- Provider automations such as autoplay/skip helpers, playback utilities and provider-specific cleanup; switching away pauses ordinary providers before the warm window is parked, while Twitch Workspace playback can persist while covered.
-- YouTube extras including Windowed Fullscreen, Auto-Like, quality handling, upload-date helpers, Shorts tweaks and optional Return YouTube Dislike ratio integration.
-- Twitch four-slot Wide Workspace with real top-level Twitch pages, persistent covered playback, channel-points/Drops automation, raid guard, optional per-slot Marbles `!play` auto-join and per-slot audio handling.
-- A tab-capture based Volume Booster with a Chromium fullscreen bridge.
-- Optional native Windows helpers for Stream Shell titlebars/window controls and Discord desktop integration.
-- Optional first-party Unified Remote control surface with live Stream Shell active-state highlighting.
-- Optional Wide-only COBOL-backed subscription financial report with local price/cadence input, native reconciliation and a COBOL-generated printer-ready A4 statement.
-- Settings export/import, diagnostics, self-test/repair paths and resource-governor logic.
-
-### Twitch Workspace
-
-On Wide layouts, Twitch uses a persistent four-slot 2×2 workspace backed by real Opera/Twitch popup windows. Slots are created lazily at their final geometry and are covered by Dashboard/Discord rather than rebuilt during ordinary surface switching. Playback that was already running is kept alive while the Workspace is covered or occluded. Bare channel roots can run in a lightweight Stream mode that hides only Twitch's global header and left sidebar while preserving the native player, chat and channel page content; arbitrary Twitch pages remain normal top-level documents. Each populated slot has its own draggable compact control HUD for mute, reload, editing and pane fullscreen. Pane fullscreen temporarily exposes the normal Page interface and expands that existing Twitch window across the complete right pane without destroying the other slots. Chromium owns both the borderless overscan and the grid restore geometry so native window management never desynchronizes Opera input/compositor coordinates. Drops is simply another Twitch page inside the Workspace, and each slot owns its browser-level mute state plus an independent anti-raid state. The Settings anti-raid switch only controls whether that per-window shield toggle is shown in the Twitch HUD. An optional Marbles auto-join watches each slot chat independently for a burst of 5-10 unique `!play` messages, adds a short 1-4 second jitter, and enforces a 120-second cooldown per slot before it can submit another `!play`.
-
-## Reality check / support policy
-
-This is primarily a personal project. Development and maintenance are driven by what I use myself. There is no compatibility guarantee, release schedule or support SLA, and provider DOM changes can break features without warning.
-
-Issues and pull requests are welcome, but a public repository does **not** mean every setup-specific request will be implemented. Forking is absolutely fine within the license terms.
+- Wide 32:9 and Compact 16:9/16:10 layouts with provider-aware window management.
+- Unified Landing/Dashboard with Watchlist, Continue Watching, Recent and Direct entries.
+- Provider-specific playback helpers, autoplay/skip automation and cleanup.
+- YouTube utilities including Windowed Fullscreen, Auto-Like, quality handling and optional Return YouTube Dislike integration.
+- Twitch four-slot Wide Workspace with persistent Twitch windows, per-slot controls, Drops/channel-points automation and configurable anti-raid behavior.
+- Tab-capture Volume Booster with Chromium fullscreen support.
+- Optional native Windows helpers, Unified Remote integration and COBOL-backed subscription finance report.
+- Settings export/import, diagnostics and self-test/repair tools.
 
 ## Installation
 
 1. Clone or download this repository.
 2. Open `opera://extensions` in Opera GX.
 3. Enable **Developer mode**.
-4. Choose **Load unpacked** and select the repository root (the folder containing `manifest.json`).
+4. Choose **Load unpacked** and select the repository root containing `manifest.json`.
 5. Open Stream Shell and configure the features you want.
 
-The extension is Manifest V3 and is primarily developed/tested in Opera GX on Windows.
+Stream Shell uses Manifest V3 and is primarily developed/tested in Opera GX on Windows.
 
-### Provider backgrounds
+## Optional integrations
 
-Wide and Compact provider artwork is bundled under [`assets/backgrounds/`](assets/backgrounds/). You can replace the images locally with your own artwork while keeping the documented filenames.
+- **TMDB** — metadata, search and watch-provider availability. Requires your own TMDB Read Access Token.
+- **Return YouTube Dislike** — optional source for YouTube like/dislike ratio data.
+- **Native Windows helpers** — titlebar/window integration and Discord desktop integration. See [`native/TITLEBAR-README.txt`](native/TITLEBAR-README.txt) and [`native/README.txt`](native/README.txt).
+- **Unified Remote** — custom remote under [`integrations/unified-remote/`](integrations/unified-remote/).
+- **COBOL finance** — optional Wide-only subscription finance surface backed by GnuCOBOL. See [`integrations/cobol-finance/README.md`](integrations/cobol-finance/README.md).
 
-### Optional: TMDB
-
-Search, metadata and availability features use a **TMDB Read Access Token** supplied by the user. The token is stored locally in extension storage; no token is included in this repository.
-
-### Optional: Return YouTube Dislike
-
-The YouTube like/dislike ratio display reads the UI produced by the **Return YouTube Dislike** browser extension. If RYD is not installed/active, Stream Shell simply has no dislike-ratio source to display.
-
-### Optional: native Windows helpers
-
-The `native/` folder contains source and installer scripts for two Windows Native Messaging helpers:
-
-- **Titlebar helper** — custom titlebar/window integration.
-- **Discord helper** — restores/reuses the stable Discord desktop client and integrates it with the Stream Shell surface switcher.
-
-Read [`native/TITLEBAR-README.txt`](native/TITLEBAR-README.txt) and [`native/README.txt`](native/README.txt) before installing them. The Discord helper resolves the stable client dynamically from `%LOCALAPPDATA%\\Discord` and contains no user-specific executable path.
-
-### Optional: Unified Remote
-
-The repository includes a first-party custom Unified Remote under [`integrations/unified-remote/`](integrations/unified-remote/). It controls Stream Shell through the local native titlebar bridge and mirrors the active provider/surface state in the mobile remote.
-
-Install the Stream Shell titlebar helper first, then run `integrations/unified-remote/install-unified-remote.cmd` or copy `integrations/unified-remote/Remotes/Custom/Stream Shell` to `C:\ProgramData\Unified Remote\Remotes\Custom\Stream Shell`. Restart Unified Remote Server afterwards. The integration is optional and Unified Remote itself is third-party software.
-
-### Optional: COBOL finance
-
-Wide mode includes an optional hidden subscription-finance surface backed by a real GnuCOBOL reconciliation worker. Prices are entered locally; Stream Shell passes normalized fixed-width subscription records through a small native bridge to the COBOL worker and renders the returned monthly/annual exposure report. Compact does not load the finance runtime.
-
-Install it with `integrations/cobol-finance/install-cobol-finance.cmd`. The installer can use `cobc` from `PATH` or detect the standard MSYS2 UCRT64 location, configures the GnuCOBOL build environment, and records the runtime DLL directory for the native bridge. See [`integrations/cobol-finance/README.md`](integrations/cobol-finance/README.md) for details.
+Provider artwork is bundled under [`assets/backgrounds/`](assets/backgrounds/) and can be replaced locally.
 
 ## Source layout
 
-Stream Shell keeps canonical source fragments next to generated runtime bundles:
-
-- `background/src/` → `background.js`
-- `common/src/` → `common/shell.js`
-- `landing/src/` → `landing/landing.js`
-- `dashboard/src/` → dashboard bundles
-- `providers/` → provider content scripts, themes and player helpers
+- `background/src/` → background runtime
+- `common/src/` → shared shell runtime
+- `landing/src/` and `dashboard/src/` → UI source
+- `providers/` → provider scripts, themes and player helpers
 - `media/` → local library / TMDB integration
 - `native/` → optional Windows Native Messaging helpers
-- `integrations/unified-remote/` → optional Unified Remote custom remote plus installer/uninstaller
-- `integrations/cobol-finance/` → optional Wide-only COBOL subscription-finance reconciliation
+- `integrations/` → optional external integrations
 
-PowerShell build scripts and `SOURCE-README.txt` files document the bundle order for the larger generated files.
+Build scripts and `SOURCE-README.txt` files document generated bundle order where needed.
 
-## Privacy / local data
+## Privacy
 
-Stream Shell stores its own settings, media library state and optional TMDB token in browser extension storage. Subscription helpers inspect account pages already visible to the signed-in browser session and are designed to retain only the extracted status/renewal information rather than raw page text.
+Stream Shell stores its settings, media-library state and optional TMDB token locally in browser extension storage. No telemetry service is included.
 
-No telemetry service is included in the project.
+## Reality check / support policy
+
+This is primarily a personal project. Development follows my own use cases, and there is no compatibility guarantee, release schedule or support SLA. Provider DOM changes may break features without warning.
+
+Issues and pull requests are welcome, and forking is fine within the license terms.
 
 ## License
 
-Stream Shell is **source-available for non-commercial use** under the [PolyForm Noncommercial License 1.0.0](LICENSE.md). Redistribution and modifications are allowed under those terms, and the required copyright/original-author notices must be preserved.
-
-This is deliberately not presented as an OSI-approved open-source license because commercial use is restricted.
+Stream Shell is **source-available for non-commercial use** under the [PolyForm Noncommercial License 1.0.0](LICENSE.md).
 
 Copyright © 2026 **Sven Rieseler**.
 
 ## Third-party services and trademarks
 
 Stream Shell is independent and is not affiliated with or endorsed by the services it integrates. Netflix, Prime Video/Amazon, YouTube/Google, Disney+, Crunchyroll, Twitch, Discord, TMDB, JustWatch, Return YouTube Dislike and Unified Remote are names/trademarks/projects of their respective owners.
-
