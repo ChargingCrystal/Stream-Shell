@@ -55,16 +55,23 @@ async function reconcileCompactFocusedSurface(
             )
         ) {
             try {
-                await chrome.windows.get(
-                    intendedWindowId
-                );
-                await restoreWindow(
-                    intendedWindowId,
-                    LEFT,
-                    true
-                );
+                const intendedWindow =
+                    await chrome.windows.get(
+                        intendedWindowId
+                    );
 
-                return true;
+                if (
+                    intendedWindow?.state !== "minimized" ||
+                    compactProviderActivationIsArmed(intendedWindowId)
+                ) {
+                    await restoreWindow(
+                        intendedWindowId,
+                        LEFT,
+                        true
+                    );
+
+                    return true;
+                }
             } catch {
             }
         }
@@ -102,6 +109,8 @@ async function reconcileCompactFocusedSurface(
 
     const focusedProvider =
         focusedProviderEntry[0];
+
+    clearCompactProviderActivation(focusedWindowId);
 
     if (
         state.leftMode !==

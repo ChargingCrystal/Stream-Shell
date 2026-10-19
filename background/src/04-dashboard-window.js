@@ -192,7 +192,10 @@ async function showDashboard() {
         for (const [, windowId] of providerEntries) {
             if (Number.isInteger(windowId)) {
                 await setWindowMuted(windowId, true);
-                await safelyMinimizeWindow(windowId);
+                await parkWindowOffscreenAndMinimize(
+                    windowId,
+                    LEFT
+                );
             }
         }
     }

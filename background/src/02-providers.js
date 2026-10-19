@@ -21,6 +21,42 @@ async function saveProviderWindows(
 }
 
 
+let compactProviderActivationWindowId = null;
+let compactProviderActivationUntil = 0;
+
+
+function armCompactProviderActivation(windowId, durationMs = 2500) {
+    compactProviderActivationWindowId = Number.isInteger(windowId)
+        ? windowId
+        : null;
+    compactProviderActivationUntil = compactProviderActivationWindowId
+        ? Date.now() + Math.max(500, Number(durationMs) || 2500)
+        : 0;
+}
+
+
+function compactProviderActivationIsArmed(windowId) {
+    return (
+        Number.isInteger(windowId) &&
+        compactProviderActivationWindowId === windowId &&
+        compactProviderActivationUntil > Date.now()
+    );
+}
+
+
+function clearCompactProviderActivation(windowId = null) {
+    if (
+        windowId !== null &&
+        compactProviderActivationWindowId !== windowId
+    ) {
+        return;
+    }
+
+    compactProviderActivationWindowId = null;
+    compactProviderActivationUntil = 0;
+}
+
+
 async function ensureProviderWindow(
     providerName,
     options = null
@@ -93,6 +129,14 @@ async function _ensureProviderWindow(
     const parkedCreation =
         options?.parked === true;
 
+    const displayProfile =
+        parkedCreation
+            ? await getStreamShellDisplayProfile().catch(() => null)
+            : null;
+    const compactParkedCreation =
+        parkedCreation &&
+        displayProfile?.mode === "compact";
+
     const windows =
         await getProviderWindows();
 
@@ -117,19 +161,26 @@ async function _ensureProviderWindow(
              * display. Repair that stale window once instead of letting it
              * restore fullscreen and fail the native LEFT-pane claim.
              */
-            if (
+            if (compactParkedCreation) {
+                /*
+                 * Compact warm-up is the only path that needs a genuinely
+                 * off-screen provider. Do not apply this geometry to normal
+                 * provider activation/switching.
+                 */
+                await parkWindowOffscreen(
+                    windowId,
+                    LEFT
+                );
+                await safelyMinimizeWindow(
+                    windowId
+                );
+            } else if (
                 parkedCreation &&
                 !streamShellWindowBoundsMatch(
                     existingWindow,
                     LEFT
                 )
             ) {
-                /*
-                 * Home deliberately parks provider windows below the virtual
-                 * desktop. Normalize the remembered provider's restore bounds
-                 * in place instead of recreating its tab/session. Landing is
-                 * already visible above it and restoreWindow keeps it unfocused.
-                 */
                 await restoreWindow(
                     windowId,
                     LEFT,
@@ -165,19 +216,23 @@ async function _ensureProviderWindow(
     }
 
     /*
-     * Always create provider popups at their real LEFT-pane geometry. A warm
-     * provider is minimized immediately afterwards, but its native restore
-     * rectangle remains the same 16:9 pane as every normally opened provider.
+     * Normal provider activation keeps the established LEFT geometry. Only the
+     * remembered Compact warm-up window is born at the parking rectangle so it
+     * cannot flash full-screen before the user actually selects that provider.
      */
+    const initialBounds = compactParkedCreation
+        ? await getStreamShellParkingBounds(LEFT)
+        : LEFT;
+
     const createData = {
         type: "popup",
         state: "normal",
         focused: false,
         url: provider.url,
-        left: LEFT.left,
-        top: LEFT.top,
-        width: LEFT.width,
-        height: LEFT.height
+        left: initialBounds.left,
+        top: initialBounds.top,
+        width: initialBounds.width,
+        height: initialBounds.height
     };
 
     const win =
@@ -227,6 +282,12 @@ async function _ensureProviderWindow(
     );
 
     if (parkedCreation) {
+        if (compactParkedCreation) {
+            await parkWindowOffscreen(
+                windowId,
+                LEFT
+            );
+        }
         await safelyMinimizeWindow(
             windowId
         );
@@ -341,6 +402,15 @@ async function switchProvider(
 
     const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
     const compact = displayProfile?.mode === "compact";
+
+    if (compact) {
+        /*
+         * A very short lease distinguishes our own Dashboard -> provider focus
+         * handoff from a later user-initiated minimize. It is not persistent
+         * state and expires automatically.
+         */
+        armCompactProviderActivation(targetWindowId);
+    }
 
     /*
      * Publish provider intent before the native focus transition in both layout

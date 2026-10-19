@@ -1,3 +1,11 @@
+## 0.19.23 — Compact provider lifecycle rollback + targeted repair
+
+- Reverts the broad Compact provider lifecycle changes from 0.19.22.
+- Keeps normal provider activation on the established visible Compact surface; only the remembered warm-up provider is created/kept off-screen.
+- Adds Compact provider HWND claims without changing provider window geometry.
+- Uses a short in-memory activation lease so the Dashboard can recover a real provider-switch race without resurrecting a provider the user deliberately minimized.
+- Leaves Wide and Twitch behavior unchanged.
+
 ## 0.19.21 — Twitch Per-Window Anti-Raid Controls
 
 - Repurposes the Twitch Settings anti-raid switch into a master **HUD visibility** switch; hiding the control no longer changes raid behavior by itself.

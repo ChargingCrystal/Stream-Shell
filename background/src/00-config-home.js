@@ -270,8 +270,12 @@ async function openShellHome() {
 
     for (const [providerName, windowId] of providerEntries) {
         await setWindowMuted(windowId, true);
-        await safelyMinimizeWindow(windowId);
-        await parkWindowOffscreen(windowId, LEFT);
+        if (compact) {
+            await parkWindowOffscreenAndMinimize(windowId, LEFT);
+        } else {
+            await safelyMinimizeWindow(windowId);
+            await parkWindowOffscreen(windowId, LEFT);
+        }
         await chrome.storage.local.remove(`streamShellNowPlaying_${providerName}`);
     }
 
@@ -361,9 +365,17 @@ async function openShellWarmLastProvider() {
         true
     );
 
-    await safelyMinimizeWindow(
-        windowId
-    );
+    const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
+    if (displayProfile?.mode === "compact") {
+        await parkWindowOffscreenAndMinimize(
+            windowId,
+            LEFT
+        );
+    } else {
+        await safelyMinimizeWindow(
+            windowId
+        );
+    }
 
     await chrome.storage.local.remove(
         `streamShellNowPlaying_${providerName}`
@@ -374,7 +386,6 @@ async function openShellWarmLastProvider() {
      * remembered provider must never make its titlebar button look selected
      * while it is parked behind the current Home surface.
      */
-    const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
     await chrome.storage.local.set({
         leftMode:
             displayProfile?.mode === "compact"

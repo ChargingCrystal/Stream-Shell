@@ -636,37 +636,38 @@ async function claimFocusedTitlebarSurface(
         ) {
             surfaceMode = "twitch";
             surfaceSide = "right";
-        } else if (layoutProfile === "wide") {
-            const workspaceRecord = state[TWITCH_WORKSPACE_V2_STORAGE_KEY];
-            for (const slotId of ["a", "b", "c", "d"]) {
-                if (workspaceRecord?.slots?.[slotId]?.windowId === focusedWindow.id) {
+        } else {
+            if (layoutProfile === "wide") {
+                const workspaceRecord = state[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+                for (const slotId of ["a", "b", "c", "d"]) {
+                    if (workspaceRecord?.slots?.[slotId]?.windowId === focusedWindow.id) {
+                        surfaceMode = "twitch";
+                        surfaceSide = "right";
+                        surfaceMember = slotId;
+                        break;
+                    }
+                }
+                if (!surfaceMember && workspaceRecord?.chat?.windowId === focusedWindow.id) {
                     surfaceMode = "twitch";
                     surfaceSide = "right";
-                    surfaceMember = slotId;
-                    break;
+                    surfaceMember = "chat";
                 }
-            }
-            if (!surfaceMember && workspaceRecord?.chat?.windowId === focusedWindow.id) {
-                surfaceMode = "twitch";
-                surfaceSide = "right";
-                surfaceMember = "chat";
             }
 
             if (!surfaceMode) {
                 const providerEntry =
-                Object.entries(
-                    state.providerWindows || {}
-                )
-                    .find(
-                        ([provider, windowId]) =>
-                            PROVIDERS[provider] &&
-                            windowId ===
-                                focusedWindow.id
-                    );
+                    Object.entries(
+                        state.providerWindows || {}
+                    )
+                        .find(
+                            ([provider, windowId]) =>
+                                PROVIDERS[provider] &&
+                                windowId === focusedWindow.id
+                        );
 
-            surfaceMode =
-                providerEntry?.[0] ||
-                null;
+                surfaceMode =
+                    providerEntry?.[0] ||
+                    null;
                 surfaceSide =
                     surfaceMode
                         ? "left"
