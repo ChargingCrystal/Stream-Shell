@@ -478,6 +478,16 @@ chrome.runtime.onMessage.addListener(
                             titlebarProtocolVersion: TITLEBAR_PROTOCOL_VERSION,
                             titlebarReconcileIntervalMs: TITLEBAR_RECONCILE_INTERVAL_MS,
                             titlebarNativeStatus: titlebarLastNativeStatus,
+                            titlebarArtwork: Object.fromEntries(streamShellTitlebarArtworkStatus),
+                            titlebarProviderSync: {
+                                phase: titlebarProviderSyncPhase,
+                                generation: titlebarProviderGeneration,
+                                acknowledgedGeneration: titlebarProviderAckGeneration,
+                                lastSentAt: titlebarProviderLastSentAt,
+                                lastAcknowledgedAt: titlebarProviderLastAckAt,
+                                skippedIcons: titlebarProviderLastRejectedIconCount,
+                                lastError: titlebarProviderLastError
+                            },
                             titlebarVisibilityMode: titlebarVisibilityMode || "unknown",
                             titlebarSettingsOpen: titlebarSettingsOpen === true,
                             titlebarVolumeActive: titlebarVolumeActive === true,
@@ -902,13 +912,15 @@ chrome.runtime.onMessage.addListener(
                 .then(
                     async () => {
                         const compact = streamShellDisplayProfileCache?.mode === "compact";
+                        // A provider button (including Now Playing) changes the
+                        // LEFT pane only. Do not touch the Discord native host
+                        // on the right in Wide mode; even a no-op hide call can
+                        // perturb the sibling Opera window z-order.
                         if (compact) {
                             const rightState = await chrome.storage.local.get("rightMode");
                             if (rightState.rightMode === "discord") {
                                 await hideDiscordForDashboard();
                             }
-                        } else {
-                            await hideDiscordForDashboard();
                         }
 
                         await switchProvider(

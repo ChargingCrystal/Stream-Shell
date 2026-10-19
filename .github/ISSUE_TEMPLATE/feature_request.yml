@@ -39,6 +39,7 @@ body:
         - label: Twitch
         - label: Discord integration
         - label: Native helper
+        - label: Custom Provider Registry / artwork / titlebar
         - label: Display/layout behavior
         - label: Other
 

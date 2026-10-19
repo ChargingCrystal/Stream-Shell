@@ -901,6 +901,50 @@ chrome.runtime.onMessage.addListener(
 
 /*
  * ============================================================
+ * SHARED CUSTOM PROVIDER ARTWORK
+ * ============================================================
+ * Landing and Dashboard show opposite halves of the SAME wide panorama.
+ * Landing used to reject custom IDs and silently display Netflix instead.
+ * Registry updates may arrive while Landing is already open; repaint in place.
+ */
+let landingProviderRegistry = defaultStreamShellProviderRegistry();
+let lastLandingShellState = null;
+let landingProviderRegistryUpdated = false;
+
+chrome.storage.local.get(STREAM_SHELL_PROVIDER_REGISTRY_KEY).then(stored => {
+    if (landingProviderRegistryUpdated) return; // A newer onChanged event won the race.
+    landingProviderRegistry = normalizeStreamShellProviderRegistry(
+        stored[STREAM_SHELL_PROVIDER_REGISTRY_KEY]
+    );
+    if (lastLandingShellState) renderState(lastLandingShellState);
+}).catch(() => {});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]) return;
+    landingProviderRegistryUpdated = true;
+    landingProviderRegistry = normalizeStreamShellProviderRegistry(
+        changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY].newValue
+    );
+    if (lastLandingShellState) renderState(lastLandingShellState);
+});
+
+function landingProviderBackground(provider, variant) {
+    const builtin = STREAM_SHELL_BUILTIN_IDS.has(provider);
+    const custom = landingProviderRegistry.providers.find(p => p.id === provider && p.kind === "custom");
+    const recognized = builtin || Boolean(custom);
+    const displayProvider = recognized ? provider : "netflix";
+    const file = builtin
+        ? `assets/backgrounds/${provider}_${variant}.png`
+        : (custom ? streamShellCustomArtworkPath(custom.artKey, variant) : null);
+    const neutral = "radial-gradient(ellipse at 77% 20%, rgba(70, 79, 104, .21), transparent 62%), linear-gradient(135deg, #0b0e17, #03050a)";
+    return {
+        provider: displayProvider,
+        image: file ? `url("${chrome.runtime.getURL(file)}"), ${neutral}` : neutral
+    };
+}
+
+/*
+ * ============================================================
  * BACKGROUND STATE
  * ============================================================
  */
@@ -908,23 +952,11 @@ chrome.runtime.onMessage.addListener(
 function renderState(
     state
 ) {
-    let provider =
-        state?.activeProvider ||
-        "netflix";
-
-
-    if (
-        !PROVIDERS.has(
-            provider
-        )
-    ) {
-        provider =
-            "netflix";
-    }
-
-
-    document.body.dataset.provider =
-        provider;
+    lastLandingShellState = state;
+    const backgroundVariant = document.body.dataset.layoutProfile === "compact"
+        ? "compact" : "wide";
+    const background = landingProviderBackground(state?.activeProvider || "netflix", backgroundVariant);
+    document.body.dataset.provider = background.provider;
 
 
     const rightMode =
@@ -959,18 +991,5 @@ function renderState(
     }
 
 
-    const backgroundVariant =
-        document.body.dataset.layoutProfile === "compact"
-            ? "compact"
-            : "wide";
-
-
-    const backgroundUrl =
-        chrome.runtime.getURL(
-            `assets/backgrounds/${provider}_${backgroundVariant}.png`
-        );
-
-
-    panorama.style.backgroundImage =
-        `url("${backgroundUrl}")`;
+    panorama.style.backgroundImage = background.image;
 }

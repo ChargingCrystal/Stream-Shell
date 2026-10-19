@@ -1,34 +1,23 @@
 # Security Policy
 
-Stream Shell is a personal project and does not operate a bug-bounty program or security-response SLA. Security reports are still appreciated.
+Stream Shell is a personal project, maintained on a best-effort basis. There is no bug-bounty program, guaranteed response time or long-term security-support matrix. Security-relevant fixes target the latest published version / current `main` branch.
 
-## Supported versions
+## Private reports
 
-Security fixes are targeted at the **latest public release** and current `main` branch. Older releases are not maintained as separate supported lines.
+Please do not publish exploit instructions, credentials, browser data or full private diagnostics in an open issue. If GitHub **Private vulnerability reporting** is enabled, use it. Otherwise open a minimal public issue asking for a private reporting channel, without describing the exploit or including secrets.
 
-## Reporting a vulnerability
+A useful report specifies the version/commit, browser and Windows versions, affected provider/URL or Native Messaging component, reproduction steps, impact and suggested fix if known.
 
-Please **do not publish sensitive exploit details, credentials, tokens, or private account data in a public issue**.
+## Sensitive boundaries
 
-If GitHub offers **Report a vulnerability / Private vulnerability reporting** for this repository, use that channel.
+Pay particular attention to:
 
-If private vulnerability reporting is unavailable, open a minimal public issue stating that you found a security-sensitive problem and need a private contact channel. Do not include the exploit, secret material, or sensitive reproduction data in that public issue.
+- Browser permissions, page/content-script/MAIN-world boundaries and message validation.
+- The custom-provider registry: only HTTPS URLs should be accepted; custom sites must not automatically gain built-in provider injections or expanded host permissions.
+- The C# Native Messaging titlebar and Discord helpers, explicit HWND ownership, provider synchronization and bounded local custom PNG handling.
+- Local settings, TMDB tokens and any account/subscription metadata.
+- Offscreen capture/audio, optional external metadata services and exported Diagnostics.
 
-A useful private report includes the affected version/commit, provider or component, impact, reproduction steps, whether Native Messaging is involved, browser/Windows version details, and a suggested fix if one is already known.
+**Full Diagnostics exports may include URLs, Twitch channel names, playback state and settings.** Review/redact them before public submission. No project-operated telemetry service is bundled, but optional integrations make requests to their respective external services. Avoid new network destinations or data collection without explicit feature rationale and documentation.
 
-## Security-sensitive areas
-
-Extra care is appropriate around:
-
-- Native Messaging helpers and native window integration;
-- extension permissions and host permissions;
-- account/subscription scraping;
-- locally stored settings and the optional TMDB token;
-- MAIN-world player bridges;
-- message passing between page, content-script, service-worker, offscreen, and native contexts.
-
-Stream Shell intentionally includes no telemetry service. Avoid adding code that transmits browsing, playback, account, or diagnostic data to new third parties without an explicit feature requirement and clear disclosure.
-
-## Disclosure
-
-Please allow a reasonable opportunity to investigate and publish a fix before disclosing a vulnerability publicly.
+Please allow a reasonable opportunity to investigate and prepare a fix before public disclosure.

@@ -19,7 +19,8 @@ async function openProvider(
 
         if (
             !response?.ok ||
-            !selectedMedia
+            !selectedMedia ||
+            !STREAM_SHELL_BUILTIN_IDS.has(provider)
         ) {
             return;
         }

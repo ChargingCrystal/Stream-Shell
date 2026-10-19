@@ -187,7 +187,7 @@ async function collectSettingsDiagnostics(options = {}) {
 
     return {
         format: "stream-shell-diagnostics",
-        version: 12,
+        version: 13,
         mode: full ? "full" : "panel",
         generatedAt: new Date().toISOString(),
         extensionVersion: manifest.version || "unknown",
@@ -245,6 +245,8 @@ async function collectSettingsDiagnostics(options = {}) {
             titlebarVisibilityMode: runtime.titlebarVisibilityMode || "unknown",
             titlebarSettingsOpen: runtime.titlebarSettingsOpen === true,
             titlebarVolumeActive: runtime.titlebarVolumeActive === true,
+            titlebarArtwork: runtime.titlebarArtwork || {},
+            titlebarProviderSync: runtime.titlebarProviderSync || null,
             discordHelperConnected: runtime.discord?.ok === true,
             discordRunning: runtime.discord?.running === true,
             discordVisible: runtime.discord?.visible === true
@@ -678,6 +680,17 @@ function renderSettingsDiagnostics(snapshot) {
         diagnosticsRow("Landing window", shell.landingWindowAlive ? "Alive" : "Not present", shell.landingWindowAlive ? "good" : "neutral") +
         diagnosticsRow("Dashboard window", shell.dashboardWindowAlive ? "Alive" : "Missing", shell.dashboardWindowAlive ? "good" : "bad");
 
+    const twitchWorkspace = shell.twitchWorkspaceV2 || {};
+    const twitchRows = (twitchWorkspace.windows || []).map(slot => {
+        const m = slot.twitchRuntime?.automation;
+        const drift = Number.isFinite(m?.heartbeatMaxDriftMs) ? `${Math.round(m.heartbeatMaxDriftMs)}ms peak drift` : "no heartbeat";
+        const lastJoin = m?.lastJoinResult || "none";
+        const visibility = slot.twitchRuntime?.documentVisibility || "unknown";
+        const value = `${slot.state || "missing"} · ${visibility} · ${slot.twitchRuntimeStatus || "unknown"} · ${drift} · join ${lastJoin}`;
+        return diagnosticsRow(`Twitch ${String(slot.slot || "?").toUpperCase()}`, value,
+            slot.state === "minimized" ? "bad" : (slot.twitchRuntimeStatus === "ok" ? "good" : "neutral"));
+    }).join("") || diagnosticsRow("Twitch Workspace", "Not running", "neutral");
+
     const providerRows = Object.entries(PROVIDER_NAMES).map(([provider, label]) => {
         const state = providerStates[provider] || {};
         const page = state.page || {};
@@ -929,6 +942,7 @@ function renderSettingsDiagnostics(snapshot) {
             "Shell status first: runtime, windows, provider reachability and launch self-test.",
             diagnosticsCard("Runtime", runtimeRows) +
             diagnosticsCard("Windows", windowRows) +
+            diagnosticsCard("Twitch A–D runtime", twitchRows, "Full JSON includes timer drift, recent !play detection, join attempts, and visibility transition counters.") +
             diagnosticsCard("Provider health", providerRows) +
             diagnosticsCard("Self-test", selfTestRows),
             "overview"

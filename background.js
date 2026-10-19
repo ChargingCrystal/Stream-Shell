@@ -1,3 +1,129 @@
+/* Stream Shell provider registry v2: shared validation for Dashboard and background.
+ * Custom providers are HTTPS-only basic windows, never injected adapters. */
+const STREAM_SHELL_PROVIDER_REGISTRY_KEY = "streamShellProviderRegistry";
+const STREAM_SHELL_PROVIDER_BUILTINS = Object.freeze([
+    { id: "youtube", name: "YouTube", url: "https://www.youtube.com/" },
+    { id: "netflix", name: "Netflix", url: "https://www.netflix.com/browse" },
+    { id: "prime", name: "Prime Video", url: "https://www.primevideo.com/" },
+    { id: "disney", name: "Disney+", url: "https://www.disneyplus.com/" },
+    { id: "crunchyroll", name: "Crunchyroll", url: "https://www.crunchyroll.com/" }
+]);
+const STREAM_SHELL_PROVIDER_GRID_PATTERNS = Object.freeze({
+    1: [1], 2: [2], 3: [3], 4: [1, 2, 1],
+    5: [1, 3, 1], 6: [2, 2, 2], 7: [2, 3, 2]
+});
+const STREAM_SHELL_BUILTIN_IDS = new Set(STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id));
+
+function streamShellValidatedCustomUrl(input) {
+    const raw = typeof input === "string" ? input.trim() : "";
+    if (!raw || raw.length > 2048 || /[\x00-\x20\x7f]/.test(raw)) return null;
+    try {
+        const url = new URL(raw);
+        if (url.protocol !== "https:" || !url.hostname || url.username || url.password) return null;
+        return url.href;
+    } catch {
+        return null;
+    }
+}
+
+// Local artwork paths are strictly keyed by a user-chosen slug; no arbitrary
+// file paths or remote image URLs enter the extension's DOM.
+function streamShellValidatedArtworkKey(input) {
+    const key = typeof input === "string" ? input.trim().toLowerCase() : "";
+    return /^[a-z0-9][a-z0-9_-]{0,31}$/.test(key) ? key : "";
+}
+
+// Empty means: retain the integrated icon palette. Custom fallback defaults
+// to a soft neutral accent. A user override is always canonical #RRGGBB.
+function streamShellValidatedTitlebarColor(input) {
+    const raw = typeof input === "string" ? input.trim() : "";
+    return /^#[0-9a-f]{6}$/i.test(raw) ? raw.toUpperCase() : "";
+}
+
+function streamShellNativeCustomIconPath(key) {
+    const slug = streamShellValidatedArtworkKey(key);
+    return slug ? `native/titlebar-icons/custom/custom_${slug}.png` : null;
+}
+
+function streamShellCustomArtworkPath(key, kind) {
+    const slug = streamShellValidatedArtworkKey(key);
+    if (!slug) return null;
+    if (kind === "wide" || kind === "compact") return `assets/backgrounds/custom_${slug}_${kind}.png`;
+    if (kind === "icon" || kind === "wordmark") return `assets/providers/custom/custom_${slug}_${kind}.svg`;
+    return null;
+}
+
+function defaultStreamShellProviderRegistry() {
+    const ids = STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id);
+    return {
+        version: 2,
+        providers: STREAM_SHELL_PROVIDER_BUILTINS.map(p => ({
+            ...p, kind: "builtin", enabled: true, showOnDashboard: true,
+            showInTitlebar: true
+        })),
+        dashboardOrder: [...ids],
+        titlebarOrder: [...ids]
+    };
+}
+
+function normalizeStreamShellProviderRegistry(value) {
+    const defaults = defaultStreamShellProviderRegistry();
+    if (!value || typeof value !== "object" || Array.isArray(value)) return defaults;
+    const supplied = Array.isArray(value.providers) ? value.providers : [];
+    const providers = STREAM_SHELL_PROVIDER_BUILTINS.map((base, index) => {
+        const incoming = supplied.find(p => p && p.id === base.id);
+        return {
+            ...defaults.providers[index],
+            enabled: incoming?.enabled !== false,
+            showOnDashboard: incoming?.showOnDashboard !== false,
+            showInTitlebar: incoming?.showInTitlebar !== false,
+            titlebarColor: streamShellValidatedTitlebarColor(incoming?.titlebarColor)
+        };
+    });
+    const seen = new Set(STREAM_SHELL_BUILTIN_IDS);
+    for (const item of supplied) {
+        if (!item || typeof item !== "object" || item.kind !== "custom") continue;
+        const id = String(item.id || "");
+        if (!/^custom-[a-z0-9]{8,40}$/.test(id) || seen.has(id)) continue;
+        const url = streamShellValidatedCustomUrl(item.url);
+        const name = typeof item.name === "string" ? item.name.trim().slice(0, 48) : "";
+        if (!url || !name) continue;
+        seen.add(id);
+        providers.push({
+            id, kind: "custom", name, url,
+            icon: typeof item.icon === "string" ? item.icon.trim().slice(0, 8) : "",
+            artKey: streamShellValidatedArtworkKey(item.artKey),
+            titlebarColor: streamShellValidatedTitlebarColor(item.titlebarColor),
+            enabled: item.enabled !== false,
+            showOnDashboard: item.showOnDashboard === true,
+            showInTitlebar: item.showInTitlebar !== false
+        });
+    }
+    const ids = providers.map(p => p.id);
+    const allowed = new Set(ids);
+    const order = input => {
+        const ordered = [], used = new Set();
+        for (const id of Array.isArray(input) ? input : []) {
+            if (typeof id === "string" && allowed.has(id) && !used.has(id)) {
+                used.add(id); ordered.push(id);
+            }
+        }
+        for (const id of ids) if (!used.has(id)) ordered.push(id);
+        return ordered;
+    };
+    const dashboardOrder = order(value.dashboardOrder);
+    const titlebarOrder = order(value.titlebarOrder);
+    const pinned = providers.filter(p => p.enabled && p.showOnDashboard);
+    if (!pinned.length) {
+        const first = providers.find(p => p.enabled) || providers[0];
+        first.enabled = true;
+        first.showOnDashboard = true;
+    } else if (pinned.length > 7) {
+        const kept = new Set(dashboardOrder.filter(id => pinned.some(p => p.id === id)).slice(0, 7));
+        for (const provider of pinned) if (!kept.has(provider.id)) provider.showOnDashboard = false;
+    }
+    return { version: 2, providers, dashboardOrder, titlebarOrder };
+}
 /*
  * Shared provider resume URL canonicalization + stable media identity.
  * This file is concatenated into both common/shell.js and background.js.
@@ -272,6 +398,54 @@ const PROVIDERS = {
     }
 };
 
+/* The five built-ins keep their specialized adapters. Custom registry entries
+ * are basic HTTPS targets only and are never registered as content scripts. */
+async function refreshStreamShellProviderTargets() {
+    const stored = await chrome.storage.local.get(STREAM_SHELL_PROVIDER_REGISTRY_KEY);
+    const registry = normalizeStreamShellProviderRegistry(stored[STREAM_SHELL_PROVIDER_REGISTRY_KEY]);
+    const valid = new Set(registry.providers.filter(item => item.enabled).map(item => item.id));
+    for (const id of Object.keys(PROVIDERS)) {
+        if (!STREAM_SHELL_BUILTIN_IDS.has(id) && !valid.has(id)) delete PROVIDERS[id];
+    }
+    for (const provider of registry.providers) {
+        if (provider.kind === "custom" && provider.enabled) {
+            PROVIDERS[provider.id] = { label: provider.name, url: provider.url, kind: "custom" };
+        }
+    }
+    return registry;
+}
+
+let providerRemovalReconcile = Promise.resolve();
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]) return;
+    providerRemovalReconcile = providerRemovalReconcile.catch(() => {}).then(async () => {
+        const oldRegistry = normalizeStreamShellProviderRegistry(changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY].oldValue);
+        const nextRegistry = await refreshStreamShellProviderTargets();
+        const ids = new Set(nextRegistry.providers.map(p => p.id));
+        const removed = oldRegistry.providers.filter(p => p.kind === "custom" && !ids.has(p.id));
+        if (!removed.length) return;
+        const state = await chrome.storage.local.get(["activeProvider", "leftMode"]);
+        if (removed.some(p => p.id === state.leftMode) && !shuttingDown) {
+            // Preserve rightMode. A removed active provider should never strand a popup.
+            await switchProvider("youtube");
+        }
+        const windows = await getProviderWindows();
+        for (const removedProvider of removed) {
+            const windowId = windows[removedProvider.id];
+            if (Number.isInteger(windowId)) {
+                await safelyRemoveWindow(windowId);
+                delete windows[removedProvider.id];
+            }
+        }
+        await saveProviderWindows(windows);
+        await chrome.storage.local.remove(removed.map(p => `streamShellCustomWindowUrl_${p.id}`));
+        const after = await chrome.storage.local.get("activeProvider");
+        if (removed.some(p => p.id === after.activeProvider)) {
+            await chrome.storage.local.set({ activeProvider: "youtube" });
+        }
+    }).catch(error => console.warn("Custom provider cleanup failed:", error));
+});
+
 const SUBSCRIPTION_STORAGE_KEY =
     "streamShellSubscriptions";
 
@@ -391,7 +565,7 @@ const TITLEBAR_NATIVE_HOST =
     "com.streamshell.titlebar";
 
 const TITLEBAR_PROTOCOL_VERSION =
-    6;
+    9;
 
 const TITLEBAR_RECONCILE_INTERVAL_MS =
     2500;
@@ -517,8 +691,12 @@ async function openShellHome() {
 
     for (const [providerName, windowId] of providerEntries) {
         await setWindowMuted(windowId, true);
-        await safelyMinimizeWindow(windowId);
-        await parkWindowOffscreen(windowId, LEFT);
+        if (compact) {
+            await parkWindowOffscreenAndMinimize(windowId, LEFT);
+        } else {
+            await safelyMinimizeWindow(windowId);
+            await parkWindowOffscreen(windowId, LEFT);
+        }
         await chrome.storage.local.remove(`streamShellNowPlaying_${providerName}`);
     }
 
@@ -566,6 +744,7 @@ async function openShellHome() {
 }
 
 async function openShellWarmLastProvider() {
+    await refreshStreamShellProviderTargets();
     const stored =
         await chrome.storage.local.get(
             "activeProvider"
@@ -608,9 +787,17 @@ async function openShellWarmLastProvider() {
         true
     );
 
-    await safelyMinimizeWindow(
-        windowId
-    );
+    const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
+    if (displayProfile?.mode === "compact") {
+        await parkWindowOffscreenAndMinimize(
+            windowId,
+            LEFT
+        );
+    } else {
+        await safelyMinimizeWindow(
+            windowId
+        );
+    }
 
     await chrome.storage.local.remove(
         `streamShellNowPlaying_${providerName}`
@@ -621,7 +808,6 @@ async function openShellWarmLastProvider() {
      * remembered provider must never make its titlebar button look selected
      * while it is parked behind the current Home surface.
      */
-    const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
     await chrome.storage.local.set({
         leftMode:
             displayProfile?.mode === "compact"
@@ -1515,6 +1701,36 @@ async function parkWindowOffscreen(
 }
 
 
+async function parkWindowOffscreenAndMinimize(
+    windowId,
+    referenceBounds = LEFT
+) {
+    if (
+        shuttingDown ||
+        !Number.isInteger(windowId)
+    ) {
+        return;
+    }
+
+    /*
+     * Compact provider windows must remember an off-screen restore rectangle.
+     * Minimizing first lets Opera keep the visible full-surface bounds, which
+     * can flash the provider back on-screen before Stream Shell restores and
+     * claims it. Park while normal/unfocused, then minimize.
+     */
+    try {
+        await chrome.windows.update(windowId, {
+            state: "normal",
+            focused: false
+        });
+    } catch {
+    }
+
+    await parkWindowOffscreen(windowId, referenceBounds);
+    await safelyMinimizeWindow(windowId);
+}
+
+
 async function safelyMinimizeWindow(
     windowId
 ) {
@@ -1583,6 +1799,42 @@ async function saveProviderWindows(
 }
 
 
+let compactProviderActivationWindowId = null;
+let compactProviderActivationUntil = 0;
+
+
+function armCompactProviderActivation(windowId, durationMs = 2500) {
+    compactProviderActivationWindowId = Number.isInteger(windowId)
+        ? windowId
+        : null;
+    compactProviderActivationUntil = compactProviderActivationWindowId
+        ? Date.now() + Math.max(500, Number(durationMs) || 2500)
+        : 0;
+}
+
+
+function compactProviderActivationIsArmed(windowId) {
+    return (
+        Number.isInteger(windowId) &&
+        compactProviderActivationWindowId === windowId &&
+        compactProviderActivationUntil > Date.now()
+    );
+}
+
+
+function clearCompactProviderActivation(windowId = null) {
+    if (
+        windowId !== null &&
+        compactProviderActivationWindowId !== windowId
+    ) {
+        return;
+    }
+
+    compactProviderActivationWindowId = null;
+    compactProviderActivationUntil = 0;
+}
+
+
 async function ensureProviderWindow(
     providerName,
     options = null
@@ -1594,6 +1846,8 @@ async function ensureProviderWindow(
             "Stream Shell is shutting down."
         );
     }
+
+    await refreshStreamShellProviderTargets();
 
     if (
         providerCreationLocks.has(
@@ -1655,6 +1909,14 @@ async function _ensureProviderWindow(
     const parkedCreation =
         options?.parked === true;
 
+    const displayProfile =
+        parkedCreation
+            ? await getStreamShellDisplayProfile().catch(() => null)
+            : null;
+    const compactParkedCreation =
+        parkedCreation &&
+        displayProfile?.mode === "compact";
+
     const windows =
         await getProviderWindows();
 
@@ -1679,19 +1941,26 @@ async function _ensureProviderWindow(
              * display. Repair that stale window once instead of letting it
              * restore fullscreen and fail the native LEFT-pane claim.
              */
-            if (
+            if (compactParkedCreation) {
+                /*
+                 * Compact warm-up is the only path that needs a genuinely
+                 * off-screen provider. Do not apply this geometry to normal
+                 * provider activation/switching.
+                 */
+                await parkWindowOffscreen(
+                    windowId,
+                    LEFT
+                );
+                await safelyMinimizeWindow(
+                    windowId
+                );
+            } else if (
                 parkedCreation &&
                 !streamShellWindowBoundsMatch(
                     existingWindow,
                     LEFT
                 )
             ) {
-                /*
-                 * Home deliberately parks provider windows below the virtual
-                 * desktop. Normalize the remembered provider's restore bounds
-                 * in place instead of recreating its tab/session. Landing is
-                 * already visible above it and restoreWindow keeps it unfocused.
-                 */
                 await restoreWindow(
                     windowId,
                     LEFT,
@@ -1703,6 +1972,20 @@ async function _ensureProviderWindow(
                 );
             }
 
+            // Editing a custom URL must not reload an active page merely
+            // because Settings are saved or provider buttons are reordered.
+            // Apply the new address only when the user next activates it.
+            if (!parkedCreation && provider.kind === "custom") {
+                const key = `streamShellCustomWindowUrl_${providerName}`;
+                const persisted = await chrome.storage.local.get(key);
+                if (persisted[key] && persisted[key] !== provider.url) {
+                    const activeTab = (await chrome.tabs.query({ windowId, active: true }))[0];
+                    if (Number.isInteger(activeTab?.id)) {
+                        await chrome.tabs.update(activeTab.id, { url: provider.url });
+                    }
+                }
+                await chrome.storage.local.set({ [key]: provider.url });
+            }
             return windowId;
         } catch {
             delete windows[
@@ -1727,19 +2010,23 @@ async function _ensureProviderWindow(
     }
 
     /*
-     * Always create provider popups at their real LEFT-pane geometry. A warm
-     * provider is minimized immediately afterwards, but its native restore
-     * rectangle remains the same 16:9 pane as every normally opened provider.
+     * Normal provider activation keeps the established LEFT geometry. Only the
+     * remembered Compact warm-up window is born at the parking rectangle so it
+     * cannot flash full-screen before the user actually selects that provider.
      */
+    const initialBounds = compactParkedCreation
+        ? await getStreamShellParkingBounds(LEFT)
+        : LEFT;
+
     const createData = {
         type: "popup",
         state: "normal",
         focused: false,
         url: provider.url,
-        left: LEFT.left,
-        top: LEFT.top,
-        width: LEFT.width,
-        height: LEFT.height
+        left: initialBounds.left,
+        top: initialBounds.top,
+        width: initialBounds.width,
+        height: initialBounds.height
     };
 
     const win =
@@ -1782,6 +2069,11 @@ async function _ensureProviderWindow(
     await saveProviderWindows(
         windows
     );
+    if (provider.kind === "custom") {
+        await chrome.storage.local.set({
+            [`streamShellCustomWindowUrl_${providerName}`]: provider.url
+        });
+    }
 
     await setWindowMuted(
         windowId,
@@ -1789,6 +2081,12 @@ async function _ensureProviderWindow(
     );
 
     if (parkedCreation) {
+        if (compactParkedCreation) {
+            await parkWindowOffscreen(
+                windowId,
+                LEFT
+            );
+        }
         await safelyMinimizeWindow(
             windowId
         );
@@ -1815,14 +2113,9 @@ async function switchProvider(
         return;
     }
 
-    if (
-        !PROVIDERS[
-            providerName
-        ]
-    ) {
-        throw new Error(
-            `Unknown provider: ${providerName}`
-        );
+    await refreshStreamShellProviderTargets();
+    if (!PROVIDERS[providerName]) {
+        throw new Error(`Unknown or disabled provider: ${providerName}`);
     }
 
     titlebarFullscreenActive = false;
@@ -1904,6 +2197,15 @@ async function switchProvider(
     const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
     const compact = displayProfile?.mode === "compact";
 
+    if (compact) {
+        /*
+         * A very short lease distinguishes our own Dashboard -> provider focus
+         * handoff from a later user-initiated minimize. It is not persistent
+         * state and expires automatically.
+         */
+        armCompactProviderActivation(targetWindowId);
+    }
+
     /*
      * Publish provider intent before the native focus transition in both layout
      * profiles. This keeps the extension as the source of truth for ownership.
@@ -1935,6 +2237,15 @@ async function switchProvider(
     scheduleTitlebarClaimRetries(
         targetWindowId
     );
+
+    if (!compact) {
+        // Opera can promote sibling Twitch HWNDs while focusing a LEFT provider.
+        // Restore only whichever right-hand surface the titlebar already shows.
+        const selectedRight = await chrome.storage.local.get("rightMode");
+        if (selectedRight.rightMode === "dashboard" || selectedRight.rightMode === "twitch") {
+            scheduleWideRightPaneReassert(selectedRight.rightMode);
+        }
+    }
 
     if (
         shuttingDown
@@ -2605,15 +2916,10 @@ async function showDashboard() {
         forceMinimize: compact
     });
 
-    if (compact) {
-        /* Avoid a native Discord round-trip on every Compact Home/Settings
-         * click when Discord is not the active surface (or not installed). */
-        const rightState = await chrome.storage.local.get("rightMode");
-        if (rightState.rightMode === "discord") {
-            await hideDiscordForDashboard();
-        }
-    } else {
-        /* Preserve the established Wide behavior byte-for-byte in spirit. */
+    // Native Discord should be hidden only if it actually occupies the
+    // right pane. Unrelated hide round-trips can reshuffle owned Opera HWNDs.
+    const rightState = await chrome.storage.local.get("rightMode");
+    if (rightState.rightMode === "discord") {
         await hideDiscordForDashboard();
     }
 
@@ -2646,7 +2952,10 @@ async function showDashboard() {
         for (const [, windowId] of providerEntries) {
             if (Number.isInteger(windowId)) {
                 await setWindowMuted(windowId, true);
-                await safelyMinimizeWindow(windowId);
+                await parkWindowOffscreenAndMinimize(
+                    windowId,
+                    LEFT
+                );
             }
         }
     }
@@ -2669,6 +2978,12 @@ async function showDashboard() {
     if (shuttingDown) return;
 
     await broadcastState();
+
+    if (!compact) {
+        // Right Dashboard was explicitly selected. Repair any owner-graph
+        // ordering drift after Opera completes the focus hand-off, once only.
+        scheduleWideRightPaneReassert("dashboard");
+    }
 }
 
 
@@ -4161,7 +4476,7 @@ reconcileTwitchAudioPolicy().catch(() => {});
  */
 
 const TWITCH_WORKSPACE_V2_VERSION = 7;
-const TWITCH_WORKSPACE_V2_LIFECYCLE = "direct-final-geometry-4slot+persistent-controllers+caption-overlap-20+chatless-audio+event-claims+surface-wake+pane-fullscreen";
+const TWITCH_WORKSPACE_V2_LIFECYCLE = "direct-final-geometry-4slot+persistent-controllers+caption-overlap-20+chatless-audio+acknowledged-claims+z-order-repair+surface-wake+pane-fullscreen";
 const TWITCH_WORKSPACE_V2_SLOT_IDS = ["a", "b", "c", "d"];
 const TWITCH_WORKSPACE_V2_STREAM_REFRESH_ALARM_PREFIX = "streamShellTwitchWorkspaceStreamRefresh:";
 const TWITCH_WORKSPACE_V2_STREAM_REFRESH_MINUTES = 60;
@@ -4643,14 +4958,41 @@ async function ensureTwitchWorkspaceV2Slot(record, slotId, focused = false) {
     return { record: await setTwitchWorkspaceV2Record(next, false), window: win };
 }
 
-const twitchWorkspaceV2ClaimedWindowIds = new Set();
+/* A native claim is NOT a completed mapping until the helper acknowledges it.
+ * Previously we cached the chrome.windows ID immediately after postMessage;
+ * a title/geometry race or native timeout then stranded that Twitch window
+ * underneath Opera for the lifetime of the service worker. */
+const twitchWorkspaceV2ClaimStates = new Map();
+const twitchWorkspaceV2ClaimRequests = new Map();
+const TWITCH_WORKSPACE_V2_CLAIM_RETRY_MS = 9000;
+let twitchWorkspaceV2ClaimGeneration = 0;
+let twitchWorkspaceV2ClaimAuditRunning = false;
 
 function resetTwitchWorkspaceV2ClaimCache(windowId = null) {
     if (Number.isInteger(windowId)) {
-        twitchWorkspaceV2ClaimedWindowIds.delete(windowId);
+        twitchWorkspaceV2ClaimStates.delete(windowId);
         return;
     }
-    twitchWorkspaceV2ClaimedWindowIds.clear();
+    twitchWorkspaceV2ClaimStates.clear();
+}
+
+function acknowledgeTwitchWorkspaceV2Claim(message) {
+    if (message?.layoutProfile !== "wide" || message?.side !== "right" || message?.mode !== "twitch") return;
+    const member = String(message.member || "").toLowerCase();
+    if (!TWITCH_WORKSPACE_V2_SLOT_IDS.includes(member)) return;
+    for (const [windowId, state] of twitchWorkspaceV2ClaimStates) {
+        if (state.member !== member || state.phase !== "pending") continue;
+        twitchWorkspaceV2ClaimStates.set(windowId, { ...state, phase: "confirmed", acknowledgedAt: Date.now() });
+        return;
+    }
+}
+
+function invalidateTwitchWorkspaceV2Claim(message) {
+    if (message?.layoutProfile !== "wide" || message?.side !== "right" || message?.mode !== "twitch") return;
+    const member = String(message.member || "").toLowerCase();
+    for (const [windowId, state] of twitchWorkspaceV2ClaimStates) {
+        if (state.member === member) twitchWorkspaceV2ClaimStates.delete(windowId);
+    }
 }
 
 async function claimTwitchWorkspaceV2WindowById(windowId) {
@@ -4665,7 +5007,22 @@ async function claimTwitchWorkspaceV2WindowById(windowId) {
 
 async function claimTwitchWorkspaceV2Window(windowId, member, rect) {
     if (shuttingDown || !Number.isInteger(windowId) || !rect) return false;
-    if (twitchWorkspaceV2ClaimedWindowIds.has(windowId)) return true;
+    const pending = twitchWorkspaceV2ClaimRequests.get(windowId);
+    if (pending) return pending;
+    const task = postTwitchWorkspaceV2WindowClaim(windowId, member, rect);
+    twitchWorkspaceV2ClaimRequests.set(windowId, task);
+    try {
+        return await task;
+    } finally {
+        if (twitchWorkspaceV2ClaimRequests.get(windowId) === task) {
+            twitchWorkspaceV2ClaimRequests.delete(windowId);
+        }
+    }
+}
+
+async function postTwitchWorkspaceV2WindowClaim(windowId, member, rect) {
+    const prior = twitchWorkspaceV2ClaimStates.get(windowId);
+    if (prior?.member === member && prior.phase === "confirmed") return true;
     if (!titlebarPort) await ensureTitlebarNative();
     if (!titlebarPort || !titlebarProtocolReady) return false;
 
@@ -4676,7 +5033,16 @@ async function claimTwitchWorkspaceV2Window(windowId, member, rect) {
         const titleHint = typeof tab?.title === "string" ? tab.title.trim().slice(0, 180) : "";
         if (!titleHint) return false;
 
-        titlebarPort.postMessage({
+        /* A newly available real page title may replace the provisional
+         * Twitch/slot title while native is still resolving the HWND. */
+        const now = Date.now();
+        if (prior?.member === member && prior.phase === "pending" &&
+            prior.titleHint === titleHint && now - prior.sentAt < TWITCH_WORKSPACE_V2_CLAIM_RETRY_MS) {
+            return false;
+        }
+
+        const port = titlebarPort;
+        port.postMessage({
             type: "claim",
             protocolVersion: TITLEBAR_PROTOCOL_VERSION,
             layoutProfile: "wide",
@@ -4689,41 +5055,70 @@ async function claimTwitchWorkspaceV2Window(windowId, member, rect) {
             width: rect.width,
             height: rect.height
         });
-        /* The native claim keeps retrying its HWND match after this post. Avoid
-         * re-queuing the same A-D claim on every Twitch title/SPA update. */
-        twitchWorkspaceV2ClaimedWindowIds.add(windowId);
+        twitchWorkspaceV2ClaimStates.set(windowId, {
+            member, phase: "pending", sentAt: now, titleHint,
+            attempts: (prior?.attempts || 0) + 1
+        });
         return true;
     } catch {
         return false;
     }
 }
 
-let twitchWorkspaceV2ClaimGeneration = 0;
-
 function scheduleTwitchWorkspaceV2Claims(record) {
     const generation = ++twitchWorkspaceV2ClaimGeneration;
     const rects = getTwitchWorkspaceV2Rects();
-    const members = [];
-    for (const id of TWITCH_WORKSPACE_V2_SLOT_IDS) {
-        const windowId = record?.slots?.[id]?.windowId;
-        if (Number.isInteger(windowId)) members.push({ member: id, windowId, rect: rects[id] });
-    }
-    /*
-     * Claim at most twice. 0.19.1 could manufacture 9 claim waves and every
-     * delayed z-order retry scheduled another 9-wave batch, which turned one
-     * click into a native-message storm. The first pass catches controller and
-     * already-loaded Twitch windows; the second catches slow Twitch titles.
-     */
-    for (const delay of [0, 700]) {
+    const members = TWITCH_WORKSPACE_V2_SLOT_IDS
+        .map(member => ({ member, windowId: record?.slots?.[member]?.windowId, rect: rects[member] }))
+        .filter(entry => Number.isInteger(entry.windowId));
+
+    /* Fast first pass plus one late-title pass. Unacknowledged members are
+     * subsequently recovered by the slow titlebar heartbeat audit. */
+    for (const delay of [0, 700, 1800]) {
         setTimeout(() => {
             if (shuttingDown || generation !== twitchWorkspaceV2ClaimGeneration) return;
-            Promise.all(
-                members.map(entry =>
-                    claimTwitchWorkspaceV2Window(entry.windowId, entry.member, entry.rect)
-                        .catch(() => false)
-                )
-            ).catch(() => {});
+            Promise.all(members.map(entry =>
+                claimTwitchWorkspaceV2Window(entry.windowId, entry.member, entry.rect)
+                    .catch(() => false)
+            )).catch(() => {});
         }, delay);
+    }
+}
+
+/* The native host may forget one HWND independently of the extension after a
+ * helper restart or a failed claim. Audit only when Twitch is the visible right
+ * surface, at the existing 10-second reconciliation cadence. */
+async function reconcileTwitchWorkspaceV2Claims() {
+    if (shuttingDown || !titlebarPort || !titlebarProtocolReady || twitchWorkspaceV2ClaimAuditRunning) return;
+    twitchWorkspaceV2ClaimAuditRunning = true;
+    try {
+        const stored = await chrome.storage.local.get(["rightMode", TWITCH_WORKSPACE_V2_STORAGE_KEY]);
+        if (stored.rightMode !== "twitch") return;
+        const record = stored[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+        if (!record || record.version !== TWITCH_WORKSPACE_V2_VERSION) return;
+
+        /* Native status is authoritative about *presence* of a member, not
+         * about the identity of a particular chrome.windows ID. Never treat
+         * a status entry as a positive acknowledgement for a new window. */
+        const status = titlebarLastNativeStatus;
+        const nativeMembers = status?.event === "status" && status.heartbeatFresh === true
+            ? new Set(String(status.twitchClusterMap || "")
+                .split(";").map(entry => entry.split("=")[0].toLowerCase()).filter(Boolean))
+            : null;
+        const rects = getTwitchWorkspaceV2Rects();
+        const jobs = [];
+        for (const member of TWITCH_WORKSPACE_V2_SLOT_IDS) {
+            const windowId = record.slots?.[member]?.windowId;
+            if (!Number.isInteger(windowId)) continue;
+            const claim = twitchWorkspaceV2ClaimStates.get(windowId);
+            if (claim?.phase === "confirmed" && nativeMembers && !nativeMembers.has(member)) {
+                twitchWorkspaceV2ClaimStates.delete(windowId);
+            }
+            jobs.push(claimTwitchWorkspaceV2Window(windowId, member, rects[member]).catch(() => false));
+        }
+        await Promise.all(jobs);
+    } finally {
+        twitchWorkspaceV2ClaimAuditRunning = false;
     }
 }
 
@@ -4995,6 +5390,10 @@ async function showTwitchWorkspaceV2(target = "workspace") {
         rightMode: "twitch",
         twitchTarget: target === "drops" ? "drops" : "resume"
     });
+
+    // The helper now refuses Twitch cluster raises while Dashboard is active.
+    // Synchronize intent before trying to raise A-D on a deliberate transition.
+    await syncConnectedTitlebarNative().catch(() => {});
 
     record = await raiseTwitchWorkspaceV2(record, preferredSlot);
     scheduleTwitchWorkspaceV2Claims(record);
@@ -5448,8 +5847,32 @@ async function getTwitchWorkspaceV2Diagnostics() {
             }).catch(() => []);
             identity = results.find(result => result?.result)?.result || null;
         }
+        // A short bounded request prevents a throttled Twitch page from
+        // blocking the entire diagnostics export indefinitely.
+        let twitchRuntime = null;
+        let twitchRuntimeStatus = "not-opened";
+        if (Number.isInteger(tab?.id) && /^https:\/\/([^/]+\.)?twitch\.tv\//i.test(tab.url || "")) {
+            twitchRuntimeStatus = "unresponsive";
+            let timeoutId;
+            try {
+                const response = await Promise.race([
+                    chrome.tabs.sendMessage(tab.id, { type: "stream-shell-twitch-runtime-diagnostics" }),
+                    new Promise(resolve => { timeoutId = setTimeout(() => resolve(null), 1300); })
+                ]);
+                if (response?.ok === true && response.runtime) {
+                    twitchRuntime = response.runtime;
+                    twitchRuntimeStatus = "ok";
+                }
+            } catch {
+                twitchRuntimeStatus = "unavailable";
+            } finally {
+                clearTimeout(timeoutId);
+            }
+        }
         windows.push({
             slot: id,
+            twitchRuntimeStatus,
+            twitchRuntime,
             kind: slot?.kind || "empty",
             kindSource: slot?.kindSource || "auto",
             configuredUrl: slot?.url || null,
@@ -5460,6 +5883,20 @@ async function getTwitchWorkspaceV2Diagnostics() {
             state: win?.state || null,
             focused: win?.focused === true,
             bounds: win ? { left: win.left, top: win.top, width: win.width, height: win.height } : null,
+            nativeClaim: Number.isInteger(slot?.windowId) && twitchWorkspaceV2ClaimStates.has(slot.windowId)
+                ? (() => {
+                    const claim = twitchWorkspaceV2ClaimStates.get(slot.windowId);
+                    return {
+                        phase: claim.phase,
+                        member: claim.member,
+                        sentAgoMs: Math.max(0, Date.now() - claim.sentAt),
+                        attempts: claim.attempts,
+                        acknowledgedAgoMs: claim.acknowledgedAt
+                            ? Math.max(0, Date.now() - claim.acknowledgedAt)
+                            : null
+                    };
+                })()
+                : null,
             documentIdentity: identity,
             tab: tab ? {
                 id: tab.id,
@@ -5516,6 +5953,241 @@ getTwitchWorkspaceV2Record()
  * work normally; Landing/Dashboard controls remain available inside the
  * shell pages. The old in-page floating navbar was retired in 0.9.29.
  */
+// Provider buttons have an independent, versioned native message stream.
+// Never tie an update to the focus or HWND claim path (Twitch/Discord isolation).
+let titlebarProviderGeneration = 0;
+let titlebarProviderAckGeneration = 0;
+let titlebarProviderSignature = null;
+let titlebarProviderPayloadB64 = null;
+let titlebarProviderStorageEpoch = 0;
+let titlebarProviderConfigSignature = null;
+let titlebarProviderRenderSequence = 0;
+let titlebarProviderSyncPhase = "idle";
+let titlebarProviderLastError = null;
+let titlebarProviderLastSentAt = null;
+let titlebarProviderLastAckAt = null;
+let titlebarProviderLastRejectedIconCount = 0;
+
+const STREAM_SHELL_TITLEBAR_BUILTIN_LABELS = Object.freeze({
+    youtube: "YT", netflix: "N", prime: "P", disney: "D+", crunchyroll: "CR"
+});
+
+// Load primary PNG bytes directly in the extension worker: the native helper handles
+// normalization. Only the SVG fallback requires the offscreen DOM renderer.
+// No HWND/focus/audio operations occur on this path.
+const streamShellTitlebarRasterCache = new Map();
+const streamShellTitlebarArtworkStatus = new Map();
+
+function streamShellTitlebarButtons(registryValue) {
+    const registry = normalizeStreamShellProviderRegistry(registryValue);
+    const byId = new Map(registry.providers.map(provider => [provider.id, provider]));
+    return registry.titlebarOrder.map(id => byId.get(id))
+        .filter(provider => provider?.enabled && provider?.showInTitlebar)
+        .map(provider => {
+            const name = provider.name.replace(/[\r\n\t]/g, " ").slice(0, 48).trim() || provider.id;
+            const icon = (STREAM_SHELL_TITLEBAR_BUILTIN_LABELS[provider.id] || provider.icon ||
+                name.slice(0, 2).toUpperCase()).replace(/[\r\n\t]/g, " ").slice(0, 8).trim() || "?";
+            return { id: provider.id, icon, name, kind: provider.kind,
+                artKey: provider.artKey || "",
+                color: streamShellValidatedTitlebarColor(provider.titlebarColor) };
+        }).slice(0, 128);
+}
+
+// A local asset read/offscreen DOM request must never block the entire native
+// button list. Chrome may delay an offscreen document during MV3 wake-up.
+function streamShellWithTimeout(task, timeoutMs, reason) {
+    let timeout;
+    const expired = new Promise(resolve => {
+        timeout = setTimeout(() => resolve({pngBase64:"",reason}), timeoutMs);
+    });
+    return Promise.race([Promise.resolve().then(task), expired])
+        .finally(() => clearTimeout(timeout));
+}
+
+// Fetching a PNG directly avoids an observed offscreen image.decode() stall on
+// valid local PNG assets. The source is strictly a key-derived extension URL.
+const STREAM_SHELL_NATIVE_PNG_MAX_BYTES = 16384;
+async function streamShellReadNativeTitlebarPng(relativePath) {
+    if (!relativePath || !/^native\/titlebar-icons\/custom\/custom_[a-z0-9_-]{1,32}\.png$/.test(relativePath))
+        return {pngBase64:"",reason:"invalid-primary-path"};
+    if (streamShellTitlebarRasterCache.has(relativePath))
+        return streamShellTitlebarRasterCache.get(relativePath);
+    const pending = streamShellWithTimeout(async () => {
+        let response;
+        try { response = await fetch(chrome.runtime.getURL(relativePath), {cache:"no-store"}); }
+        catch { return {pngBase64:"",reason:"png-fetch-failed"}; }
+        if (!response.ok)
+            return {pngBase64:"",reason:response.status === 404 ? "file-missing" : "png-fetch-failed"};
+        const declaredLength = Number(response.headers?.get?.("content-length") || 0);
+        if (declaredLength > STREAM_SHELL_NATIVE_PNG_MAX_BYTES)
+            return {pngBase64:"",reason:"png-file-too-large"};
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (!bytes.length || bytes.length > STREAM_SHELL_NATIVE_PNG_MAX_BYTES)
+            return {pngBase64:"",reason:"png-file-too-large"};
+        const header = [137,80,78,71,13,10,26,10];
+        if (bytes.length < 24 || !header.every((part,i) => bytes[i] === part))
+            return {pngBase64:"",reason:"invalid-png"};
+        // Maximum 16KiB, so one binary string conversion is safe.
+        return {pngBase64:btoa(String.fromCharCode(...bytes)),reason:"ok"};
+    }, 2500, "png-fetch-timeout").catch(() => ({pngBase64:"",reason:"png-fetch-failed"}));
+    streamShellTitlebarRasterCache.set(relativePath,pending);
+    const result = await pending;
+    // Retry temporary file-access failures; missing local artwork is stable
+    // until the next extension reload.
+    if (!result.pngBase64 && result.reason !== "file-missing")
+        streamShellTitlebarRasterCache.delete(relativePath);
+    return result;
+}
+
+async function streamShellRasterizeTitlebarIcon(relativePath) {
+    if (!relativePath) return {pngBase64:"",reason:"no-artwork-key"};
+    if (streamShellTitlebarRasterCache.has(relativePath)) {
+        return streamShellTitlebarRasterCache.get(relativePath);
+    }
+    const pending = (async () => {
+        try {
+            const result = await streamShellWithTimeout(async () => {
+                await ensureVolumeOffscreenDocument();
+                const response = await chrome.runtime.sendMessage({
+                    target:"stream-shell-titlebar-svg-offscreen",
+                    type:"titlebar-render-icon", path:relativePath
+                });
+                if (response?.ok && typeof response.pngBase64 === "string" &&
+                    response.pngBase64.length <= 16000)
+                    return {pngBase64:response.pngBase64,reason:"ok"};
+                return {pngBase64:"",reason:response?.reason || "no-offscreen-response"};
+            }, 2500, "offscreen-timeout");
+            return result;
+        } catch {
+            return {pngBase64:"",reason:"offscreen-unavailable"};
+        }
+    })();
+    streamShellTitlebarRasterCache.set(relativePath,pending);
+    const result = await pending;
+    // A missing file is stable until extension reload. Transient errors retry.
+    if (!result.pngBase64 && result.reason !== "file-missing")
+        streamShellTitlebarRasterCache.delete(relativePath);
+    return result;
+}
+
+async function streamShellTitlebarIconData(button) {
+    if (button.kind !== "custom") return "";
+    if (!button.artKey) {
+        streamShellTitlebarArtworkStatus.set(button.id,{source:"text",reason:"artwork-key-not-set"});
+        return "";
+    }
+    const primaryPath = streamShellNativeCustomIconPath(button.artKey);
+    const primary = await streamShellReadNativeTitlebarPng(primaryPath);
+    if (primary.pngBase64) {
+        streamShellTitlebarArtworkStatus.set(button.id,{source:"native-png",reason:"raw-png-direct",path:primaryPath});
+        return primary.pngBase64;
+    }
+    const fallbackPath = streamShellCustomArtworkPath(button.artKey, "icon");
+    const fallback = await streamShellRasterizeTitlebarIcon(fallbackPath);
+    if (fallback.pngBase64) {
+        streamShellTitlebarArtworkStatus.set(button.id,{source:"provider-svg",reason:"ok",path:fallbackPath,primaryFailure:primary.reason});
+        return fallback.pngBase64;
+    }
+    streamShellTitlebarArtworkStatus.set(button.id,{
+        source:"text",reason:"no-renderable-icon",primaryFailure:primary.reason,
+        fallbackFailure:fallback.reason,expectedPrimary:primaryPath,expectedFallback:fallbackPath
+    });
+    return "";
+}
+
+async function streamShellTitlebarPayload(registryValue, options = {}) {
+    const buttons = streamShellTitlebarButtons(registryValue);
+    const withArtwork = options.includeArtwork !== false;
+    const rows = await Promise.all(buttons.map(async button => {
+        const image = withArtwork ? await streamShellTitlebarIconData(button) : "";
+        return `${button.id}\t${button.icon}\t${button.name}\t${button.color}\t${image}`;
+    }));
+    const bytes = new TextEncoder().encode(rows.join("\n"));
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary);
+}
+
+function sendTitlebarProviderPayload() {
+    if (!titlebarPort || !titlebarProtocolReady || titlebarProviderPayloadB64 === null) return;
+    try {
+        titlebarPort.postMessage({
+            type: "provider-buttons", protocolVersion: TITLEBAR_PROTOCOL_VERSION,
+            generation: titlebarProviderGeneration, payloadB64: titlebarProviderPayloadB64
+        });
+        titlebarProviderLastSentAt = Date.now();
+    } catch (error) {
+        titlebarProviderLastError = "native-send-failed";
+    }
+}
+
+function streamShellApplyTitlebarPayload(payload, phase) {
+    const changed = titlebarProviderSignature !== payload;
+    if (changed) {
+        titlebarProviderSignature = payload;
+        titlebarProviderPayloadB64 = payload;
+        titlebarProviderGeneration += 1;
+        titlebarProviderAckGeneration = 0;
+    }
+    titlebarProviderSyncPhase = phase;
+    // The heartbeat retries unacknowledged messages; an identical optional
+    // artwork result should not immediately duplicate the text-only message.
+    if (changed) sendTitlebarProviderPayload();
+}
+
+async function syncTitlebarProviderRegistry(registryValue = undefined) {
+    if (shuttingDown) return;
+    if (registryValue === undefined) {
+        const expectedEpoch = titlebarProviderStorageEpoch;
+        const stored = await chrome.storage.local.get(STREAM_SHELL_PROVIDER_REGISTRY_KEY);
+        if (expectedEpoch !== titlebarProviderStorageEpoch) return;
+        registryValue = stored[STREAM_SHELL_PROVIDER_REGISTRY_KEY];
+    }
+    const configSignature = JSON.stringify(streamShellTitlebarButtons(registryValue));
+    // A heartbeat or repeated init must not replace loaded icons with placeholders.
+    if (configSignature === titlebarProviderConfigSignature && titlebarProviderPayloadB64 !== null) {
+        if (titlebarProviderAckGeneration !== titlebarProviderGeneration) sendTitlebarProviderPayload();
+        return;
+    }
+    const renderEpoch = titlebarProviderStorageEpoch;
+    const sequence = ++titlebarProviderRenderSequence;
+    titlebarProviderConfigSignature = configSignature;
+    titlebarProviderLastError = null;
+    streamShellTitlebarArtworkStatus.clear();
+    for (const button of streamShellTitlebarButtons(registryValue)) {
+        if (button.kind === "custom")
+            streamShellTitlebarArtworkStatus.set(button.id, {source:"pending",reason:"artwork-loading"});
+    }
+
+    // Phase 1: send ALL buttons immediately, with text/initials. This has no
+    // dependency on PNG/SVG decoding or on the offscreen audio document.
+    const textPayload = await streamShellTitlebarPayload(registryValue, {includeArtwork:false});
+    if (shuttingDown || renderEpoch !== titlebarProviderStorageEpoch ||
+        sequence !== titlebarProviderRenderSequence) return;
+    streamShellApplyTitlebarPayload(textPayload,"buttons-ready");
+
+    // Phase 2: enhance the same buttons with icons. If rasterization fails,
+    // the native helper keeps the valid text-only list instead of losing a provider.
+    void streamShellTitlebarPayload(registryValue).then(payload => {
+        if (shuttingDown || renderEpoch !== titlebarProviderStorageEpoch ||
+            sequence !== titlebarProviderRenderSequence) return;
+        streamShellApplyTitlebarPayload(payload,"artwork-ready");
+    }).catch(error => {
+        if (sequence !== titlebarProviderRenderSequence) return;
+        titlebarProviderSyncPhase = "artwork-failed";
+        titlebarProviderLastError = String(error?.message || error).slice(0,120);
+    });
+}
+
+// Provider changes affect only the LEFT titlebar buttons. No focus, restore,
+// native claims, pane reassert or rightMode updates occur on this path.
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]) return;
+    titlebarProviderStorageEpoch++;
+    void syncTitlebarProviderRegistry(changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY].newValue)
+        .catch(error => console.warn("Native provider sync failed:", error));
+});
+
 function getTitlebarGeometryStateKey() {
     return [
         LEFT.left,
@@ -5556,17 +6228,47 @@ async function syncConnectedTitlebarNative() {
     const visibilityMode =
         await getTitlebarVisibilityMode();
 
+    // Resolve intent again at send time: an earlier call might have been
+    // awaiting visibility while the user changed a pane in the meantime.
+    const latest = await chrome.storage.local.get(["leftMode", "rightMode", "twitchTarget"]);
     sendTitlebarState(
-        state.leftMode ||
-            "landing",
-        state.rightMode ||
-            "dashboard",
+        latest.leftMode || "landing",
+        latest.rightMode || "dashboard",
         visibilityMode,
-        state.twitchTarget ||
-            "resume"
+        latest.twitchTarget || "resume"
     );
 }
 
+
+/* Explicit owner-graph repair after a user navigation changes Opera focus.
+ * The right pane is not switched by a left provider action: these are only
+ * bounded HWND stacking corrections, never additional window activations.
+ * Never run as a permanent timer (0.19.25 Dashboard/Twitch flicker). */
+function scheduleWideRightPaneReassert(expectedRightMode) {
+    if (expectedRightMode !== "dashboard" && expectedRightMode !== "twitch") return;
+
+    for (const delay of [0, 180, 480]) {
+        setTimeout(async () => {
+            if (shuttingDown || !titlebarPort || !titlebarProtocolReady) return;
+            try {
+                const current = await chrome.storage.local.get("rightMode");
+                if (current.rightMode !== expectedRightMode) return;
+                await syncConnectedTitlebarNative();
+                // Re-check after async visibility/state lookup, because the
+                // user can select a different right pane in the meantime.
+                const latest = await chrome.storage.local.get("rightMode");
+                if (latest.rightMode !== expectedRightMode || !titlebarPort || !titlebarProtocolReady) return;
+                titlebarPort.postMessage({
+                    type: "reassert-right-pane",
+                    protocolVersion: TITLEBAR_PROTOCOL_VERSION,
+                    rightMode: expectedRightMode
+                });
+            } catch {
+                // The native helper is optional; normal provider focus stays working.
+            }
+        }, delay);
+    }
+}
 
 async function ensureTitlebarNative() {
     if (
@@ -5618,6 +6320,13 @@ async function connectTitlebarNative() {
         null;
     titlebarProtocolReady =
         false;
+    titlebarProviderGeneration = 0;
+    titlebarProviderAckGeneration = 0;
+    titlebarProviderSignature = null;
+    titlebarProviderPayloadB64 = null;
+    titlebarProviderConfigSignature = null;
+    ++titlebarProviderRenderSequence; // invalidate old asynchronous artwork jobs
+    titlebarProviderSyncPhase = "connecting";
 
     port.onMessage.addListener(
         message => {
@@ -5636,6 +6345,8 @@ async function connectTitlebarNative() {
                 titlebarPort =
                     null;
 
+                resetTwitchWorkspaceV2ClaimCache();
+                titlebarLastNativeStatus = null;
                 titlebarLastStateKey =
                     null;
 
@@ -5845,6 +6556,9 @@ async function connectTitlebarNative() {
 
         titlebarLastStateKey =
             `${state.leftMode || "landing"}|${state.rightMode || "dashboard"}|${state.twitchTarget || "resume"}|${visibilityMode}|${streamShellDisplayProfileCache?.mode || "wide"}|${titlebarSettingsOpen ? "1" : "0"}|${titlebarVolumeActive ? "1" : "0"}|${titlebarFullscreenActive ? "1" : "0"}|${getTitlebarGeometryStateKey()}`;
+
+        // Rehydrate native buttons after every successful helper handshake.
+        void syncTitlebarProviderRegistry();
 
         startTitlebarReconcileLoop();
 
@@ -6144,37 +6858,38 @@ async function claimFocusedTitlebarSurface(
         ) {
             surfaceMode = "twitch";
             surfaceSide = "right";
-        } else if (layoutProfile === "wide") {
-            const workspaceRecord = state[TWITCH_WORKSPACE_V2_STORAGE_KEY];
-            for (const slotId of ["a", "b", "c", "d"]) {
-                if (workspaceRecord?.slots?.[slotId]?.windowId === focusedWindow.id) {
+        } else {
+            if (layoutProfile === "wide") {
+                const workspaceRecord = state[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+                for (const slotId of ["a", "b", "c", "d"]) {
+                    if (workspaceRecord?.slots?.[slotId]?.windowId === focusedWindow.id) {
+                        surfaceMode = "twitch";
+                        surfaceSide = "right";
+                        surfaceMember = slotId;
+                        break;
+                    }
+                }
+                if (!surfaceMember && workspaceRecord?.chat?.windowId === focusedWindow.id) {
                     surfaceMode = "twitch";
                     surfaceSide = "right";
-                    surfaceMember = slotId;
-                    break;
+                    surfaceMember = "chat";
                 }
-            }
-            if (!surfaceMember && workspaceRecord?.chat?.windowId === focusedWindow.id) {
-                surfaceMode = "twitch";
-                surfaceSide = "right";
-                surfaceMember = "chat";
             }
 
             if (!surfaceMode) {
                 const providerEntry =
-                Object.entries(
-                    state.providerWindows || {}
-                )
-                    .find(
-                        ([provider, windowId]) =>
-                            PROVIDERS[provider] &&
-                            windowId ===
-                                focusedWindow.id
-                    );
+                    Object.entries(
+                        state.providerWindows || {}
+                    )
+                        .find(
+                            ([provider, windowId]) =>
+                                PROVIDERS[provider] &&
+                                windowId === focusedWindow.id
+                        );
 
-            surfaceMode =
-                providerEntry?.[0] ||
-                null;
+                surfaceMode =
+                    providerEntry?.[0] ||
+                    null;
                 surfaceSide =
                     surfaceMode
                         ? "left"
@@ -6394,12 +7109,14 @@ function startTitlebarReconcileLoop() {
                  * self-heal instead of re-querying browser/native state on
                  * every heartbeat.
                  */
+                // A lost update/ack is retried without any HWND or z-order action.
+                if (titlebarProviderGeneration > titlebarProviderAckGeneration &&
+                    titlebarReconcileTick % 4 === 0) sendTitlebarProviderPayload();
+
                 titlebarReconcileTick += 1;
                 if (titlebarReconcileTick % 4 === 0) {
-                    claimFocusedTitlebarSurface()
-                        .catch(
-                            () => {}
-                        );
+                    claimFocusedTitlebarSurface().catch(() => {});
+                    reconcileTwitchWorkspaceV2Claims().catch(() => {});
                 }
             },
             TITLEBAR_RECONCILE_INTERVAL_MS
@@ -6617,12 +7334,27 @@ function handleTitlebarNativeMessage(
         return;
     }
 
+    if (message?.event === "provider-buttons-ack") {
+        if (message.accepted === true && message.protocolVersion === TITLEBAR_PROTOCOL_VERSION &&
+            message.generation === titlebarProviderGeneration) {
+            titlebarProviderAckGeneration = message.generation;
+            titlebarProviderLastAckAt = Date.now();
+            titlebarProviderLastRejectedIconCount = Number(message.skippedIcons) || 0;
+            if (titlebarProviderLastRejectedIconCount > 0)
+                titlebarProviderLastError = `native-skipped-${titlebarProviderLastRejectedIconCount}-icons`;
+        } else if (message.accepted === false && message.generation === titlebarProviderGeneration) {
+            titlebarProviderLastError = "native-rejected-provider-payload";
+        }
+        return;
+    }
+
     if (
         message?.event ===
             "claim-accepted"
     ) {
         try {
             rememberTwitchWorkspaceV2NativeCaption(message);
+            acknowledgeTwitchWorkspaceV2Claim(message);
         } catch {
         }
         /*
@@ -6630,6 +7362,11 @@ function handleTitlebarNativeMessage(
          * alive so concurrent Wide surfaces cannot cancel each other. A real
          * unmanaged-window transition cancels the whole generation instead.
          */
+        return;
+    }
+
+    if (message?.event === "claim-expired") {
+        invalidateTwitchWorkspaceV2Claim(message);
         return;
     }
 
@@ -6663,6 +7400,9 @@ function handleTitlebarNativeMessage(
                     return;
                 }
 
+                if (typeof action === "string" && action.startsWith("custom-") && !PROVIDERS[action]) {
+                    await refreshStreamShellProviderTargets();
+                }
                 if (
                     PROVIDERS[
                         action
@@ -9898,6 +10638,16 @@ chrome.runtime.onMessage.addListener(
                             titlebarProtocolVersion: TITLEBAR_PROTOCOL_VERSION,
                             titlebarReconcileIntervalMs: TITLEBAR_RECONCILE_INTERVAL_MS,
                             titlebarNativeStatus: titlebarLastNativeStatus,
+                            titlebarArtwork: Object.fromEntries(streamShellTitlebarArtworkStatus),
+                            titlebarProviderSync: {
+                                phase: titlebarProviderSyncPhase,
+                                generation: titlebarProviderGeneration,
+                                acknowledgedGeneration: titlebarProviderAckGeneration,
+                                lastSentAt: titlebarProviderLastSentAt,
+                                lastAcknowledgedAt: titlebarProviderLastAckAt,
+                                skippedIcons: titlebarProviderLastRejectedIconCount,
+                                lastError: titlebarProviderLastError
+                            },
                             titlebarVisibilityMode: titlebarVisibilityMode || "unknown",
                             titlebarSettingsOpen: titlebarSettingsOpen === true,
                             titlebarVolumeActive: titlebarVolumeActive === true,
@@ -10322,13 +11072,15 @@ chrome.runtime.onMessage.addListener(
                 .then(
                     async () => {
                         const compact = streamShellDisplayProfileCache?.mode === "compact";
+                        // A provider button (including Now Playing) changes the
+                        // LEFT pane only. Do not touch the Discord native host
+                        // on the right in Wide mode; even a no-op hide call can
+                        // perturb the sibling Opera window z-order.
                         if (compact) {
                             const rightState = await chrome.storage.local.get("rightMode");
                             if (rightState.rightMode === "discord") {
                                 await hideDiscordForDashboard();
                             }
-                        } else {
-                            await hideDiscordForDashboard();
                         }
 
                         await switchProvider(
@@ -11737,16 +12489,23 @@ async function reconcileCompactFocusedSurface(
             )
         ) {
             try {
-                await chrome.windows.get(
-                    intendedWindowId
-                );
-                await restoreWindow(
-                    intendedWindowId,
-                    LEFT,
-                    true
-                );
+                const intendedWindow =
+                    await chrome.windows.get(
+                        intendedWindowId
+                    );
 
-                return true;
+                if (
+                    intendedWindow?.state !== "minimized" ||
+                    compactProviderActivationIsArmed(intendedWindowId)
+                ) {
+                    await restoreWindow(
+                        intendedWindowId,
+                        LEFT,
+                        true
+                    );
+
+                    return true;
+                }
             } catch {
             }
         }
@@ -11784,6 +12543,8 @@ async function reconcileCompactFocusedSurface(
 
     const focusedProvider =
         focusedProviderEntry[0];
+
+    clearCompactProviderActivation(focusedWindowId);
 
     if (
         state.leftMode !==
@@ -11894,14 +12655,14 @@ async function broadcastState() {
             "dashboard"
     );
 
+    // Broadcasts can overlap (Twitch claims, provider focus, titlebar).
+    // The final native state must use the latest persisted pane selection.
+    const nativeIntent = await chrome.storage.local.get(["leftMode", "rightMode", "twitchTarget"]);
     sendTitlebarState(
-        state.leftMode ||
-            "landing",
-        state.rightMode ||
-            "dashboard",
+        nativeIntent.leftMode || "landing",
+        nativeIntent.rightMode || "dashboard",
         titlebarVisibilityMode,
-        state.twitchTarget ||
-            "resume"
+        nativeIntent.twitchTarget || "resume"
     );
 
     const twitchWorkspace =
@@ -12671,7 +13432,7 @@ async function runStreamShellLaunchSelfTest() {
     );
 
     const providers = {};
-    for (const provider of Object.keys(PROVIDERS)) {
+    for (const provider of STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id)) {
         const windowId = Number.isInteger(providerWindows?.[provider])
             ? providerWindows[provider]
             : null;
@@ -12698,8 +13459,8 @@ async function runStreamShellLaunchSelfTest() {
             state: `MV${manifest.manifest_version || "?"}`
         },
         providerRegistry: {
-            ok: Object.keys(PROVIDERS).length === 5,
-            state: `${Object.keys(PROVIDERS).length} providers`
+            ok: STREAM_SHELL_PROVIDER_BUILTINS.length === 5,
+            state: `${STREAM_SHELL_PROVIDER_BUILTINS.length} integrated adapters`
         },
         providerApi: {
             ok: true,

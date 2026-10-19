@@ -9,6 +9,7 @@ $CompactOutput = Join-Path $Root "compact-home.js"
 
 $Files = @(
     "state.js"
+    "provider-registry.js"
     "contextual-motion.js"
     "now-playing-ui.js"
     "now-playing-artwork.js"
@@ -58,7 +59,7 @@ function Write-Bundle($OutputPath, $Paths) {
     }
 }
 
-$DashboardPaths = @($Files | ForEach-Object { Join-Path $SourceRoot $_ })
+$DashboardPaths = @(Join-Path $ProjectRoot "shared/provider-registry-core.js") + @($Files | ForEach-Object { Join-Path $SourceRoot $_ })
 Write-Bundle $Output $DashboardPaths
 
 $CompactPaths = @(

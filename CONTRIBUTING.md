@@ -1,72 +1,47 @@
 # Contributing to Stream Shell
 
-Thanks for taking an interest in Stream Shell.
+Stream Shell is a **personal, Windows / Opera GX-first project** rather than a general-purpose streaming product. Reproducible fixes and focused improvements are welcome; arbitrary browser, layout or service support is not promised.
 
-Stream Shell is first and foremost a **personal project** built around the maintainer's own Opera GX / Windows streaming setup. Issues and pull requests are welcome, but the public repository is not a promise to support every browser, operating system, display layout, provider variant, or workflow.
+## Before reporting a bug
 
-## Before opening an issue
+Check the latest version, recent [release notes](release-notes/) and existing issues. Include the affected provider, display mode (**Wide 32:9** or **Compact 16:9/16:10**), Opera GX/Chromium and Windows versions, and a short reproduction sequence. For built-in provider problems, mention whether Provider Safe Mode affects the bug.
 
-Please:
+For native issues, note whether the titlebar or the separate Discord helper was installed and whether its installation was refreshed for the relevant native release. If using a custom provider, distinguish the custom site's own browser behavior from window/registry behavior in Stream Shell.
 
-1. Reproduce the problem on the latest public release when practical.
-2. Check existing issues and the relevant file under [`release-notes/`](release-notes/) for known regressions or recent changes.
-3. If the problem affects a provider, note whether that provider still works with **Safe Mode** enabled.
-4. Include enough environment information to reproduce the problem: Stream Shell version, Opera GX/Chromium version, Windows version, display profile, provider, and relevant Diagnostics/log output.
-5. Review logs and Diagnostics exports before posting them publicly. Remove anything you consider personal or sensitive.
+Diagnostics can help, but **full JSON exports may contain URLs, Twitch channel names, local settings and token-related configuration**. Review/redact private information before sharing logs, screenshots or attached files publicly.
 
-Provider DOMs and browser behavior change without notice, so a provider-specific regression does not necessarily mean the core shell is broken.
+## Project architecture (0.20.0)
 
-## Scope
+- **Five built-in provider adapters**: YouTube, Netflix, Prime Video, Disney+ and Crunchyroll. They use service-specific scripts and must keep those boundaries.
+- **Custom providers**: validated HTTPS URL, stable ID, optional artwork key, managed Opera window. They have no automatic provider-specific scripting, media extraction or extra host permissions.
+- **Provider Registry**: shared validation in `shared/provider-registry-core.js`; independent Dashboard order/pinning (maximum seven) and Native Titlebar order/visibility (unlimited, with overflow); stored/importable settings.
+- **Wide**: left provider focus must never accidentally change the selected right-side Dashboard/Discord/Twitch surface. Preserve acknowledged Twitch A-D window claims and right-pane Z-order behavior.
+- **Compact**: single-screen host (16:9 / 16:10). Test layout differences explicitly instead of copying Wide geometry or window ownership rules blindly.
+- **Native titlebar**: C# Windows helper with its own protocol/version. Custom PNG primary → provider SVG monochrome fallback → initials; provider theme accent must not tint icons. The Discord helper is separate.
 
-Current personal display targets are:
+Keep the five local artwork conventions documented in the [README](README.md). Custom PNGs/SVGs and user backgrounds **must not enter patches or releases**. No automatic Settings artwork-import feature is planned.
 
-- **Wide 32:9**
-- **Compact 16:9**
-- **Compact 16:10**
+## Editing and builds
 
-Other resolutions may receive a best-effort fallback, but Stream Shell is deliberately **not** a general-purpose responsive product with an arbitrary-resolution support matrix.
+Canonical JavaScript source is usually under `*/src/` or `shared/`; generated runtime bundles (`background.js`, `dashboard/dashboard.js`, `dashboard/compact-home.js`, etc.) are loaded by Opera GX. See the relevant `SOURCE-README.txt` and local `build-*.ps1` before changing generated output.
 
-Feature requests are most useful when they describe a concrete use case rather than asking for completeness for its own sake.
+When implementing a change:
 
-## Development conventions
+- Keep site-specific DOM/player code inside the provider adapter; use shared logic only where there is a genuine shared consumer.
+- Never make native geometry, a generic Opera window or a mere focus event sufficient to claim ownership of an arbitrary HWND; preserve explicit/native claim boundaries.
+- Keep Netflix playback mutations through its MAIN-world player bridge rather than directly writing `video.currentTime` or triggering generic `play()` / `pause()` / speed / volume changes.
+- Preserve warm provider-window reuse; reordering or theming buttons must not reload playing content.
+- Keep Wide right-pane state independent of dashboard provider selection and Now Playing navigation.
+- Preserve stable provider IDs and registry normalization across settings export/import.
 
-Stream Shell keeps canonical source fragments next to generated runtime bundles. See the repository `README.md` and the `SOURCE-README.txt` / build scripts near the larger bundles before editing generated files directly.
+## Testing and pull requests
 
-When making changes:
+Run applicable Node tests and build scripts, then verify the affected workflow in Opera GX when possible. Include the display mode, provider(s), window/Titlebar state, overflow behavior if relevant, and diagnostics evidence. For any C# helper change, say whether `native\install-titlebar-helper.cmd` must be rerun and which protocol version is expected.
 
-- Keep provider-specific DOM/player behavior behind the provider adapter where possible.
-- Reuse shared shell data/logic instead of creating provider- or layout-specific copies.
-- Expand the Provider API only when a real shared-shell consumer needs the capability.
-- Preserve explicit native-window trust boundaries. Native geometry/process/focus observations may validate a Stream Shell claim; they must not independently promote ordinary Opera windows into Stream Shell.
-- Do not replace Netflix playback writes with direct `video.currentTime`, `play()`, `pause()`, rate, or volume mutations. Stream Shell uses the Netflix MAIN-world player bridge for those operations.
-- Avoid resource "optimizations" that close or reload inactive provider windows; fast warm switching is intentional.
+Explain the change, why it was needed, exact files/surfaces touched, and actual test coverage in the PR. Do not describe Windows/Opera live checks as passed unless tested on Windows/Opera. The [PR template](.github/pull_request_template.md) outlines useful details.
 
-## Testing
-
-There is no exhaustive automated compatibility matrix. Test the surfaces affected by your change and describe what you tested in the pull request.
-
-Useful checks include the affected provider in normal mode, Safe Mode behavior when relevant, SPA navigation, Dashboard/provider switching, the relevant display profile, native titlebar behavior if native helper code changed, and fullscreen/volume behavior if playback integration changed.
-
-If you modify the native titlebar helper, mention whether `native\install-titlebar-helper.cmd` must be run again.
-
-## Release notes and versioning
-
-Functional app releases should receive a version-specific note under:
-
-`release-notes/RELEASE_NOTES_vX.Y.Z.md`
-
-Keep notes concrete: what changed, what regressed or was rolled back, and any required reinstall/migration step.
-
-Documentation-only corrections to historical release notes do **not** require an application version bump.
-
-## Pull requests
-
-Keep pull requests focused enough that the change can be reasoned about and tested. Explain what changed, why, the affected providers/layouts/native components, what you tested, and whether a release note or helper reinstall is required.
-
-Large refactors are easier to review when behavior-preserving cleanup is separated from new functionality.
+Functional application releases should update `manifest.json`, `CHANGELOG.md` and `release-notes/RELEASE_NOTES_vX.Y.Z.md`. **Documentation-only changes do not require an application version bump.** Older release notes are historical and should not silently be rewritten to describe newer runtime behavior; update current docs instead.
 
 ## License
 
-By contributing, you agree that your contribution is distributed under the repository's existing [PolyForm Noncommercial License 1.0.0](LICENSE.md).
-
-Commercial use remains restricted by that license.
+Contributions are subject to the repository's existing [PolyForm Noncommercial License 1.0.0](LICENSE.md). Commercial use remains restricted.

@@ -55,16 +55,23 @@ async function reconcileCompactFocusedSurface(
             )
         ) {
             try {
-                await chrome.windows.get(
-                    intendedWindowId
-                );
-                await restoreWindow(
-                    intendedWindowId,
-                    LEFT,
-                    true
-                );
+                const intendedWindow =
+                    await chrome.windows.get(
+                        intendedWindowId
+                    );
 
-                return true;
+                if (
+                    intendedWindow?.state !== "minimized" ||
+                    compactProviderActivationIsArmed(intendedWindowId)
+                ) {
+                    await restoreWindow(
+                        intendedWindowId,
+                        LEFT,
+                        true
+                    );
+
+                    return true;
+                }
             } catch {
             }
         }
@@ -102,6 +109,8 @@ async function reconcileCompactFocusedSurface(
 
     const focusedProvider =
         focusedProviderEntry[0];
+
+    clearCompactProviderActivation(focusedWindowId);
 
     if (
         state.leftMode !==
@@ -212,14 +221,14 @@ async function broadcastState() {
             "dashboard"
     );
 
+    // Broadcasts can overlap (Twitch claims, provider focus, titlebar).
+    // The final native state must use the latest persisted pane selection.
+    const nativeIntent = await chrome.storage.local.get(["leftMode", "rightMode", "twitchTarget"]);
     sendTitlebarState(
-        state.leftMode ||
-            "landing",
-        state.rightMode ||
-            "dashboard",
+        nativeIntent.leftMode || "landing",
+        nativeIntent.rightMode || "dashboard",
         titlebarVisibilityMode,
-        state.twitchTarget ||
-            "resume"
+        nativeIntent.twitchTarget || "resume"
     );
 
     const twitchWorkspace =

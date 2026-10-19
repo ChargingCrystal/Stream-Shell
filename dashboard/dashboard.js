@@ -1,3 +1,129 @@
+/* Stream Shell provider registry v2: shared validation for Dashboard and background.
+ * Custom providers are HTTPS-only basic windows, never injected adapters. */
+const STREAM_SHELL_PROVIDER_REGISTRY_KEY = "streamShellProviderRegistry";
+const STREAM_SHELL_PROVIDER_BUILTINS = Object.freeze([
+    { id: "youtube", name: "YouTube", url: "https://www.youtube.com/" },
+    { id: "netflix", name: "Netflix", url: "https://www.netflix.com/browse" },
+    { id: "prime", name: "Prime Video", url: "https://www.primevideo.com/" },
+    { id: "disney", name: "Disney+", url: "https://www.disneyplus.com/" },
+    { id: "crunchyroll", name: "Crunchyroll", url: "https://www.crunchyroll.com/" }
+]);
+const STREAM_SHELL_PROVIDER_GRID_PATTERNS = Object.freeze({
+    1: [1], 2: [2], 3: [3], 4: [1, 2, 1],
+    5: [1, 3, 1], 6: [2, 2, 2], 7: [2, 3, 2]
+});
+const STREAM_SHELL_BUILTIN_IDS = new Set(STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id));
+
+function streamShellValidatedCustomUrl(input) {
+    const raw = typeof input === "string" ? input.trim() : "";
+    if (!raw || raw.length > 2048 || /[\x00-\x20\x7f]/.test(raw)) return null;
+    try {
+        const url = new URL(raw);
+        if (url.protocol !== "https:" || !url.hostname || url.username || url.password) return null;
+        return url.href;
+    } catch {
+        return null;
+    }
+}
+
+// Local artwork paths are strictly keyed by a user-chosen slug; no arbitrary
+// file paths or remote image URLs enter the extension's DOM.
+function streamShellValidatedArtworkKey(input) {
+    const key = typeof input === "string" ? input.trim().toLowerCase() : "";
+    return /^[a-z0-9][a-z0-9_-]{0,31}$/.test(key) ? key : "";
+}
+
+// Empty means: retain the integrated icon palette. Custom fallback defaults
+// to a soft neutral accent. A user override is always canonical #RRGGBB.
+function streamShellValidatedTitlebarColor(input) {
+    const raw = typeof input === "string" ? input.trim() : "";
+    return /^#[0-9a-f]{6}$/i.test(raw) ? raw.toUpperCase() : "";
+}
+
+function streamShellNativeCustomIconPath(key) {
+    const slug = streamShellValidatedArtworkKey(key);
+    return slug ? `native/titlebar-icons/custom/custom_${slug}.png` : null;
+}
+
+function streamShellCustomArtworkPath(key, kind) {
+    const slug = streamShellValidatedArtworkKey(key);
+    if (!slug) return null;
+    if (kind === "wide" || kind === "compact") return `assets/backgrounds/custom_${slug}_${kind}.png`;
+    if (kind === "icon" || kind === "wordmark") return `assets/providers/custom/custom_${slug}_${kind}.svg`;
+    return null;
+}
+
+function defaultStreamShellProviderRegistry() {
+    const ids = STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id);
+    return {
+        version: 2,
+        providers: STREAM_SHELL_PROVIDER_BUILTINS.map(p => ({
+            ...p, kind: "builtin", enabled: true, showOnDashboard: true,
+            showInTitlebar: true
+        })),
+        dashboardOrder: [...ids],
+        titlebarOrder: [...ids]
+    };
+}
+
+function normalizeStreamShellProviderRegistry(value) {
+    const defaults = defaultStreamShellProviderRegistry();
+    if (!value || typeof value !== "object" || Array.isArray(value)) return defaults;
+    const supplied = Array.isArray(value.providers) ? value.providers : [];
+    const providers = STREAM_SHELL_PROVIDER_BUILTINS.map((base, index) => {
+        const incoming = supplied.find(p => p && p.id === base.id);
+        return {
+            ...defaults.providers[index],
+            enabled: incoming?.enabled !== false,
+            showOnDashboard: incoming?.showOnDashboard !== false,
+            showInTitlebar: incoming?.showInTitlebar !== false,
+            titlebarColor: streamShellValidatedTitlebarColor(incoming?.titlebarColor)
+        };
+    });
+    const seen = new Set(STREAM_SHELL_BUILTIN_IDS);
+    for (const item of supplied) {
+        if (!item || typeof item !== "object" || item.kind !== "custom") continue;
+        const id = String(item.id || "");
+        if (!/^custom-[a-z0-9]{8,40}$/.test(id) || seen.has(id)) continue;
+        const url = streamShellValidatedCustomUrl(item.url);
+        const name = typeof item.name === "string" ? item.name.trim().slice(0, 48) : "";
+        if (!url || !name) continue;
+        seen.add(id);
+        providers.push({
+            id, kind: "custom", name, url,
+            icon: typeof item.icon === "string" ? item.icon.trim().slice(0, 8) : "",
+            artKey: streamShellValidatedArtworkKey(item.artKey),
+            titlebarColor: streamShellValidatedTitlebarColor(item.titlebarColor),
+            enabled: item.enabled !== false,
+            showOnDashboard: item.showOnDashboard === true,
+            showInTitlebar: item.showInTitlebar !== false
+        });
+    }
+    const ids = providers.map(p => p.id);
+    const allowed = new Set(ids);
+    const order = input => {
+        const ordered = [], used = new Set();
+        for (const id of Array.isArray(input) ? input : []) {
+            if (typeof id === "string" && allowed.has(id) && !used.has(id)) {
+                used.add(id); ordered.push(id);
+            }
+        }
+        for (const id of ids) if (!used.has(id)) ordered.push(id);
+        return ordered;
+    };
+    const dashboardOrder = order(value.dashboardOrder);
+    const titlebarOrder = order(value.titlebarOrder);
+    const pinned = providers.filter(p => p.enabled && p.showOnDashboard);
+    if (!pinned.length) {
+        const first = providers.find(p => p.enabled) || providers[0];
+        first.enabled = true;
+        first.showOnDashboard = true;
+    } else if (pinned.length > 7) {
+        const kept = new Set(dashboardOrder.filter(id => pinned.some(p => p.id === id)).slice(0, 7));
+        for (const provider of pinned) if (!kept.has(provider.id)) provider.showOnDashboard = false;
+    }
+    return { version: 2, providers, dashboardOrder, titlebarOrder };
+}
 const PROVIDER_NAMES = {
     youtube:
         "YouTube",
@@ -223,6 +349,9 @@ const providerWordmark =
         "provider-wordmark"
     );
 
+const providerCustomWordmark =
+    document.getElementById("provider-custom-wordmark");
+
 
 const SELECTED_MEDIA_KEY =
     "streamShellSelectedMedia";
@@ -281,6 +410,257 @@ const failedNowPlayingArtworkSources =
     new Set();
 
 
+function getStreamShellProviderRegistry() {
+    return normalizeStreamShellProviderRegistry(
+        settingsValues[STREAM_SHELL_PROVIDER_REGISTRY_KEY]
+    );
+}
+
+function streamShellPinnedProviders(registry = getStreamShellProviderRegistry()) {
+    const lookup = new Map(registry.providers.map(p => [p.id, p]));
+    return registry.dashboardOrder
+        .map(id => lookup.get(id))
+        .filter(p => p?.enabled && p?.showOnDashboard)
+        .slice(0, 7);
+}
+
+function renderProviderSelector() {
+    const root = document.querySelector(".provider-selector");
+    if (!root) return;
+
+    const pinned = streamShellPinnedProviders();
+    const layout = STREAM_SHELL_PROVIDER_GRID_PATTERNS[pinned.length];
+    root.replaceChildren();
+    root.dataset.providerCount = String(pinned.length);
+    let index = 0;
+
+    for (const size of layout) {
+        const row = document.createElement("div");
+        row.className = `provider-row provider-row-count-${size}`;
+        for (let j = 0; j < size; j++) {
+            const provider = pinned[index++];
+            const card = document.createElement("button");
+            card.type = "button";
+            card.className = "provider-card";
+            card.dataset.provider = provider.id;
+            card.title = provider.name;
+            card.setAttribute("aria-label", provider.name);
+            card.classList.toggle("active", provider.id === currentLeftMode);
+            const icon = provider.kind === "custom"
+                ? document.createElement("span")
+                : document.createElement("img");
+            if (provider.kind === "custom") {
+                icon.className = "provider-card-custom-icon";
+                icon.textContent = provider.icon || provider.name.slice(0, 2).toUpperCase();
+                icon.setAttribute("aria-hidden", "true");
+                card.classList.add("provider-card-custom");
+                const assetPath = streamShellCustomArtworkPath(provider.artKey, "icon");
+                if (assetPath) {
+                    const artwork = document.createElement("img");
+                    artwork.className = "provider-card-custom-image";
+                    artwork.alt = "";
+                    artwork.addEventListener("load", () => icon.classList.add("has-image"));
+                    artwork.addEventListener("error", () => artwork.remove());
+                    artwork.src = chrome.runtime.getURL(assetPath);
+                    icon.appendChild(artwork);
+                }
+            } else {
+                icon.src = `../assets/providers/icons/${provider.id}.svg`;
+                icon.alt = "";
+            }
+            const label = document.createElement("span");
+            label.textContent = provider.name;
+            card.append(icon, label);
+            row.appendChild(card);
+        }
+        root.appendChild(row);
+    }
+
+    // Reinstall per-card UI decorations after replacing the old DOM nodes.
+    renderProviderPlaybackIndicators();
+    renderAvailabilityIndicators();
+}
+
+let streamShellProviderRegistryWriteQueue = Promise.resolve();
+
+function updateStreamShellProviderRegistry(mutator) {
+    // Serialize rapid show/hide + ordering clicks to prevent lost updates.
+    const nextWrite = streamShellProviderRegistryWriteQueue.catch(() => {}).then(async () => {
+        const current = getStreamShellProviderRegistry();
+        const proposed = mutator(current);
+        const next = normalizeStreamShellProviderRegistry(proposed);
+        await chrome.storage.local.set({ [STREAM_SHELL_PROVIDER_REGISTRY_KEY]: next });
+        settingsValues[STREAM_SHELL_PROVIDER_REGISTRY_KEY] = next;
+        syncDashboardProviderIdentities(next);
+        renderProviderSelector();
+        if (settingsCenterIsOpen() && settingsProvider === "general" && settingsSection === "providers") {
+            renderSettingsContent();
+        }
+    });
+    streamShellProviderRegistryWriteQueue = nextWrite;
+    return nextWrite;
+}
+
+function syncDashboardProviderIdentities(registry = getStreamShellProviderRegistry()) {
+    for (const provider of registry.providers) {
+        PROVIDERS.add(provider.id);
+        PROVIDER_NAMES[provider.id] = provider.name;
+    }
+    for (const id of Array.from(PROVIDERS)) {
+        if (!registry.providers.some(p => p.id === id)) {
+            PROVIDERS.delete(id);
+            delete PROVIDER_NAMES[id];
+        }
+    }
+}
+
+let editingStreamShellProviderId = null;
+function streamShellCustomProviderId() {
+    return `custom-${crypto.randomUUID().replaceAll("-", "")}`;
+}
+function streamShellProviderFormError(text) {
+    const label = document.querySelector("#settings-custom-provider-error");
+    if (label) label.textContent = text || "";
+}
+function saveStreamShellCustomProvider() {
+    const name = document.querySelector("#settings-custom-provider-name")?.value.trim().slice(0, 48) || "";
+    const url = streamShellValidatedCustomUrl(document.querySelector("#settings-custom-provider-url")?.value);
+    const icon = document.querySelector("#settings-custom-provider-icon")?.value.trim().slice(0, 8) || "";
+    const rawArtKey = document.querySelector("#settings-custom-provider-art-key")?.value.trim() || "";
+    const artKey = streamShellValidatedArtworkKey(rawArtKey);
+    if (rawArtKey && !artKey) {
+        streamShellProviderFormError("Artwork key: a-z, 0-9, _ or -, maximum 32 characters.");
+        return;
+    }
+    if (!name || !url) {
+        streamShellProviderFormError("Name and valid HTTPS URL required (e.g. https://www.paramountplus.com/).");
+        return;
+    }
+    const editId = editingStreamShellProviderId;
+    editingStreamShellProviderId = null;
+    updateStreamShellProviderRegistry(registry => {
+        if (editId) {
+            const item = registry.providers.find(p => p.id === editId && p.kind === "custom");
+            if (!item) throw new Error("Provider no longer exists.");
+            Object.assign(item, { name, url, icon, artKey });
+        } else {
+            const id = streamShellCustomProviderId();
+            const hasSpace = streamShellPinnedProviders(registry).length < 7;
+            registry.providers.push({ id, kind: "custom", name, url, icon, artKey,
+                enabled: true, showOnDashboard: hasSpace, showInTitlebar: true });
+            registry.dashboardOrder.push(id);
+            registry.titlebarOrder.push(id);
+        }
+        return registry;
+    }).catch(error => {
+        editingStreamShellProviderId = editId;
+        renderSettingsContent();
+        streamShellProviderFormError(error.message);
+    });
+}
+
+// Local filename convention only; image files are user-maintained, never bundled.
+function streamShellLocalArtworkFiles(rawKey) {
+    const key = streamShellValidatedArtworkKey(rawKey) || "key";
+    return {
+        icon: `assets/providers/custom/custom_${key}_icon.svg`,
+        wordmark: `assets/providers/custom/custom_${key}_wordmark.svg`,
+        native: `native/titlebar-icons/custom/custom_${key}.png`,
+        wide: `assets/backgrounds/custom_${key}_wide.png`,
+        compact: `assets/backgrounds/custom_${key}_compact.png`
+    };
+}
+
+function updateStreamShellLocalArtworkHints(rawKey) {
+    const paths = streamShellLocalArtworkFiles(rawKey);
+    for (const [type, path] of Object.entries(paths)) {
+        const element = document.querySelector(`[data-artwork-path="${type}"]`);
+        if (element) element.textContent = path;
+    }
+}
+
+function renderProviderRegistrySettings() {
+    const registry = getStreamShellProviderRegistry();
+    const byId = new Map(registry.providers.map(p => [p.id, p]));
+    const visible = streamShellPinnedProviders(registry).length;
+    const rows = registry.dashboardOrder.map((id, index) => {
+        const p = byId.get(id);
+        const pinned = p.enabled && p.showOnDashboard;
+        const label = escapeSettingsHtml(p.name);
+        return `<div class="setting-row settings-provider-registry-row">
+            <span class="setting-copy"><strong>${label}</strong>
+            <span>${p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}${p.kind === "custom" ? " · " + escapeSettingsHtml(p.url) : ""}</span></span>
+            <label class="settings-provider-registry-toggle">
+                <input type="checkbox" data-registry-enabled="${id}" ${p.enabled ? "checked" : ""}>
+                <span>Enabled</span>
+            </label>
+            <label class="settings-provider-registry-toggle">
+                <input type="checkbox" data-registry-visibility="${id}" ${pinned ? "checked" : ""} ${p.enabled ? "" : "disabled"}>
+                <span>Dashboard</span>
+            </label>
+            <button type="button" class="settings-provider-registry-move" data-registry-move="${id}" data-registry-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${label} up">↑</button>
+            <button type="button" class="settings-provider-registry-move" data-registry-move="${id}" data-registry-direction="1" ${index === registry.dashboardOrder.length - 1 ? "disabled" : ""} aria-label="Move ${label} down">↓</button>
+            ${p.kind === "custom" ? `<button type="button" class="settings-provider-registry-move" data-registry-edit="${id}" aria-label="Edit ${label}">✎</button>
+            <button type="button" class="settings-provider-registry-move" data-registry-remove="${id}" aria-label="Remove ${label}">×</button>` : ""}
+        </div>`;
+    }).join("");
+    const titlebarRows = registry.titlebarOrder.map((id, index) => {
+        const p = byId.get(id);
+        if (!p) return "";
+        return `<div class="setting-row settings-provider-registry-row">
+            <span class="setting-copy"><strong>${escapeSettingsHtml(p.name)}</strong>
+                <span>${p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}</span></span>
+            <label class="settings-provider-registry-toggle">
+                <input type="checkbox" data-registry-titlebar-visible="${id}" ${p.showInTitlebar && p.enabled ? "checked" : ""} ${p.enabled ? "" : "disabled"}>
+                <span>Titlebar</span>
+            </label>
+            <label class="settings-provider-titlebar-color" title="Titlebar theme / active-state background color; icons always stay neutral monochrome">
+                <input type="color" data-registry-titlebar-color-picker="${id}" value="${p.titlebarColor || '#D5D0DD'}" aria-label="${escapeSettingsHtml(p.name)} titlebar theme color">
+                <input type="text" data-registry-titlebar-color-hex="${id}" maxlength="7" spellcheck="false" placeholder="Auto" value="${escapeSettingsHtml(p.titlebarColor || '')}" aria-label="${escapeSettingsHtml(p.name)} theme color hex">
+            </label>
+            <button type="button" class="settings-provider-registry-move" data-registry-titlebar-move="${id}" data-registry-titlebar-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${escapeSettingsHtml(p.name)} up in titlebar">↑</button>
+            <button type="button" class="settings-provider-registry-move" data-registry-titlebar-move="${id}" data-registry-titlebar-direction="1" ${index === registry.titlebarOrder.length - 1 ? "disabled" : ""} aria-label="Move ${escapeSettingsHtml(p.name)} down in titlebar">↓</button>
+        </div>`;
+    }).join("");
+
+    const editing = registry.providers.find(p => p.id === editingStreamShellProviderId && p.kind === "custom");
+    if (editingStreamShellProviderId && !editing) editingStreamShellProviderId = null;
+    const paths = streamShellLocalArtworkFiles(editing?.artKey);
+    const artworkHints = [
+        ["Provider icon (SVG)", "icon"],
+        ["Wordmark (SVG)", "wordmark"],
+        ["Native titlebar (PNG)", "native"],
+        ["Wide background (PNG)", "wide"],
+        ["Compact background (PNG)", "compact"]
+    ].map(([label, type]) => `<div class="settings-custom-provider-artwork-item">
+        <span>${label}</span><code data-artwork-path="${type}">${escapeSettingsHtml(paths[type])}</code>
+    </div>`).join("");
+    const form = `<div class="settings-custom-provider-form">
+        <div class="settings-custom-provider-fields">
+            <label>Name<input id="settings-custom-provider-name" maxlength="48" placeholder="Paramount+" value="${escapeSettingsHtml(editing?.name || "")}"></label>
+            <label>Icon / initials<input id="settings-custom-provider-icon" maxlength="8" placeholder="P+" value="${escapeSettingsHtml(editing?.icon || "")}"></label>
+            <label>HTTPS URL<input id="settings-custom-provider-url" type="url" placeholder="https://www.paramountplus.com/" value="${escapeSettingsHtml(editing?.url || "")}"></label>
+        </div>
+        <div class="settings-custom-provider-bottom">
+            <label>Local artwork key (optional)<input id="settings-custom-provider-art-key" maxlength="32" placeholder="paramount" value="${escapeSettingsHtml(editing?.artKey || "")}"></label>
+            <div class="settings-custom-provider-actions">
+                <button type="button" class="settings-provider-registry-move" id="settings-custom-provider-save">${editing ? "Save changes" : "Add provider"}</button>
+                ${editing ? `<button type="button" class="settings-provider-registry-move" id="settings-custom-provider-cancel">Cancel</button>` : ""}
+            </div>
+        </div>
+        <span id="settings-custom-provider-error" role="status"></span>
+        <div class="settings-custom-provider-artwork" aria-label="Local artwork paths">${artworkHints}</div>
+    </div>`;
+    return settingsPage("Providers",
+        `<div class="settings-provider-registry-columns">` +
+            settingsSubgroup(`Dashboard (${visible}/7)`, rows,
+                "Up to seven pinned providers; independent of the native titlebar.") +
+            settingsSubgroup("Native titlebar (unlimited)", titlebarRows,
+                "Independent order and colors; extra buttons appear under … .") +
+        `</div>` +
+        settingsSubgroup(editing ? "Edit custom provider" : "Add custom provider", form)
+    );
+}
 /*
  * ============================================================
  * CONTEXTUAL DASHBOARD MOTION
@@ -2509,6 +2889,14 @@ function renderAvailabilityIndicators() {
                     );
 
 
+                // No media-catalog availability exists for basic custom URLs.
+                if (!STREAM_SHELL_BUILTIN_IDS.has(provider)) {
+                    indicator.replaceChildren();
+                    indicator.className = "provider-availability";
+                    button.title = `${PROVIDER_NAMES[provider] || provider} · Basic website`;
+                    return;
+                }
+
                 const status =
                     dashboard?.[
                         provider
@@ -2751,7 +3139,8 @@ async function openProvider(
 
         if (
             !response?.ok ||
-            !selectedMedia
+            !selectedMedia ||
+            !STREAM_SHELL_BUILTIN_IDS.has(provider)
         ) {
             return;
         }
@@ -2956,6 +3345,7 @@ function baseSettingKeyForStorageKey(storageKey) {
 
 const SETTINGS_DEFAULTS = {
     streamShellDisplayMode: "auto",
+    streamShellProviderRegistry: defaultStreamShellProviderRegistry(),
 
     streamShellTwitchKeepActive: true,
     streamShellTwitchAutoClaimPoints: true,
@@ -3101,6 +3491,7 @@ const SETTINGS_STORAGE_KEY_SET = new Set(SETTINGS_STORAGE_KEYS);
 const SETTINGS_SECTIONS = {
     general: [
         ["display", "Display"],
+        ["providers", "Providers"],
         ["anarchy", "Anarchy"],
         ["twitch", "Twitch"]
     ],
@@ -4020,6 +4411,9 @@ async function exportStreamShellSettings() {
 }
 
 function normalizeImportedSetting(key, value) {
+    if (key === STREAM_SHELL_PROVIDER_REGISTRY_KEY) {
+        return normalizeStreamShellProviderRegistry(value);
+    }
     const fallback = settingDefaultValue(key);
     if (typeof fallback === "boolean") return value === true;
     if (typeof fallback === "number") {
@@ -4269,7 +4663,7 @@ async function collectSettingsDiagnostics(options = {}) {
 
     return {
         format: "stream-shell-diagnostics",
-        version: 12,
+        version: 13,
         mode: full ? "full" : "panel",
         generatedAt: new Date().toISOString(),
         extensionVersion: manifest.version || "unknown",
@@ -4327,6 +4721,8 @@ async function collectSettingsDiagnostics(options = {}) {
             titlebarVisibilityMode: runtime.titlebarVisibilityMode || "unknown",
             titlebarSettingsOpen: runtime.titlebarSettingsOpen === true,
             titlebarVolumeActive: runtime.titlebarVolumeActive === true,
+            titlebarArtwork: runtime.titlebarArtwork || {},
+            titlebarProviderSync: runtime.titlebarProviderSync || null,
             discordHelperConnected: runtime.discord?.ok === true,
             discordRunning: runtime.discord?.running === true,
             discordVisible: runtime.discord?.visible === true
@@ -4760,6 +5156,17 @@ function renderSettingsDiagnostics(snapshot) {
         diagnosticsRow("Landing window", shell.landingWindowAlive ? "Alive" : "Not present", shell.landingWindowAlive ? "good" : "neutral") +
         diagnosticsRow("Dashboard window", shell.dashboardWindowAlive ? "Alive" : "Missing", shell.dashboardWindowAlive ? "good" : "bad");
 
+    const twitchWorkspace = shell.twitchWorkspaceV2 || {};
+    const twitchRows = (twitchWorkspace.windows || []).map(slot => {
+        const m = slot.twitchRuntime?.automation;
+        const drift = Number.isFinite(m?.heartbeatMaxDriftMs) ? `${Math.round(m.heartbeatMaxDriftMs)}ms peak drift` : "no heartbeat";
+        const lastJoin = m?.lastJoinResult || "none";
+        const visibility = slot.twitchRuntime?.documentVisibility || "unknown";
+        const value = `${slot.state || "missing"} · ${visibility} · ${slot.twitchRuntimeStatus || "unknown"} · ${drift} · join ${lastJoin}`;
+        return diagnosticsRow(`Twitch ${String(slot.slot || "?").toUpperCase()}`, value,
+            slot.state === "minimized" ? "bad" : (slot.twitchRuntimeStatus === "ok" ? "good" : "neutral"));
+    }).join("") || diagnosticsRow("Twitch Workspace", "Not running", "neutral");
+
     const providerRows = Object.entries(PROVIDER_NAMES).map(([provider, label]) => {
         const state = providerStates[provider] || {};
         const page = state.page || {};
@@ -5011,6 +5418,7 @@ function renderSettingsDiagnostics(snapshot) {
             "Shell status first: runtime, windows, provider reachability and launch self-test.",
             diagnosticsCard("Runtime", runtimeRows) +
             diagnosticsCard("Windows", windowRows) +
+            diagnosticsCard("Twitch A–D runtime", twitchRows, "Full JSON includes timer drift, recent !play detection, join attempts, and visibility transition counters.") +
             diagnosticsCard("Provider health", providerRows) +
             diagnosticsCard("Self-test", selfTestRows),
             "overview"
@@ -5645,6 +6053,10 @@ function renderSettingsContent() {
         html = renderDisplaySettings();
     }
 
+    if (settingsProvider === "general" && settingsSection === "providers") {
+        html = renderProviderRegistrySettings();
+    }
+
     if (settingsProvider === "general" && settingsSection === "twitch") {
         html = renderTwitchUtilitySettings();
     }
@@ -6035,6 +6447,8 @@ async function loadSettingsValues() {
     }
 
     settingsLoaded = true;
+    syncDashboardProviderIdentities();
+    renderProviderSelector();
 }
 
 async function openSettingsCenter(provider) {
@@ -6043,8 +6457,11 @@ async function openSettingsCenter(provider) {
         SETTINGS_SECTIONS[provider]
     ) {
         settingsProvider = provider;
-    } else if (PROVIDERS.has(currentLeftMode)) {
+    } else if (PROVIDERS.has(currentLeftMode) && SETTINGS_SECTIONS[currentLeftMode]) {
         settingsProvider = currentLeftMode;
+    } else if (PROVIDERS.has(currentLeftMode)) {
+        // Basic custom sites have no per-provider adapters/settings pages yet.
+        settingsProvider = "general";
     }
 
     settingsSection = defaultSettingsSection(settingsProvider);
@@ -6201,6 +6618,68 @@ function handleSettingsClick(event) {
         return true;
     }
 
+    if (button.id === "settings-custom-provider-save") {
+        event.preventDefault();
+        saveStreamShellCustomProvider();
+        return true;
+    }
+    if (button.id === "settings-custom-provider-cancel") {
+        event.preventDefault();
+        editingStreamShellProviderId = null;
+        renderSettingsContent();
+        return true;
+    }
+    if (button.dataset.registryEdit) {
+        event.preventDefault();
+        editingStreamShellProviderId = button.dataset.registryEdit;
+        renderSettingsContent();
+        return true;
+    }
+    if (button.dataset.registryRemove) {
+        event.preventDefault();
+        const id = button.dataset.registryRemove;
+        updateStreamShellProviderRegistry(registry => {
+            registry.providers = registry.providers.filter(p => p.id !== id || p.kind === "builtin");
+            registry.dashboardOrder = registry.dashboardOrder.filter(p => p !== id);
+            registry.titlebarOrder = registry.titlebarOrder.filter(p => p !== id);
+            return registry;
+        }).then(() => {
+            if (editingStreamShellProviderId === id) editingStreamShellProviderId = null;
+            renderSettingsContent();
+        }).catch(error => console.error("Provider removal failed", error));
+        return true;
+    }
+
+    if (button.dataset.registryTitlebarMove) {
+        event.preventDefault();
+        const id = button.dataset.registryTitlebarMove;
+        const direction = Number(button.dataset.registryTitlebarDirection);
+        updateStreamShellProviderRegistry(registry => {
+            const index = registry.titlebarOrder.indexOf(id);
+            const target = index + direction;
+            if (index < 0 || target < 0 || target >= registry.titlebarOrder.length) return registry;
+            [registry.titlebarOrder[index], registry.titlebarOrder[target]] =
+                [registry.titlebarOrder[target], registry.titlebarOrder[index]];
+            return registry;
+        }).catch(error => console.error("Titlebar reorder failed", error));
+        return true;
+    }
+
+    if (button.dataset.registryMove) {
+        event.preventDefault();
+        const id = button.dataset.registryMove;
+        const direction = Number(button.dataset.registryDirection);
+        updateStreamShellProviderRegistry(registry => {
+            const index = registry.dashboardOrder.indexOf(id);
+            const target = index + direction;
+            if (index < 0 || target < 0 || target >= registry.dashboardOrder.length) return registry;
+            [registry.dashboardOrder[index], registry.dashboardOrder[target]] =
+                [registry.dashboardOrder[target], registry.dashboardOrder[index]];
+            return registry;
+        }).catch(error => console.error("Provider reorder failed", error));
+        return true;
+    }
+
     if (button.id === "settings-close") {
         event.preventDefault();
         closeSettingsCenter();
@@ -6339,6 +6818,12 @@ document.addEventListener(
             return;
         }
 
+        const artworkKeyInput = event.target.closest?.("#settings-custom-provider-art-key");
+        if (artworkKeyInput) {
+            updateStreamShellLocalArtworkHints(artworkKeyInput.value);
+            return;
+        }
+
         const input = event.target.closest?.(".settings-range[data-setting-key]");
         if (!input) {
             return;
@@ -6359,6 +6844,75 @@ document.addEventListener(
 document.addEventListener(
     "change",
     event => {
+        const enableInput = event.target.closest?.("[data-registry-enabled]");
+        if (enableInput) {
+            const id = enableInput.dataset.registryEnabled;
+            const requested = enableInput.checked;
+            updateStreamShellProviderRegistry(registry => {
+                const p = registry.providers.find(item => item.id === id);
+                if (p) p.enabled = requested;
+                return registry;
+            }).catch(error => console.error("Provider enable failed", error));
+            return;
+        }
+
+        const titlebarColorPicker = event.target.closest?.("[data-registry-titlebar-color-picker]");
+        const titlebarColorHex = event.target.closest?.("[data-registry-titlebar-color-hex]");
+        if (titlebarColorPicker || titlebarColorHex) {
+            const input = titlebarColorPicker || titlebarColorHex;
+            const id = titlebarColorPicker ? input.dataset.registryTitlebarColorPicker : input.dataset.registryTitlebarColorHex;
+            const raw = input.value.trim();
+            const color = streamShellValidatedTitlebarColor(raw);
+            if (!color && raw) {
+                input.setCustomValidity?.("Use #RRGGBB or leave the field empty for the default titlebar theme.");
+                input.reportValidity?.();
+                return;
+            }
+            input.setCustomValidity?.("");
+            updateStreamShellProviderRegistry(registry => {
+                const provider = registry.providers.find(item => item.id === id);
+                if (provider) provider.titlebarColor = color;
+                return registry;
+            }).catch(error => console.error("Titlebar color update failed", error));
+            return;
+        }
+
+        const titlebarInput = event.target.closest?.("[data-registry-titlebar-visible]");
+        if (titlebarInput) {
+            const id = titlebarInput.dataset.registryTitlebarVisible;
+            const requested = titlebarInput.checked;
+            updateStreamShellProviderRegistry(registry => {
+                const p = registry.providers.find(provider => provider.id === id);
+                if (p) p.showInTitlebar = requested;
+                return registry;
+            }).catch(error => {
+                titlebarInput.checked = !requested;
+                console.error("Titlebar visibility failed", error);
+            });
+            return;
+        }
+
+        const pinInput = event.target.closest?.("[data-registry-visibility]");
+        if (pinInput) {
+            const id = pinInput.dataset.registryVisibility;
+            const requested = pinInput.checked;
+            const current = getStreamShellProviderRegistry();
+            const before = streamShellPinnedProviders(current).length;
+            if ((!requested && before <= 1) || (requested && before >= 7)) {
+                pinInput.checked = !requested;
+                return;
+            }
+            updateStreamShellProviderRegistry(registry => {
+                const provider = registry.providers.find(p => p.id === id);
+                if (provider) provider.showOnDashboard = requested;
+                return registry;
+            }).catch(error => {
+                pinInput.checked = !requested;
+                console.error("Provider pinning failed", error);
+            });
+            return;
+        }
+
         const targetInput = event.target.closest?.("[data-settings-display-target]");
         if (targetInput) {
             const target = targetInput.dataset.settingsDisplayTarget;
@@ -6443,6 +6997,14 @@ chrome.storage.onChanged.addListener(
             relevant = true;
         }
 
+        if (changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]) {
+            syncDashboardProviderIdentities();
+            renderProviderSelector();
+            // Apply newly selected custom art to the currently visible backdrop
+            // without navigating or recreating a provider window.
+            chrome.runtime.sendMessage({ type: "get-state" })
+                .then(renderState).catch(() => {});
+        }
         if (relevant && !settingsCenter.hidden) {
             renderSettingsContent();
         }
@@ -6450,6 +7012,7 @@ chrome.storage.onChanged.addListener(
 );
 
 notifySettingsVisibility(false);
+renderProviderSelector();
 loadSettingsValues().catch(() => {});
 /*
  * ============================================================
@@ -6913,31 +7476,47 @@ function renderState(
             : "wide";
 
 
-    panorama.style.backgroundImage =
-        `url("${chrome.runtime.getURL(
-            `assets/backgrounds/${provider}_${backgroundVariant}.png`
-        )}")`;
+    const customProvider = getStreamShellProviderRegistry().providers.find(
+        entry => entry.id === provider && entry.kind === "custom"
+    );
+    const customBackgroundPath = customProvider
+        ? streamShellCustomArtworkPath(customProvider.artKey, backgroundVariant)
+        : null;
+    const neutralBackground = "radial-gradient(ellipse at 77% 20%, rgba(70, 79, 104, .21), transparent 62%), linear-gradient(135deg, #0b0e17, #03050a)";
+    const backgroundPath = STREAM_SHELL_BUILTIN_IDS.has(provider)
+        ? `assets/backgrounds/${provider}_${backgroundVariant}.png`
+        : customBackgroundPath;
+    panorama.style.backgroundImage = backgroundPath
+        ? `url("${chrome.runtime.getURL(backgroundPath)}"), ${neutralBackground}`
+        : neutralBackground;
 
-
-    const wordmark =
-        WORDMARKS[
-            provider
-        ];
-
-
-    if (
-        wordmark
-    ) {
-        providerWordmark.src =
-            chrome.runtime.getURL(
-                wordmark
-            );
-
+    const wordmark = WORDMARKS[provider] ||
+        (customProvider ? streamShellCustomArtworkPath(customProvider.artKey, "wordmark") : null);
+    providerWordmark.onload = () => {
+        if (document.body.dataset.provider !== provider) return;
+        providerWordmark.hidden = false;
+        providerCustomWordmark.hidden = true;
+    };
+    providerWordmark.onerror = () => {
+        if (document.body.dataset.provider !== provider) return;
+        providerWordmark.hidden = true;
+        providerCustomWordmark.hidden = !customProvider;
+    };
+    providerCustomWordmark.textContent = customProvider?.name || "";
+    providerCustomWordmark.hidden = !customProvider || Boolean(wordmark);
+    providerWordmark.hidden = !wordmark;
+    if (wordmark) {
+        const nextSrc = chrome.runtime.getURL(wordmark);
+        if (providerWordmark.src !== nextSrc) providerWordmark.src = nextSrc;
+        else if (providerWordmark.complete && providerWordmark.naturalWidth > 0) {
+            providerWordmark.hidden = false;
+            providerCustomWordmark.hidden = true;
+        } else if (providerWordmark.complete) {
+            providerWordmark.hidden = true;
+            providerCustomWordmark.hidden = !customProvider;
+        }
     } else {
-
-        providerWordmark.removeAttribute(
-            "src"
-        );
+        providerWordmark.removeAttribute("src");
     }
 
 

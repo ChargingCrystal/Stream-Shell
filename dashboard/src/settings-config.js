@@ -35,6 +35,7 @@ function baseSettingKeyForStorageKey(storageKey) {
 
 const SETTINGS_DEFAULTS = {
     streamShellDisplayMode: "auto",
+    streamShellProviderRegistry: defaultStreamShellProviderRegistry(),
 
     streamShellTwitchKeepActive: true,
     streamShellTwitchAutoClaimPoints: true,
@@ -180,6 +181,7 @@ const SETTINGS_STORAGE_KEY_SET = new Set(SETTINGS_STORAGE_KEYS);
 const SETTINGS_SECTIONS = {
     general: [
         ["display", "Display"],
+        ["providers", "Providers"],
         ["anarchy", "Anarchy"],
         ["twitch", "Twitch"]
     ],

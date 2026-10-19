@@ -17,6 +17,10 @@ function renderSettingsContent() {
         html = renderDisplaySettings();
     }
 
+    if (settingsProvider === "general" && settingsSection === "providers") {
+        html = renderProviderRegistrySettings();
+    }
+
     if (settingsProvider === "general" && settingsSection === "twitch") {
         html = renderTwitchUtilitySettings();
     }
@@ -407,6 +411,8 @@ async function loadSettingsValues() {
     }
 
     settingsLoaded = true;
+    syncDashboardProviderIdentities();
+    renderProviderSelector();
 }
 
 async function openSettingsCenter(provider) {
@@ -415,8 +421,11 @@ async function openSettingsCenter(provider) {
         SETTINGS_SECTIONS[provider]
     ) {
         settingsProvider = provider;
-    } else if (PROVIDERS.has(currentLeftMode)) {
+    } else if (PROVIDERS.has(currentLeftMode) && SETTINGS_SECTIONS[currentLeftMode]) {
         settingsProvider = currentLeftMode;
+    } else if (PROVIDERS.has(currentLeftMode)) {
+        // Basic custom sites have no per-provider adapters/settings pages yet.
+        settingsProvider = "general";
     }
 
     settingsSection = defaultSettingsSection(settingsProvider);
@@ -573,6 +582,68 @@ function handleSettingsClick(event) {
         return true;
     }
 
+    if (button.id === "settings-custom-provider-save") {
+        event.preventDefault();
+        saveStreamShellCustomProvider();
+        return true;
+    }
+    if (button.id === "settings-custom-provider-cancel") {
+        event.preventDefault();
+        editingStreamShellProviderId = null;
+        renderSettingsContent();
+        return true;
+    }
+    if (button.dataset.registryEdit) {
+        event.preventDefault();
+        editingStreamShellProviderId = button.dataset.registryEdit;
+        renderSettingsContent();
+        return true;
+    }
+    if (button.dataset.registryRemove) {
+        event.preventDefault();
+        const id = button.dataset.registryRemove;
+        updateStreamShellProviderRegistry(registry => {
+            registry.providers = registry.providers.filter(p => p.id !== id || p.kind === "builtin");
+            registry.dashboardOrder = registry.dashboardOrder.filter(p => p !== id);
+            registry.titlebarOrder = registry.titlebarOrder.filter(p => p !== id);
+            return registry;
+        }).then(() => {
+            if (editingStreamShellProviderId === id) editingStreamShellProviderId = null;
+            renderSettingsContent();
+        }).catch(error => console.error("Provider removal failed", error));
+        return true;
+    }
+
+    if (button.dataset.registryTitlebarMove) {
+        event.preventDefault();
+        const id = button.dataset.registryTitlebarMove;
+        const direction = Number(button.dataset.registryTitlebarDirection);
+        updateStreamShellProviderRegistry(registry => {
+            const index = registry.titlebarOrder.indexOf(id);
+            const target = index + direction;
+            if (index < 0 || target < 0 || target >= registry.titlebarOrder.length) return registry;
+            [registry.titlebarOrder[index], registry.titlebarOrder[target]] =
+                [registry.titlebarOrder[target], registry.titlebarOrder[index]];
+            return registry;
+        }).catch(error => console.error("Titlebar reorder failed", error));
+        return true;
+    }
+
+    if (button.dataset.registryMove) {
+        event.preventDefault();
+        const id = button.dataset.registryMove;
+        const direction = Number(button.dataset.registryDirection);
+        updateStreamShellProviderRegistry(registry => {
+            const index = registry.dashboardOrder.indexOf(id);
+            const target = index + direction;
+            if (index < 0 || target < 0 || target >= registry.dashboardOrder.length) return registry;
+            [registry.dashboardOrder[index], registry.dashboardOrder[target]] =
+                [registry.dashboardOrder[target], registry.dashboardOrder[index]];
+            return registry;
+        }).catch(error => console.error("Provider reorder failed", error));
+        return true;
+    }
+
     if (button.id === "settings-close") {
         event.preventDefault();
         closeSettingsCenter();
@@ -711,6 +782,12 @@ document.addEventListener(
             return;
         }
 
+        const artworkKeyInput = event.target.closest?.("#settings-custom-provider-art-key");
+        if (artworkKeyInput) {
+            updateStreamShellLocalArtworkHints(artworkKeyInput.value);
+            return;
+        }
+
         const input = event.target.closest?.(".settings-range[data-setting-key]");
         if (!input) {
             return;
@@ -731,6 +808,75 @@ document.addEventListener(
 document.addEventListener(
     "change",
     event => {
+        const enableInput = event.target.closest?.("[data-registry-enabled]");
+        if (enableInput) {
+            const id = enableInput.dataset.registryEnabled;
+            const requested = enableInput.checked;
+            updateStreamShellProviderRegistry(registry => {
+                const p = registry.providers.find(item => item.id === id);
+                if (p) p.enabled = requested;
+                return registry;
+            }).catch(error => console.error("Provider enable failed", error));
+            return;
+        }
+
+        const titlebarColorPicker = event.target.closest?.("[data-registry-titlebar-color-picker]");
+        const titlebarColorHex = event.target.closest?.("[data-registry-titlebar-color-hex]");
+        if (titlebarColorPicker || titlebarColorHex) {
+            const input = titlebarColorPicker || titlebarColorHex;
+            const id = titlebarColorPicker ? input.dataset.registryTitlebarColorPicker : input.dataset.registryTitlebarColorHex;
+            const raw = input.value.trim();
+            const color = streamShellValidatedTitlebarColor(raw);
+            if (!color && raw) {
+                input.setCustomValidity?.("Use #RRGGBB or leave the field empty for the default titlebar theme.");
+                input.reportValidity?.();
+                return;
+            }
+            input.setCustomValidity?.("");
+            updateStreamShellProviderRegistry(registry => {
+                const provider = registry.providers.find(item => item.id === id);
+                if (provider) provider.titlebarColor = color;
+                return registry;
+            }).catch(error => console.error("Titlebar color update failed", error));
+            return;
+        }
+
+        const titlebarInput = event.target.closest?.("[data-registry-titlebar-visible]");
+        if (titlebarInput) {
+            const id = titlebarInput.dataset.registryTitlebarVisible;
+            const requested = titlebarInput.checked;
+            updateStreamShellProviderRegistry(registry => {
+                const p = registry.providers.find(provider => provider.id === id);
+                if (p) p.showInTitlebar = requested;
+                return registry;
+            }).catch(error => {
+                titlebarInput.checked = !requested;
+                console.error("Titlebar visibility failed", error);
+            });
+            return;
+        }
+
+        const pinInput = event.target.closest?.("[data-registry-visibility]");
+        if (pinInput) {
+            const id = pinInput.dataset.registryVisibility;
+            const requested = pinInput.checked;
+            const current = getStreamShellProviderRegistry();
+            const before = streamShellPinnedProviders(current).length;
+            if ((!requested && before <= 1) || (requested && before >= 7)) {
+                pinInput.checked = !requested;
+                return;
+            }
+            updateStreamShellProviderRegistry(registry => {
+                const provider = registry.providers.find(p => p.id === id);
+                if (provider) provider.showOnDashboard = requested;
+                return registry;
+            }).catch(error => {
+                pinInput.checked = !requested;
+                console.error("Provider pinning failed", error);
+            });
+            return;
+        }
+
         const targetInput = event.target.closest?.("[data-settings-display-target]");
         if (targetInput) {
             const target = targetInput.dataset.settingsDisplayTarget;
@@ -815,6 +961,14 @@ chrome.storage.onChanged.addListener(
             relevant = true;
         }
 
+        if (changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]) {
+            syncDashboardProviderIdentities();
+            renderProviderSelector();
+            // Apply newly selected custom art to the currently visible backdrop
+            // without navigating or recreating a provider window.
+            chrome.runtime.sendMessage({ type: "get-state" })
+                .then(renderState).catch(() => {});
+        }
         if (relevant && !settingsCenter.hidden) {
             renderSettingsContent();
         }
@@ -822,4 +976,5 @@ chrome.storage.onChanged.addListener(
 );
 
 notifySettingsVisibility(false);
+renderProviderSelector();
 loadSettingsValues().catch(() => {});

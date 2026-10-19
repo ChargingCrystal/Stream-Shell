@@ -4,6 +4,7 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent $Root
 $Target = Join-Path $ProjectRoot "background.js"
 $Chunks = @(
+  "../shared/provider-registry-core.js"
   "../shared/resume-utils.js"
   "src/00-config-home.js"
   "src/00a-flight-recorder.js"

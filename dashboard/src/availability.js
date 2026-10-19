@@ -130,6 +130,14 @@ function renderAvailabilityIndicators() {
                     );
 
 
+                // No media-catalog availability exists for basic custom URLs.
+                if (!STREAM_SHELL_BUILTIN_IDS.has(provider)) {
+                    indicator.replaceChildren();
+                    indicator.className = "provider-availability";
+                    button.title = `${PROVIDER_NAMES[provider] || provider} · Basic website`;
+                    return;
+                }
+
                 const status =
                     dashboard?.[
                         provider

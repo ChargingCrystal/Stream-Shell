@@ -1,20 +1,43 @@
-Stream Shell Native Titlebar Host
-=================================
+Stream Shell - Native Windows Titlebar Host (current: v0.20.0)
+================================================================
 
 Purpose
 -------
-Optional Native Messaging host for the custom Stream Shell titlebar,
-provider-aware taskbar/Alt+Tab identity and Stream Shell window grouping.
-The Windows media player remains independent.
+The optional Windows Native Messaging helper renders Stream Shell's native
+provider Titlebar buttons and manages window chrome/grouping. It does not
+provide the streaming websites themselves. The Discord desktop helper is a
+separate installation.
 
-Install
--------
-1. Double-click native\install-titlebar-helper.cmd.
-2. Allow the administrator prompt.
-3. Reload Stream Shell once in opera://extensions.
+Install / update
+----------------
+1. Load the unpacked Stream Shell extension in opera://extensions.
+2. Run native\install-titlebar-helper.cmd and complete the installer prompts.
+3. Reload the extension in opera://extensions.
 
-The extension itself remains the only Stream Shell launcher. There is no
-Start-menu/taskbar launcher or pending-launch mechanism.
+After a code-only update, reload the extension. Re-run the helper installer
+ONLY if the corresponding release notes say the C# binary or native protocol
+changed. v0.20.0 retains the v0.19.37 helper (Native Messaging protocol v9),
+so upgrading from v0.19.37 to v0.20.0 requires no native reinstall.
+
+Current dynamic providers / icons
+---------------------------------
+- General > Providers configures Dashboard and Native Titlebar independently.
+- Dashboard holds up to 7 pinned providers; native Titlebar supports more than
+  7 with an overflow "..." menu when there is insufficient width.
+- Custom primary icon: native/titlebar-icons/custom/custom_<key>.png
+- If missing: assets/providers/custom/custom_<key>_icon.svg (monochrome fallback)
+- If that fails: provider initials (text).
+- PNG primary is fetched directly by the extension; the native C# helper
+  validates / renders it monochrome. Only SVG fallback requires offscreen
+  rendering. Accent colors change chrome and active/hover backgrounds, NOT
+  the icon colors. The five built-in icons retain their existing appearance.
+- Image updates need extension reload; the local user icon files are omitted
+  from release ZIPs and should not be committed.
+- Diagnostics includes native.titlebarArtwork and native.titlebarProviderSync.
+
+Native titlebar / HWND work must preserve left/right Wide focus isolation and
+Twitch A-D acknowledged native claims. Reordering buttons must not recreate
+or activate unrelated windows.
 
 Diagnostics
 -----------
@@ -25,7 +48,10 @@ Uninstall
 ---------
 Run native\uninstall-titlebar-helper.ps1.
 
-The Discord native helper is separate and is not modified here.
+Historical implementation notes (chronological; old behavior may be superseded)
+-------------------------------------------------------------------------------
+The notes below describe what each historical release introduced. Consult the
+CURRENT sections above for the active behavior and file format in v0.20.0.
 
 0.18.2 Compact monitor-edge clamp
 ----------------------------------
@@ -225,3 +251,39 @@ browser-owned overscan without a fixed local caption assumption. This prevents v
 coordinate drift and black compositor surfaces after fullscreen restore. Re-run
 install-titlebar-helper.cmd after upgrading because both protocol peers changed.
 
+
+0.19.33 Custom SVG icons / Titlebar colors
+-------------------------------------------
+Native icon overrides now reside under the extension project folder at
+native/titlebar-icons/custom/custom_<artwork-key>.svg. They are rasterized by
+the Opera extension (not installed as SVGs into the host's icons directory).
+Primary SVGs retain their original colors. If absent, the normal provider SVG
+under assets/providers/custom/custom_<key>_icon.svg is rasterized monochrome
+using the per-provider titlebar color chosen in General > Providers.
+The final fallback is text initials. No custom artwork is shipped in ZIPs.
+The Native Messaging provider protocol has changed from v7 to v8, so the host
+MUST be reinstalled with native/install-titlebar-helper.cmd and the extension
+reloaded after upgrading. Twitch/Discord window ownership is unchanged.
+
+
+0.19.34 Native SVG rendering correction
+--------------------------------------
+The v0.19.33 SVG service-worker renderer and 3-KB icon limit were unreliable.
+The existing offscreen audio document now also renders local SVGs using HTML
+Image decode/Canvas to 32x32 neutral-monochrome PNG. The existing native C# host
+draws bounded PNGs; images are never recolored by titlebar accent. Selected
+Titlebar Color changes ONLY window chrome/active/hover backgrounds. One picker
+and one hex field per provider in Settings. If an icon falls back to initials,
+check the Local artwork key and Diagnostics native.titlebarArtwork reasons.
+The C# file changed, so reinstall native/install-titlebar-helper.cmd; the
+Native Messaging protocol remains v8. No Twitch or Discord code changed.
+
+0.19.35 Custom provider native icon format
+------------------------------------------
+Current primary override: native/titlebar-icons/custom/custom_<artwork-key>.png
+(transparency recommended). It is rasterized to neutral monochrome. The
+secondary provider-icon fallback stays SVG at
+assets/providers/custom/custom_<artwork-key>_icon.svg. If neither is found,
+show the provider initials. Native host protocol and C# helper remain v8;
+reloading the extension is sufficient. Earlier notes refer to the former
+native SVG primary and are superseded by this entry.

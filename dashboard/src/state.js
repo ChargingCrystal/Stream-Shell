@@ -223,6 +223,9 @@ const providerWordmark =
         "provider-wordmark"
     );
 
+const providerCustomWordmark =
+    document.getElementById("provider-custom-wordmark");
+
 
 const SELECTED_MEDIA_KEY =
     "streamShellSelectedMedia";

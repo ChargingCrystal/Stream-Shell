@@ -1,3 +1,129 @@
+/* Stream Shell provider registry v2: shared validation for Dashboard and background.
+ * Custom providers are HTTPS-only basic windows, never injected adapters. */
+const STREAM_SHELL_PROVIDER_REGISTRY_KEY = "streamShellProviderRegistry";
+const STREAM_SHELL_PROVIDER_BUILTINS = Object.freeze([
+    { id: "youtube", name: "YouTube", url: "https://www.youtube.com/" },
+    { id: "netflix", name: "Netflix", url: "https://www.netflix.com/browse" },
+    { id: "prime", name: "Prime Video", url: "https://www.primevideo.com/" },
+    { id: "disney", name: "Disney+", url: "https://www.disneyplus.com/" },
+    { id: "crunchyroll", name: "Crunchyroll", url: "https://www.crunchyroll.com/" }
+]);
+const STREAM_SHELL_PROVIDER_GRID_PATTERNS = Object.freeze({
+    1: [1], 2: [2], 3: [3], 4: [1, 2, 1],
+    5: [1, 3, 1], 6: [2, 2, 2], 7: [2, 3, 2]
+});
+const STREAM_SHELL_BUILTIN_IDS = new Set(STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id));
+
+function streamShellValidatedCustomUrl(input) {
+    const raw = typeof input === "string" ? input.trim() : "";
+    if (!raw || raw.length > 2048 || /[\x00-\x20\x7f]/.test(raw)) return null;
+    try {
+        const url = new URL(raw);
+        if (url.protocol !== "https:" || !url.hostname || url.username || url.password) return null;
+        return url.href;
+    } catch {
+        return null;
+    }
+}
+
+// Local artwork paths are strictly keyed by a user-chosen slug; no arbitrary
+// file paths or remote image URLs enter the extension's DOM.
+function streamShellValidatedArtworkKey(input) {
+    const key = typeof input === "string" ? input.trim().toLowerCase() : "";
+    return /^[a-z0-9][a-z0-9_-]{0,31}$/.test(key) ? key : "";
+}
+
+// Empty means: retain the integrated icon palette. Custom fallback defaults
+// to a soft neutral accent. A user override is always canonical #RRGGBB.
+function streamShellValidatedTitlebarColor(input) {
+    const raw = typeof input === "string" ? input.trim() : "";
+    return /^#[0-9a-f]{6}$/i.test(raw) ? raw.toUpperCase() : "";
+}
+
+function streamShellNativeCustomIconPath(key) {
+    const slug = streamShellValidatedArtworkKey(key);
+    return slug ? `native/titlebar-icons/custom/custom_${slug}.png` : null;
+}
+
+function streamShellCustomArtworkPath(key, kind) {
+    const slug = streamShellValidatedArtworkKey(key);
+    if (!slug) return null;
+    if (kind === "wide" || kind === "compact") return `assets/backgrounds/custom_${slug}_${kind}.png`;
+    if (kind === "icon" || kind === "wordmark") return `assets/providers/custom/custom_${slug}_${kind}.svg`;
+    return null;
+}
+
+function defaultStreamShellProviderRegistry() {
+    const ids = STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id);
+    return {
+        version: 2,
+        providers: STREAM_SHELL_PROVIDER_BUILTINS.map(p => ({
+            ...p, kind: "builtin", enabled: true, showOnDashboard: true,
+            showInTitlebar: true
+        })),
+        dashboardOrder: [...ids],
+        titlebarOrder: [...ids]
+    };
+}
+
+function normalizeStreamShellProviderRegistry(value) {
+    const defaults = defaultStreamShellProviderRegistry();
+    if (!value || typeof value !== "object" || Array.isArray(value)) return defaults;
+    const supplied = Array.isArray(value.providers) ? value.providers : [];
+    const providers = STREAM_SHELL_PROVIDER_BUILTINS.map((base, index) => {
+        const incoming = supplied.find(p => p && p.id === base.id);
+        return {
+            ...defaults.providers[index],
+            enabled: incoming?.enabled !== false,
+            showOnDashboard: incoming?.showOnDashboard !== false,
+            showInTitlebar: incoming?.showInTitlebar !== false,
+            titlebarColor: streamShellValidatedTitlebarColor(incoming?.titlebarColor)
+        };
+    });
+    const seen = new Set(STREAM_SHELL_BUILTIN_IDS);
+    for (const item of supplied) {
+        if (!item || typeof item !== "object" || item.kind !== "custom") continue;
+        const id = String(item.id || "");
+        if (!/^custom-[a-z0-9]{8,40}$/.test(id) || seen.has(id)) continue;
+        const url = streamShellValidatedCustomUrl(item.url);
+        const name = typeof item.name === "string" ? item.name.trim().slice(0, 48) : "";
+        if (!url || !name) continue;
+        seen.add(id);
+        providers.push({
+            id, kind: "custom", name, url,
+            icon: typeof item.icon === "string" ? item.icon.trim().slice(0, 8) : "",
+            artKey: streamShellValidatedArtworkKey(item.artKey),
+            titlebarColor: streamShellValidatedTitlebarColor(item.titlebarColor),
+            enabled: item.enabled !== false,
+            showOnDashboard: item.showOnDashboard === true,
+            showInTitlebar: item.showInTitlebar !== false
+        });
+    }
+    const ids = providers.map(p => p.id);
+    const allowed = new Set(ids);
+    const order = input => {
+        const ordered = [], used = new Set();
+        for (const id of Array.isArray(input) ? input : []) {
+            if (typeof id === "string" && allowed.has(id) && !used.has(id)) {
+                used.add(id); ordered.push(id);
+            }
+        }
+        for (const id of ids) if (!used.has(id)) ordered.push(id);
+        return ordered;
+    };
+    const dashboardOrder = order(value.dashboardOrder);
+    const titlebarOrder = order(value.titlebarOrder);
+    const pinned = providers.filter(p => p.enabled && p.showOnDashboard);
+    if (!pinned.length) {
+        const first = providers.find(p => p.enabled) || providers[0];
+        first.enabled = true;
+        first.showOnDashboard = true;
+    } else if (pinned.length > 7) {
+        const kept = new Set(dashboardOrder.filter(id => pinned.some(p => p.id === id)).slice(0, 7));
+        for (const provider of pinned) if (!kept.has(provider.id)) provider.showOnDashboard = false;
+    }
+    return { version: 2, providers, dashboardOrder, titlebarOrder };
+}
 const PROVIDERS =
     new Set([
         "youtube",
@@ -571,1276 +697,6 @@ async function syncSubscriptions() {
 }
 
 
-(() => {
-    "use strict";
-
-    const FINANCE_HOST =
-        "com.streamshell.finance";
-
-    const FINANCE_CONFIG_KEY =
-        "streamShellSubscriptionFinance";
-
-    const SUBSCRIPTION_KEY =
-        "streamShellSubscriptions";
-
-    const PROVIDERS = [
-        { id: "youtube", label: "YouTube" },
-        { id: "netflix", label: "Netflix" },
-        { id: "prime", label: "Prime Video" },
-        { id: "disney", label: "Disney+" },
-        { id: "crunchyroll", label: "Crunchyroll" },
-        { id: "discord", label: "Discord" }
-    ];
-
-    const STATUS_LABELS = {
-        active: "ACTIVE",
-        ending: "ENDING",
-        inactive: "INACTIVE",
-        signin: "SIGN IN",
-        verify: "VERIFY",
-        unknown: "UNKNOWN"
-    };
-
-    let overlay =
-        null;
-
-    let clickCount =
-        0;
-
-    let clickResetTimer =
-        null;
-
-    let printableReport =
-        "";
-
-
-    function clampCents(value) {
-        const number =
-            Number(value);
-
-        if (!Number.isFinite(number) || number < 0) {
-            return 0;
-        }
-
-        return Math.min(
-            999999999,
-            Math.round(number)
-        );
-    }
-
-
-    function normalizeConfig(raw) {
-        const result = {
-            version: 1,
-            items: {}
-        };
-
-        for (const provider of PROVIDERS) {
-            const item =
-                raw?.items?.[provider.id] ||
-                {};
-
-            result.items[provider.id] = {
-                amountCents:
-                    clampCents(item.amountCents),
-
-                cadence:
-                    item.cadence === "yearly"
-                        ? "yearly"
-                        : "monthly"
-            };
-        }
-
-        return result;
-    }
-
-
-    function normalizeStatus(value) {
-        return Object.prototype.hasOwnProperty.call(
-            STATUS_LABELS,
-            value
-        )
-            ? value
-            : "unknown";
-    }
-
-
-    function statusCode(value) {
-        const status =
-            normalizeStatus(value);
-
-        if (status === "active") return "A";
-        if (status === "ending") return "E";
-        if (status === "inactive") return "I";
-        return "U";
-    }
-
-
-    function billingCode(value, providerId) {
-        const source =
-            String(value || "")
-                .trim()
-                .toLowerCase();
-
-        if (source.includes("google")) {
-            return "G";
-        }
-
-        if (source) {
-            return "D";
-        }
-
-        if (
-            providerId === "netflix" ||
-            providerId === "prime" ||
-            providerId === "disney" ||
-            providerId === "crunchyroll"
-        ) {
-            return "D";
-        }
-
-        return "O";
-    }
-
-
-    function fixed(value, length) {
-        return String(value || "")
-            .toUpperCase()
-            .replace(/[^A-Z0-9_-]/g, "-")
-            .slice(0, length)
-            .padEnd(length, " ");
-    }
-
-
-    function buildLedger(subscriptionState, config) {
-        const items =
-            subscriptionState?.items ||
-            {};
-
-        return PROVIDERS.map(
-            provider => {
-                const subscription =
-                    items[provider.id] ||
-                    {};
-
-                const finance =
-                    config.items[provider.id];
-
-                const amountCents =
-                    String(
-                        clampCents(finance.amountCents)
-                    ).padStart(9, "0");
-
-                return [
-                    fixed(provider.id, 12),
-                    statusCode(subscription.status),
-                    finance.cadence === "yearly" ? "Y" : "M",
-                    amountCents,
-                    billingCode(subscription.billingSource, provider.id)
-                ].join("");
-            }
-        ).join("\n") + "\n";
-    }
-
-
-    function parseCobolReport(text) {
-        const fields = {};
-        const printLines = [];
-        let inPrintReport = false;
-
-        for (const line of String(text || "").split(/\r?\n/)) {
-            const trimmed =
-                line.trim();
-
-            if (trimmed === "PRINT_REPORT_BEGIN") {
-                inPrintReport = true;
-                continue;
-            }
-
-            if (trimmed === "PRINT_REPORT_END") {
-                inPrintReport = false;
-                continue;
-            }
-
-            if (inPrintReport) {
-                printLines.push(
-                    line.replace(/\s+$/, "")
-                );
-                continue;
-            }
-
-            if (!trimmed) {
-                continue;
-            }
-
-            const separator =
-                trimmed.indexOf("=");
-
-            if (separator <= 0) {
-                continue;
-            }
-
-            fields[
-                trimmed.slice(0, separator)
-            ] = trimmed.slice(separator + 1);
-        }
-
-        return {
-            fields,
-            printable:
-                printLines.length
-                    ? printLines.join("\n").replace(/\s+$/, "") + "\n"
-                    : ""
-        };
-    }
-
-
-    function reportNumber(report, key) {
-        const value =
-            Number(report?.[key]);
-
-        return Number.isFinite(value)
-            ? value
-            : 0;
-    }
-
-
-    function formatMoney(cents) {
-        return new Intl.NumberFormat(
-            undefined,
-            {
-                style: "currency",
-                currency: "EUR"
-            }
-        ).format(
-            Number(cents || 0) / 100
-        );
-    }
-
-
-    function monthlyEquivalent(item) {
-        const cents =
-            clampCents(item.amountCents);
-
-        return item.cadence === "yearly"
-            ? Math.round(cents / 12)
-            : cents;
-    }
-
-
-    function isBillableStatus(status) {
-        return status === "active" ||
-            status === "ending";
-    }
-
-
-    function getSubscriptionSummary(subscription) {
-        const parts = [];
-
-        if (subscription?.billingSource) {
-            parts.push(subscription.billingSource);
-        }
-
-        if (subscription?.renewal) {
-            parts.push(subscription.renewal);
-        }
-
-        return parts.length
-            ? parts.join(" · ")
-            : "No billing metadata";
-    }
-
-
-    async function loadFinanceState() {
-        const stored =
-            await chrome.storage.local.get([
-                SUBSCRIPTION_KEY,
-                FINANCE_CONFIG_KEY
-            ]);
-
-        return {
-            subscriptions:
-                stored[SUBSCRIPTION_KEY] ||
-                { items: {} },
-
-            config:
-                normalizeConfig(
-                    stored[FINANCE_CONFIG_KEY]
-                )
-        };
-    }
-
-
-    async function saveFinanceConfig(config) {
-        await chrome.storage.local.set({
-            [FINANCE_CONFIG_KEY]:
-                normalizeConfig(config)
-        });
-    }
-
-
-    function encodeBase64(value) {
-        const bytes =
-            new TextEncoder().encode(
-                value
-            );
-
-        let binary = "";
-
-        for (const byte of bytes) {
-            binary += String.fromCharCode(byte);
-        }
-
-        return btoa(binary);
-    }
-
-
-    function decodeBase64(value) {
-        const binary =
-            atob(value || "");
-
-        const bytes =
-            Uint8Array.from(
-                binary,
-                character =>
-                    character.charCodeAt(0)
-            );
-
-        return new TextDecoder().decode(
-            bytes
-        );
-    }
-
-
-    async function runCobolReconciliation(
-        subscriptions,
-        config
-    ) {
-        const ledger =
-            buildLedger(
-                subscriptions,
-                config
-            );
-
-        const response =
-            await chrome.runtime.sendNativeMessage(
-                FINANCE_HOST,
-                {
-                    action:
-                        "reconcile",
-
-                    recordsBase64:
-                        encodeBase64(ledger)
-                }
-            );
-
-        if (!response?.ok) {
-            throw new Error(
-                response?.error ||
-                "COBOL finance host returned no result."
-            );
-        }
-
-        return parseCobolReport(
-            decodeBase64(
-                response.reportBase64
-            )
-        );
-    }
-
-
-    function setPrintReport(value) {
-        printableReport =
-            String(value || "");
-
-        const button =
-            overlay?.querySelector(
-                "#finance-print"
-            );
-
-        if (button) {
-            button.disabled =
-                !printableReport.trim();
-        }
-    }
-
-
-    function markReportDirty() {
-        setPrintReport(
-            ""
-        );
-
-        const status =
-            overlay?.querySelector(
-                "#finance-engine-status"
-            );
-
-        if (status) {
-            status.removeAttribute(
-                "data-ok"
-            );
-
-            status.textContent =
-                "INPUT CHANGED · RECONCILE REQUIRED";
-        }
-    }
-
-
-    function printFinancialReport() {
-        if (!printableReport.trim()) {
-            return;
-        }
-
-        const existing =
-            document.querySelector(
-                ".finance-print-report"
-            );
-
-        existing?.remove();
-
-        const report =
-            document.createElement("pre");
-
-        report.className =
-            "finance-print-report";
-
-        report.textContent =
-            printableReport;
-
-        document.body.append(
-            report
-        );
-
-        const cleanup = () => {
-            report.remove();
-            window.removeEventListener(
-                "afterprint",
-                cleanup
-            );
-        };
-
-        window.addEventListener(
-            "afterprint",
-            cleanup
-        );
-
-        window.print();
-    }
-
-
-    function createMetric(label, value, id) {
-        const element =
-            document.createElement("div");
-
-        element.className =
-            "finance-metric";
-
-        const labelElement =
-            document.createElement("span");
-
-        labelElement.className =
-            "finance-metric-label";
-
-        labelElement.textContent =
-            label;
-
-        const valueElement =
-            document.createElement("strong");
-
-        valueElement.className =
-            "finance-metric-value";
-
-        if (id) {
-            valueElement.id =
-                id;
-        }
-
-        valueElement.textContent =
-            value;
-
-        element.append(
-            labelElement,
-            valueElement
-        );
-
-        return element;
-    }
-
-
-    function createProviderRow(
-        provider,
-        subscription,
-        finance
-    ) {
-        const row =
-            document.createElement("div");
-
-        row.className =
-            "finance-provider-row";
-
-        row.dataset.provider =
-            provider.id;
-
-        const identity =
-            document.createElement("div");
-
-        identity.className =
-            "finance-provider-identity";
-
-        const name =
-            document.createElement("strong");
-
-        name.textContent =
-            provider.label;
-
-        const meta =
-            document.createElement("span");
-
-        meta.textContent =
-            getSubscriptionSummary(
-                subscription
-            );
-
-        identity.append(
-            name,
-            meta
-        );
-
-        const status =
-            document.createElement("span");
-
-        const normalizedStatus =
-            normalizeStatus(
-                subscription?.status
-            );
-
-        status.className =
-            "finance-provider-status";
-
-        status.dataset.status =
-            normalizedStatus;
-
-        status.textContent =
-            STATUS_LABELS[
-                normalizedStatus
-            ];
-
-        const amountWrap =
-            document.createElement("label");
-
-        amountWrap.className =
-            "finance-money-input";
-
-        const currency =
-            document.createElement("span");
-
-        currency.textContent =
-            "€";
-
-        const amount =
-            document.createElement("input");
-
-        amount.type =
-            "number";
-
-        amount.min =
-            "0";
-
-        amount.step =
-            "0.01";
-
-        amount.inputMode =
-            "decimal";
-
-        amount.value =
-            (
-                finance.amountCents /
-                100
-            ).toFixed(2);
-
-        amount.dataset.financeAmount =
-            provider.id;
-
-        amount.addEventListener(
-            "input",
-            markReportDirty
-        );
-
-        amountWrap.append(
-            currency,
-            amount
-        );
-
-        const cadence =
-            document.createElement("select");
-
-        cadence.className =
-            "finance-cadence";
-
-        cadence.dataset.financeCadence =
-            provider.id;
-
-        cadence.innerHTML =
-            '<option value="monthly">Monthly</option><option value="yearly">Yearly</option>';
-
-        cadence.value =
-            finance.cadence;
-
-        cadence.addEventListener(
-            "change",
-            markReportDirty
-        );
-
-        const monthly =
-            document.createElement("span");
-
-        monthly.className =
-            "finance-monthly-equivalent";
-
-        monthly.dataset.financeMonthly =
-            provider.id;
-
-        monthly.textContent =
-            isBillableStatus(normalizedStatus)
-                ? formatMoney(
-                    monthlyEquivalent(finance)
-                )
-                : "Excluded";
-
-        row.append(
-            identity,
-            status,
-            amountWrap,
-            cadence,
-            monthly
-        );
-
-        return row;
-    }
-
-
-    function readConfigFromOverlay(baseConfig) {
-        const config =
-            normalizeConfig(
-                baseConfig
-            );
-
-        for (const provider of PROVIDERS) {
-            const amount =
-                overlay?.querySelector(
-                    `[data-finance-amount="${provider.id}"]`
-                );
-
-            const cadence =
-                overlay?.querySelector(
-                    `[data-finance-cadence="${provider.id}"]`
-                );
-
-            config.items[provider.id] = {
-                amountCents:
-                    clampCents(
-                        Number(amount?.value || 0) *
-                        100
-                    ),
-
-                cadence:
-                    cadence?.value === "yearly"
-                        ? "yearly"
-                        : "monthly"
-            };
-        }
-
-        return config;
-    }
-
-
-    function renderReport(report) {
-        const status =
-            overlay?.querySelector(
-                "#finance-engine-status"
-            );
-
-        if (status) {
-            status.textContent =
-                report?.STATUS === "OK"
-                    ? "RECONCILIATION STATUS: OK · COBOL"
-                    : `RECONCILIATION STATUS: ${report?.STATUS || "UNKNOWN"}`;
-
-            status.dataset.ok =
-                report?.STATUS === "OK"
-                    ? "true"
-                    : "false";
-        }
-
-        const otherCents =
-            reportNumber(
-                report,
-                "OTHER_CENTS"
-            );
-
-        const updates = {
-            "finance-active-count":
-                String(reportNumber(report, "ACTIVE")),
-
-            "finance-ending-count":
-                String(reportNumber(report, "ENDING")),
-
-            "finance-monthly-total":
-                formatMoney(
-                    reportNumber(
-                        report,
-                        "MONTHLY_CENTS"
-                    )
-                ),
-
-            "finance-annual-total":
-                formatMoney(
-                    reportNumber(
-                        report,
-                        "ANNUAL_CENTS"
-                    )
-                ),
-
-            "finance-direct-total":
-                formatMoney(
-                    reportNumber(
-                        report,
-                        "DIRECT_CENTS"
-                    )
-                ),
-
-            "finance-google-total":
-                formatMoney(
-                    reportNumber(
-                        report,
-                        "GOOGLE_CENTS"
-                    )
-                ),
-
-            "finance-other-total":
-                formatMoney(
-                    otherCents
-                )
-        };
-
-        for (const [id, value] of Object.entries(updates)) {
-            const element =
-                overlay?.querySelector(
-                    `#${id}`
-                );
-
-            if (element) {
-                element.textContent =
-                    value;
-            }
-        }
-
-        const otherLabel =
-            overlay?.querySelector(
-                "#finance-other-label"
-            );
-
-        const otherTotal =
-            overlay?.querySelector(
-                "#finance-other-total"
-            );
-
-        const hideOther =
-            otherCents === 0;
-
-        if (otherLabel) {
-            otherLabel.hidden =
-                hideOther;
-        }
-
-        if (otherTotal) {
-            otherTotal.hidden =
-                hideOther;
-        }
-    }
-
-
-    function renderEngineError(error) {
-        const status =
-            overlay?.querySelector(
-                "#finance-engine-status"
-            );
-
-        if (!status) {
-            return;
-        }
-
-        status.dataset.ok =
-            "false";
-
-        status.textContent =
-            `COBOL ENGINE UNAVAILABLE · ${error?.message || error}`;
-    }
-
-
-    async function reconcile(
-        subscriptions,
-        baseConfig
-    ) {
-        const button =
-            overlay?.querySelector(
-                "#finance-reconcile"
-            );
-
-        const config =
-            readConfigFromOverlay(
-                baseConfig
-            );
-
-        await saveFinanceConfig(
-            config
-        );
-
-        for (const provider of PROVIDERS) {
-            const subscription =
-                subscriptions?.items?.[provider.id] ||
-                {};
-
-            const monthly =
-                overlay?.querySelector(
-                    `[data-finance-monthly="${provider.id}"]`
-                );
-
-            if (monthly) {
-                monthly.textContent =
-                    isBillableStatus(
-                        normalizeStatus(
-                            subscription.status
-                        )
-                    )
-                        ? formatMoney(
-                            monthlyEquivalent(
-                                config.items[provider.id]
-                            )
-                        )
-                        : "Excluded";
-            }
-        }
-
-        if (button) {
-            button.disabled =
-                true;
-
-            button.textContent =
-                "RECONCILING…";
-        }
-
-        const status =
-            overlay?.querySelector(
-                "#finance-engine-status"
-            );
-
-        if (status) {
-            status.removeAttribute(
-                "data-ok"
-            );
-
-            status.textContent =
-                "COBOL ENGINE: PROCESSING LEDGER…";
-        }
-
-        try {
-            const result =
-                await runCobolReconciliation(
-                    subscriptions,
-                    config
-                );
-
-            renderReport(
-                result.fields
-            );
-
-            setPrintReport(
-                result.printable
-            );
-        } catch (error) {
-            setPrintReport(
-                ""
-            );
-            console.error(
-                "COBOL finance reconciliation failed:",
-                error
-            );
-
-            renderEngineError(
-                error
-            );
-        } finally {
-            if (button) {
-                button.disabled =
-                    false;
-
-                button.textContent =
-                    "RECONCILE";
-            }
-        }
-    }
-
-
-    function closeFinanceDashboard() {
-        overlay?.remove();
-        overlay =
-            null;
-
-        printableReport =
-            "";
-    }
-
-
-    async function openFinanceDashboard() {
-        if (overlay) {
-            return;
-        }
-
-        const state =
-            await loadFinanceState();
-
-        overlay =
-            document.createElement("section");
-
-        overlay.className =
-            "finance-operations-overlay";
-
-        overlay.setAttribute(
-            "role",
-            "dialog"
-        );
-
-        overlay.setAttribute(
-            "aria-modal",
-            "true"
-        );
-
-        const shell =
-            document.createElement("div");
-
-        shell.className =
-            "finance-operations-shell";
-
-        const header =
-            document.createElement("header");
-
-        header.className =
-            "finance-operations-header";
-
-        const heading =
-            document.createElement("div");
-
-        heading.innerHTML =
-            '<div class="finance-kicker">STREAM SHELL FINANCIAL OPERATIONS</div>' +
-            '<h2>Subscription Exposure Report</h2>' +
-            '<div id="finance-engine-status" class="finance-engine-status">COBOL ENGINE: READY</div>';
-
-        const close =
-            document.createElement("button");
-
-        close.type =
-            "button";
-
-        close.className =
-            "finance-close";
-
-        close.title =
-            "Close financial operations";
-
-        close.setAttribute(
-            "aria-label",
-            "Close financial operations"
-        );
-
-        close.textContent =
-            "×";
-
-        close.addEventListener(
-            "click",
-            closeFinanceDashboard
-        );
-
-        header.append(
-            heading,
-            close
-        );
-
-        const metrics =
-            document.createElement("div");
-
-        metrics.className =
-            "finance-metrics";
-
-        metrics.append(
-            createMetric("Active services", "—", "finance-active-count"),
-            createMetric("Ending services", "—", "finance-ending-count"),
-            createMetric("Monthly run rate", "—", "finance-monthly-total"),
-            createMetric("Annualized expenditure", "—", "finance-annual-total")
-        );
-
-        const providerSection =
-            document.createElement("section");
-
-        providerSection.className =
-            "finance-provider-section";
-
-        const providerHeader =
-            document.createElement("div");
-
-        providerHeader.className =
-            "finance-provider-header finance-provider-row";
-
-        providerHeader.innerHTML =
-            "<span>Service</span><span>Status</span><span>Amount</span><span>Cadence</span><span>Monthly</span>";
-
-        const providerRows =
-            document.createElement("div");
-
-        providerRows.className =
-            "finance-provider-rows";
-
-        for (const provider of PROVIDERS) {
-            providerRows.append(
-                createProviderRow(
-                    provider,
-                    state.subscriptions?.items?.[provider.id] || {},
-                    state.config.items[provider.id]
-                )
-            );
-        }
-
-        providerSection.append(
-            providerHeader,
-            providerRows
-        );
-
-        const exposure =
-            document.createElement("section");
-
-        exposure.className =
-            "finance-exposure";
-
-        exposure.innerHTML =
-            '<div class="finance-exposure-title">Monthly billing exposure</div>' +
-            '<div class="finance-exposure-grid">' +
-                '<span>Direct</span><strong id="finance-direct-total">—</strong>' +
-                '<span>Google Play</span><strong id="finance-google-total">—</strong>' +
-                '<span id="finance-other-label">Other / unknown</span><strong id="finance-other-total">—</strong>' +
-            '</div>';
-
-        const footer =
-            document.createElement("footer");
-
-        footer.className =
-            "finance-operations-footer";
-
-        const note =
-            document.createElement("span");
-
-        note.textContent =
-            "Prices are stored locally. ACTIVE and ENDING services are included in exposure. Print output is generated by COBOL.";
-
-        const actions =
-            document.createElement("div");
-
-        actions.className =
-            "finance-operations-actions";
-
-        const printButton =
-            document.createElement("button");
-
-        printButton.type =
-            "button";
-
-        printButton.id =
-            "finance-print";
-
-        printButton.className =
-            "finance-print";
-
-        printButton.textContent =
-            "PRINT REPORT";
-
-        printButton.disabled =
-            true;
-
-        printButton.addEventListener(
-            "click",
-            printFinancialReport
-        );
-
-        const reconcileButton =
-            document.createElement("button");
-
-        reconcileButton.type =
-            "button";
-
-        reconcileButton.id =
-            "finance-reconcile";
-
-        reconcileButton.className =
-            "finance-reconcile";
-
-        reconcileButton.textContent =
-            "RECONCILE";
-
-        reconcileButton.addEventListener(
-            "click",
-            () => {
-                reconcile(
-                    state.subscriptions,
-                    state.config
-                ).catch(
-                    renderEngineError
-                );
-            }
-        );
-
-        actions.append(
-            printButton,
-            reconcileButton
-        );
-
-        footer.append(
-            note,
-            actions
-        );
-
-        shell.append(
-            header,
-            metrics,
-            providerSection,
-            exposure,
-            footer
-        );
-
-        overlay.append(
-            shell
-        );
-
-        document.body.append(
-            overlay
-        );
-
-        const firstInput =
-            overlay.querySelector(
-                "input"
-            );
-
-        firstInput?.focus();
-
-        const hasSavedValues =
-            PROVIDERS.some(
-                provider =>
-                    state.config.items[provider.id].amountCents > 0
-            );
-
-        if (hasSavedValues) {
-            reconcile(
-                state.subscriptions,
-                state.config
-            ).catch(
-                renderEngineError
-            );
-        }
-    }
-
-
-    function installFinanceStylesheet() {
-        if (
-            document.querySelector(
-                'link[data-stream-shell-finance-style]'
-            )
-        ) {
-            return;
-        }
-
-        const link =
-            document.createElement("link");
-
-        link.rel =
-            "stylesheet";
-
-        link.href =
-            chrome.runtime.getURL(
-                "landing/finance.css"
-            );
-
-        link.dataset.streamShellFinanceStyle =
-            "true";
-
-        document.head.append(
-            link
-        );
-    }
-
-
-    function installSecretTrigger() {
-        const title =
-            document.querySelector(
-                ".subscription-panel-title"
-            );
-
-        if (!title) {
-            return;
-        }
-
-        title.addEventListener(
-            "click",
-            () => {
-                clickCount += 1;
-
-                clearTimeout(
-                    clickResetTimer
-                );
-
-                if (clickCount >= 5) {
-                    clickCount =
-                        0;
-
-                    openFinanceDashboard()
-                        .catch(
-                            error => {
-                                console.error(
-                                    "Finance dashboard failed:",
-                                    error
-                                );
-                            }
-                        );
-
-                    return;
-                }
-
-                clickResetTimer =
-                    setTimeout(
-                        () => {
-                            clickCount =
-                                0;
-                        },
-                        2200
-                    );
-            }
-        );
-    }
-
-
-    document.addEventListener(
-        "keydown",
-        event => {
-            if (
-                event.key === "Escape" &&
-                overlay
-            ) {
-                closeFinanceDashboard();
-            }
-        }
-    );
-
-
-    installFinanceStylesheet();
-    installSecretTrigger();
-})();
 /*
  * ============================================================
  * HELPERS
@@ -5887,6 +4743,50 @@ chrome.runtime.onMessage.addListener(
 
 /*
  * ============================================================
+ * SHARED CUSTOM PROVIDER ARTWORK
+ * ============================================================
+ * Landing and Dashboard show opposite halves of the SAME wide panorama.
+ * Landing used to reject custom IDs and silently display Netflix instead.
+ * Registry updates may arrive while Landing is already open; repaint in place.
+ */
+let landingProviderRegistry = defaultStreamShellProviderRegistry();
+let lastLandingShellState = null;
+let landingProviderRegistryUpdated = false;
+
+chrome.storage.local.get(STREAM_SHELL_PROVIDER_REGISTRY_KEY).then(stored => {
+    if (landingProviderRegistryUpdated) return; // A newer onChanged event won the race.
+    landingProviderRegistry = normalizeStreamShellProviderRegistry(
+        stored[STREAM_SHELL_PROVIDER_REGISTRY_KEY]
+    );
+    if (lastLandingShellState) renderState(lastLandingShellState);
+}).catch(() => {});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]) return;
+    landingProviderRegistryUpdated = true;
+    landingProviderRegistry = normalizeStreamShellProviderRegistry(
+        changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY].newValue
+    );
+    if (lastLandingShellState) renderState(lastLandingShellState);
+});
+
+function landingProviderBackground(provider, variant) {
+    const builtin = STREAM_SHELL_BUILTIN_IDS.has(provider);
+    const custom = landingProviderRegistry.providers.find(p => p.id === provider && p.kind === "custom");
+    const recognized = builtin || Boolean(custom);
+    const displayProvider = recognized ? provider : "netflix";
+    const file = builtin
+        ? `assets/backgrounds/${provider}_${variant}.png`
+        : (custom ? streamShellCustomArtworkPath(custom.artKey, variant) : null);
+    const neutral = "radial-gradient(ellipse at 77% 20%, rgba(70, 79, 104, .21), transparent 62%), linear-gradient(135deg, #0b0e17, #03050a)";
+    return {
+        provider: displayProvider,
+        image: file ? `url("${chrome.runtime.getURL(file)}"), ${neutral}` : neutral
+    };
+}
+
+/*
+ * ============================================================
  * BACKGROUND STATE
  * ============================================================
  */
@@ -5894,23 +4794,11 @@ chrome.runtime.onMessage.addListener(
 function renderState(
     state
 ) {
-    let provider =
-        state?.activeProvider ||
-        "netflix";
-
-
-    if (
-        !PROVIDERS.has(
-            provider
-        )
-    ) {
-        provider =
-            "netflix";
-    }
-
-
-    document.body.dataset.provider =
-        provider;
+    lastLandingShellState = state;
+    const backgroundVariant = document.body.dataset.layoutProfile === "compact"
+        ? "compact" : "wide";
+    const background = landingProviderBackground(state?.activeProvider || "netflix", backgroundVariant);
+    document.body.dataset.provider = background.provider;
 
 
     const rightMode =
@@ -5945,18 +4833,5 @@ function renderState(
     }
 
 
-    const backgroundVariant =
-        document.body.dataset.layoutProfile === "compact"
-            ? "compact"
-            : "wide";
-
-
-    const backgroundUrl =
-        chrome.runtime.getURL(
-            `assets/backgrounds/${provider}_${backgroundVariant}.png`
-        );
-
-
-    panorama.style.backgroundImage =
-        `url("${backgroundUrl}")`;
+    panorama.style.backgroundImage = background.image;
 }

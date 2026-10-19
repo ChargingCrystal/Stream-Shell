@@ -25,6 +25,54 @@ const PROVIDERS = {
     }
 };
 
+/* The five built-ins keep their specialized adapters. Custom registry entries
+ * are basic HTTPS targets only and are never registered as content scripts. */
+async function refreshStreamShellProviderTargets() {
+    const stored = await chrome.storage.local.get(STREAM_SHELL_PROVIDER_REGISTRY_KEY);
+    const registry = normalizeStreamShellProviderRegistry(stored[STREAM_SHELL_PROVIDER_REGISTRY_KEY]);
+    const valid = new Set(registry.providers.filter(item => item.enabled).map(item => item.id));
+    for (const id of Object.keys(PROVIDERS)) {
+        if (!STREAM_SHELL_BUILTIN_IDS.has(id) && !valid.has(id)) delete PROVIDERS[id];
+    }
+    for (const provider of registry.providers) {
+        if (provider.kind === "custom" && provider.enabled) {
+            PROVIDERS[provider.id] = { label: provider.name, url: provider.url, kind: "custom" };
+        }
+    }
+    return registry;
+}
+
+let providerRemovalReconcile = Promise.resolve();
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]) return;
+    providerRemovalReconcile = providerRemovalReconcile.catch(() => {}).then(async () => {
+        const oldRegistry = normalizeStreamShellProviderRegistry(changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY].oldValue);
+        const nextRegistry = await refreshStreamShellProviderTargets();
+        const ids = new Set(nextRegistry.providers.map(p => p.id));
+        const removed = oldRegistry.providers.filter(p => p.kind === "custom" && !ids.has(p.id));
+        if (!removed.length) return;
+        const state = await chrome.storage.local.get(["activeProvider", "leftMode"]);
+        if (removed.some(p => p.id === state.leftMode) && !shuttingDown) {
+            // Preserve rightMode. A removed active provider should never strand a popup.
+            await switchProvider("youtube");
+        }
+        const windows = await getProviderWindows();
+        for (const removedProvider of removed) {
+            const windowId = windows[removedProvider.id];
+            if (Number.isInteger(windowId)) {
+                await safelyRemoveWindow(windowId);
+                delete windows[removedProvider.id];
+            }
+        }
+        await saveProviderWindows(windows);
+        await chrome.storage.local.remove(removed.map(p => `streamShellCustomWindowUrl_${p.id}`));
+        const after = await chrome.storage.local.get("activeProvider");
+        if (removed.some(p => p.id === after.activeProvider)) {
+            await chrome.storage.local.set({ activeProvider: "youtube" });
+        }
+    }).catch(error => console.warn("Custom provider cleanup failed:", error));
+});
+
 const SUBSCRIPTION_STORAGE_KEY =
     "streamShellSubscriptions";
 
@@ -144,7 +192,7 @@ const TITLEBAR_NATIVE_HOST =
     "com.streamshell.titlebar";
 
 const TITLEBAR_PROTOCOL_VERSION =
-    6;
+    9;
 
 const TITLEBAR_RECONCILE_INTERVAL_MS =
     2500;
@@ -270,8 +318,12 @@ async function openShellHome() {
 
     for (const [providerName, windowId] of providerEntries) {
         await setWindowMuted(windowId, true);
-        await safelyMinimizeWindow(windowId);
-        await parkWindowOffscreen(windowId, LEFT);
+        if (compact) {
+            await parkWindowOffscreenAndMinimize(windowId, LEFT);
+        } else {
+            await safelyMinimizeWindow(windowId);
+            await parkWindowOffscreen(windowId, LEFT);
+        }
         await chrome.storage.local.remove(`streamShellNowPlaying_${providerName}`);
     }
 
@@ -319,6 +371,7 @@ async function openShellHome() {
 }
 
 async function openShellWarmLastProvider() {
+    await refreshStreamShellProviderTargets();
     const stored =
         await chrome.storage.local.get(
             "activeProvider"
@@ -361,9 +414,17 @@ async function openShellWarmLastProvider() {
         true
     );
 
-    await safelyMinimizeWindow(
-        windowId
-    );
+    const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
+    if (displayProfile?.mode === "compact") {
+        await parkWindowOffscreenAndMinimize(
+            windowId,
+            LEFT
+        );
+    } else {
+        await safelyMinimizeWindow(
+            windowId
+        );
+    }
 
     await chrome.storage.local.remove(
         `streamShellNowPlaying_${providerName}`
@@ -374,7 +435,6 @@ async function openShellWarmLastProvider() {
      * remembered provider must never make its titlebar button look selected
      * while it is parked behind the current Home surface.
      */
-    const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
     await chrome.storage.local.set({
         leftMode:
             displayProfile?.mode === "compact"

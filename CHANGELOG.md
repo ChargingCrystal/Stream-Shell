@@ -1,3 +1,159 @@
+## 0.20.0 — Provider Registry UI Consolidation (2026-10-19)
+
+- The dynamic Provider Registry milestone receives a dedicated layout pass. In **General → Providers**, the Dashboard (1–7 pins) and native Titlebar (unlimited) lists now sit side by side on wide settings panes, with tighter row spacing, truncated long URLs and unchanged reorder/enable/show/color actions. On narrower panes they stack automatically.
+- Add/Edit Custom Provider uses one 25:10:65 Name / Icon-initials / HTTPS-URL row. Artwork key and right-aligned Add / Save / Cancel actions occupy one compact second row. Inputs now remain inside the form's border.
+- Reinstate ONLY useful local artwork path hints below the editor: icon/wordmark `.svg`, native titlebar `.png`, Wide/Compact `.png`. Filenames reflect the entered artwork key immediately. No file uploader and no verbose ZIP/storage advice in the UI; custom artwork is still manually managed in local folders.
+- Bump extension manifest and README to **0.20.0**. This is a UI/documentation-only release: native Messaging protocol remains **v9** and the C# helper, Twitch A–D, Discord, left/right focus isolation, dynamic titlebar sync and native direct-PNG pipeline are byte-identical to 0.19.37. **No helper reinstall**, only reload the Opera GX extension.
+- Background and user-provided custom files remain excluded from Full/Patch archives. Structural and browser-layout checks cover editing, hint filenames, parallel/stacked breakpoints and field overflow. Windows/Opera on-device visual verification remains recommended.
+
+## 0.19.37 — Direct PNG Primary & Native Monochrome Decode (2026-10-19)
+
+- Fix the reproduced v0.19.36 failure: `native.titlebarArtwork.primaryFailure=offscreen-timeout` while the SVG fallback succeeded, resulting in the wrong icon. Primary `native/titlebar-icons/custom/custom_<key>.png` is now fetched **directly** by the MV3 worker as bounded PNG bytes, without the shared offscreen DOM image-decoder. The provider-SVG fallback still uses the existing offscreen renderer.
+- Native helper normalizes accepted PNG bytes (max 16 KiB, dimensions max 4096) to a 32×32 neutral monochrome silhouette with preserved alpha; flat opaque logo tiles get best-effort background extraction. Custom titlebar theme color remains exclusively a background/hover/active accent.
+- The initial text-first provider update, optional separate icon update, overflow, Twitch A–D, Discord, left/right isolation and custom window routing remain unchanged. Failures are reported distinctly (`png-fetch-timeout`, `file-missing`, `invalid-png`, `png-file-too-large`, etc.) and still fall back to the provider SVG then initials.
+- Native Messaging protocol **v8 → v9**, because the helper now accepts validated raw PNGs rather than only normalized 32px rasters. Reinstall `native/install-titlebar-helper.cmd`, then reload the Opera GX extension. C# Windows compilation and live image rendering still require local verification.
+- Local custom art and background image files remain absent from Full/Patch ZIPs. New tests feed an actual existing PNG asset to the direct fetch path, verify primary priority and untouched fallback, plus native decoder and no-blocking contracts.
+
+## 0.19.36 — Nonblocking Native Provider Sync & PNG Validation Recovery (2026-10-19)
+
+- Fix v0.19.35 native custom provider disappearance: send the complete titlebar provider list immediately with text fallback BEFORE attempting any offscreen icon conversion. PNG/SVG decoding now only upgrades icons asynchronously and is bounded by a 2.5-second timeout per source. Offscreen stalls cannot remove provider buttons.
+- Correct mismatch between JS raster payload limit (16,000 Base64 characters) and C# helper (old 3,000-byte PNG cap). Helper now accepts up to 12,000 decoded PNG bytes, validates image signature/dimensions, and rejects malformed images **per icon** instead of rejecting the entire provider list.
+- Native acknowledged provider messages include an optional skippedIcons count; Diagnostics now includes native.titlebarProviderSync (phase/generation/ack/error) alongside native.titlebarArtwork to distinguish transport, icon and timing failures.
+- Keep local primary PNG / secondary SVG, monochrome pixels and custom theme colors exactly as in v0.19.35. No provider registry changes, no action/focus/Twitch/Discord/HWND logic changes.
+- Native C# helper must be reinstalled; Native Messaging message shape remains protocol v8. Local custom files and background images remain excluded from ZIPs.
+
+## 0.19.35 — Compact Provider Settings & native PNG primary (2026-10-19)
+
+- Remove the large custom artwork filename block and redundant form guidance from General > Providers > Add/Edit Custom Provider. Field labels, validation and errors remain.
+- Native custom titlebar icons now use `native/titlebar-icons/custom/custom_<key>.png` as primary, with `assets/providers/custom/custom_<key>_icon.svg` as monochrome fallback, then initials. Both image sources become neutral monochrome rasters; titlebar accent colors never tint icon pixels.
+- Extend the existing offscreen renderer to accept exactly the local PNG primary and the local SVG provider fallback; retain bounded asset size, fixed icon dimensions and diagnostics (`native.titlebarArtwork`).
+- No changes to HWND/focus, Twitch, Discord, audio, C# helper, or protocol v8. Extension reload only.
+- Local custom assets remain excluded from all ZIP archives.
+
+## 0.19.34 — Native Titlebar Monochrome SVG & Settings Fix
+
+- Fix v0.19.33 duplicate color-picker/hex widgets (a template block had been inserted twice). Each titlebar provider now has **one** coupled picker and editable hex field, both controlling only the provider-specific native titlebar theme and active/hover backgrounds.
+- Restore monochrome native icon semantics: built-in images, custom-primary SVGs, fallback SVGs and final text initials remain neutral gray/white. The selected titlebar color never tints icon pixels. Existing five provider titlebar palettes remain unchanged without overrides.
+- Replace unreliable MV3 service-worker SVG `createImageBitmap(blob)`/strict 3-KB PNG export with DOM-image decoding in the **existing** offscreen audio document. Flat opaque logo tiles are separated from their contrasting foreground where possible, to avoid monochrome solid rectangles. This renderer does not change audio logic or focus/window ownership; it converts local SVGs into bounded 32px neutral-monochrome PNGs and preserves alpha/antialiasing. SVG primary path is still `native/titlebar-icons/custom/custom_<key>.svg`; normal provider SVG remains the fallback, then initials.
+- Increase bounded raster payload acceptance and keep Native Messaging protocol **v8** unchanged. Diagnostics now record custom titlebar artwork source and fallback reason under `native.titlebarArtwork` in the full JSON export, including missing artwork-key and image decode failures.
+- Preserve locally maintained custom SVGs and all backgrounds in Full/Patch ZIPs. All existing Twitch A–D, Discord, provider navigation, Dashboard/Now Playing Z-order and right-pane behavior unchanged.
+- Tests: new offscreen renderer fake-DOM verification, SVG priority/fallback + single-picker assertions, dynamic titlebar protocol, full regression tests, JS source-bundle parity, archive integrity. Native C# compilation and actual Opera GX rendering require Windows testing.
+
+**Install:** Patch over v0.19.33, rerun `native\install-titlebar-helper.cmd` (native C# changed but protocol stays at v8), reload the extension. Verify artwork key matches local filenames, and use the Diagnostics JSON if any native icon still falls back to text.
+
+## 0.19.33 — Native Custom SVG Icons & Per-Provider Titlebar Colors
+
+- Native titlebar provider icons now support local custom SVG files (`native/titlebar-icons/custom/custom_<artKey>.svg`) as the primary source. Source SVGs are rasterized inside the Opera extension to a 32x32 transparent PNG and passed through Native Messaging; System.Drawing does not need SVG support.
+- If a native custom SVG does not exist or cannot render, the existing `assets/providers/custom/custom_<artKey>_icon.svg` is automatically converted into a monochrome PNG, tinted with the configured titlebar color. Last fallback remains the initials/text label. Primary SVG preserves its original colors. No remote URL icons.
+- General -> Providers -> Native titlebar: a per-provider color picker and editable #RRGGBB field (empty = preserve built-in icon palette / default fallback tint). The chosen accent also builds a dark native titlebar/DWM theme for that provider, updated live. Built-in icons are tinted only when an explicit color is set; user custom primary SVG retains its original colors.
+- Native Messaging titlebar protocol v8 adds color and bounded PNG raster payloads to provider updates. Native validates ID, color and PNG signature/size. Existing dynamic provider ordering, overflow, left/right pane separation, Twitch/Discord HWND claims and provider windows are unchanged. Cache prevents redundant SVG reads; stale async payloads cannot override newer registry settings.
+- Strict local naming remains, with a new native/titlebar-icons/custom README. Full/Patch ZIPs omit all user custom SVGs and background artwork. Registry settings survive reload and participate in existing export/import.
+- Tests: JS syntax, existing registry/window/Twitch/titlebar tests, native artwork precedence/raster/color/cache unit test, generated bundle parity and ZIP integrity. **Native Windows C# compilation and actual Opera GX graphics rendering require user verification.**
+
+**Install:** Patch over v0.19.32; rerun `native\install-titlebar-helper.cmd` (native protocol **7 -> 8**) and reload extension.
+
+## 0.19.32 — Shared Wide Custom Background & SVG Branding Hotfix
+
+- Fixes a custom provider's Wide panorama on the **Landing (left)**, which was silently falling back to Netflix while Dashboard (right) already showed the custom artwork. Landing now reads the same normalized Provider Registry and validated artwork key as Dashboard, giving both windows the same `assets/backgrounds/custom_<key>_wide.png` asset and the original two-pane crop geometry. Compact also resolves `<key>_compact.png` without changing the built-in providers.
+- Landing refreshes its panorama when the registry changes, guards against a late initial storage read overriding more recent settings, and retains neutral gradient fallbacks for custom providers without local art. Only the artwork rendering changes; provider windows and right-side window management are untouched.
+- **Custom icon and wordmark assets are SVG-only**: `assets/providers/custom/custom_<key>_icon.svg` and `..._wordmark.svg`. Wide/Compact backgrounds stay PNG. Built-in provider icons already use SVG. The native Windows titlebar still renders text initials for custom services; native SVG rendering requires a separate C# feature.
+- Keeps optional local artwork out of Full/Patch ZIPs (`assets/backgrounds/` and user-supplied custom images), preserving the strict filename scheme and existing local assets. SVG content should be placed as real SVG files, not PNGs with renamed extensions.
+- Tests: new Landing custom background parity and SVG regression test, existing Dashboard registry/Titlebar/Twitch/window tests, syntax/bundle parity and archive integrity. Visual verification in Opera GX remains required.
+
+**Installation:** Patch over v0.19.31, reload extension. No native helper reinstall; C# and protocol v7 unchanged.
+
+## 0.19.31 — Twitch Timing Diagnostics & Local Custom Artwork
+
+- Added on-demand Twitch per-slot runtime diagnostics obtained directly from the managed Twitch content script: page visibility/focus, approximate timer drift (10-second heartbeat), last observed `!play` event, unique-user burst state, scheduled jitter, actual join timeout overshoot, last attempted/submitted join, observer/scan timestamps and live cover/playback intent. The diagnostic query is bounded to 1.3 seconds per Twitch slot and returns `unresponsive`/`unavailable` when a throttled script cannot answer. This does not send extra chat messages, reconfigure Twitch windows or persist heartbeat writes.
+- Added a Twitch A–D status card in the Diagnostics overlay and advanced full export format 12 -> 13. Existing snapshots remain readable, and the complete timing values are available in the JSON. Delays still cannot be attributed without capturing an affected session.
+- Custom providers may now specify an optional **Local artwork key** under General -> Providers. Stream Shell looks for matching local PNGs for the Dashboard icon, provider wordmark, Wide background and Compact background, all safely resolved within the extension's own assets directory. Missing artwork gracefully falls back to initials/name and the neutral gradient. Changing an artwork key refreshes the Dashboard surface without navigating the provider window.
+- Custom PNGs and all background PNGs remain **excluded** from release ZIPs; they are user-maintained and retain their established naming scheme. Built-in providers, native custom-button text initials, native protocol v7, right-side HWND management and Twitch/Discord behavior are unchanged.
+- Tests: shared registry/layout validation, custom-window lifecycle and titlebar protocol regression suites, JavaScript syntax, bundle parity and archive integrity. Native Opera GX visual behavior still requires user verification.
+
+**Installation:** patch over v0.19.30 or use Full ZIP, then reload the extension. No native helper reinstall is needed because C# and protocol v7 are unchanged.
+
+## 0.19.30 — Live Native Provider Titlebar (Phase 3)
+
+- Native left/Compact provider buttons now come from the validated shared Provider Registry instead of five hardcoded provider positions. Built-in icon artwork remains unchanged; custom providers display their configured text initials, with a text fallback.
+- Under **General -> Providers**, titlebar visibility and titlebar order are independently editable. Dashboard retains its separate 1–7 pinning and grid patterns.
+- Extension -> C# native-messaging protocol v7 transfers the titlebar provider list as a UTF-8/base64 payload. Helpers acknowledge each generation; unacknowledged updates are retried, stale generations are rejected and the list is replayed on native reconnect. A storage-change event cannot be overridden by an older asynchronous read.
+- Native left-toolbar geometry, hit detection, painting and separators use a snapshot of the configured buttons. If providers overflow the left pane's available caption width, a native `...` menu keeps the remaining provider actions accessible. This is independent from all right-hand Wide Dashboard/Twitch/Discord controls.
+- No new website injections, provider reloads, provider-window lifetime changes, Twitch HWND claim changes or recurrent z-order timers. Existing provider-focused navigation remains the only left-side activation path.
+- Tests: existing Dashboard registry/window suites plus `node background/tests/dynamic-titlebar.test.js` (Unicode, ordering, visibility, ack/retry, dashboard isolation); JavaScript syntax/build checks. **Native C# runtime behavior and 32:9/Compact Windows geometry still need user testing.**
+
+**Installation:** overwrite with the Full ZIP or PATCH (on top of v0.19.29), run `native\install-titlebar-helper.cmd` to compile/install protocol v7, then reload Stream Shell in Opera GX. Old protocol-v6 native binaries deliberately cannot talk to this release. Background PNGs remain omitted.
+
+## 0.19.29 — Custom Provider Grid Geometry & Fallbacks
+
+- Fixes uneven Wide provider-card widths in the six/seven-button layouts by replacing content-box-based flex sizing with equal CSS Grid tracks. Custom providers no longer become narrower due to their different icon/padding dimensions.
+- Preserves all approved row distributions, including the original 1–3–1 at five visible providers. Compact stays a single column.
+- Basic custom providers now show their configured name as a low-opacity wordmark and a subtle neutral gradient instead of a broken image / totally empty artwork surface. No real provider logos or artwork are bundled or inferred.
+- No provider-window, Twitch, Discord, native-helper or Wide focus logic changes. Paramount+ gray loading is not asserted fixed: distinguish its Opera/browser site behavior from extension-created popup behavior by testing in a normal Opera tab.
+
+**Installation:** overwrite and reload Opera GX extension. No native-helper reinstall. Background PNG files remain local and omitted from distribution.
+
+## 0.19.28 — Custom Provider Management & Windows (Phase 2)
+
+- General → Providers now accepts custom names, validated HTTPS URLs and text icons; supports editing/deleting entries, enabling/disabling providers and pinning a maximum of seven Dashboard cards.
+- Shared v2 provider-registry normalizer controls both Dashboard and Background; imported settings and renamed providers retain stable IDs, deduplicate invalid entries and reject unsafe URLs.
+- Basic custom providers open as managed left-hand Opera windows with warm-window reuse. No provider-specific content injection or fabricated media integrations.
+- Extended Wide/Compact grid UI to display custom cards, leaving the native fixed-provider Titlebar untouched for Phase 3. Existing Twitch/Discord and right-pane focus fixes remain unchanged.
+- Added provider-window lifecycle test and expanded all-seven Dashboard/URL-normalizer tests. Browser HWND smoke tests remain pending.
+
+**Installation:** overwrite and reload Opera GX extension. Native helper was not changed; do not reinstall for this phase.
+
+## 0.19.27 — Dynamic Provider Grid Foundation (Phase 1)
+
+- Replaces the five hardcoded Wide Dashboard provider buttons with a registry-driven 1–7 renderer. Default 1–3–1 matches the previous layout; supports 1,2,3,1–2–1,1–3–1,2–2–2,2–3–2 centered patterns.
+- Adds **General -> Providers** to show/hide and reorder the five existing providers on the Dashboard (minimum one shown); persists settings in local storage with import/export support. Hidden Dashboard providers remain available in the unmodified native titlebar.
+- Compact keeps a vertical provider list; fewer providers are centered and six/seven rows have reserved-area sizing rules for a later generic-provider release.
+- Preserves built-in provider navigation, Now Playing indicators, availability decoration and v0.19.26 left-focus/right-pane separation. Neither C# helper nor Twitch recovery were modified.
+- **Phase boundary:** custom URLs, additional providers and live native Titlebar reconfiguration are NOT implemented yet. Detailed continuation: `TODO_RULED_OUT.txt` and `release-notes/PROVIDER_REGISTRY_ROADMAP.md`.
+
+**Installation:** overwrite extension files and reload in Opera GX; no native-helper reinstall required for this phase.
+
+## 0.19.26 — Wide Dashboard / Provider Focus Isolation
+
+- Reverts the 0.19.25 *periodic Dashboard z-order repair*, which caused the Twitch/Dashboard flicker and could prevent Dashboard from staying visible.
+- A Dashboard provider button or Now Playing click activates **only the left provider**; removes an unconditional Discord native-host `hide` call from Wide provider navigation. After the resulting Opera focus hand-off, a bounded native no-activate operation restores the currently selected right surface's stacking order (Dashboard or Twitch) without switching the rightMode or focusing it.
+- Selecting Dashboard through the right titlebar also avoids an unnecessary Discord hide round-trip and schedules a bounded reassert after the Dashboard HWND is restored, avoiding a permanent Dashboard/Twitch tug-of-war.
+- Native rejects a reassert unless the right pane still matches the current selection and Stream Shell is foreground. Stale callbacks are harmless, and normal non-shell applications stay untouched.
+- Refreshes native mode from storage at the point of state dispatch to reduce out-of-order state handoffs when asynchronous Twitch/provider updates overlap.
+- Preserves v0.19.24 Twitch A–D acknowledgement-based claim recovery and its Twitch-only z-order repair.
+
+**Native helper:** Re-run `native\install-titlebar-helper.cmd` after updating. Reload Stream Shell in Opera GX.
+
+## 0.19.25 — Wide Right-Pane Surface Isolation
+
+- Fixes Twitch A–D resurfacing on the right when a Dashboard provider button or the Now Playing card activates a provider on the left.
+- Gates every native Twitch cluster raise (including late member claims, focus/wake events and pane-fullscreen updates) on **rightMode=twitch** and Wide layout. Claims still register in the background without hijacking the Dashboard.
+- Adds the symmetric Wide Dashboard z-order self-heal after native Alt+Tab reconciliation: while Stream Shell is foreground and Dashboard is the selected right surface, it moves Dashboard above stray Twitch members *without focusing, resizing, reloading or minimizing them*.
+- Sends native rightMode changes before Dashboard/Twitch focus handoffs, reducing transient mismatches between the active titlebar button and physical HWND stacking.
+- No change to provider routes, Twitch slot identities, Marbles auto-join, audio or remembered background art.
+
+**Native helper:** Re-run `native\install-titlebar-helper.cmd` after updating. Reload the extension in Opera GX.
+
+## 0.19.24 — Twitch Window Claim Recovery & Right-Side Z-Order
+
+- Twitch A–D native-window claims are now considered complete only after a real native `claim-accepted` acknowledgement; sending a message no longer permanently suppresses retries.
+- Coalesces simultaneous claims for the same browser window; retries unacknowledged or expired claims with bounded throttling and renews immediately when the browser tab title changes.
+- Adds a 10-second self-heal audit while Twitch is the active Wide right surface. It detects missing native A–D members without restarting or navigating Twitch windows.
+- Native helper reports expired claims back to the extension, allowing the next audit to recover a lost slot instead of leaving it orphaned under Opera.
+- Corrects native Twitch titlebar ownership to use upper-row A/B handles explicitly; a temporarily missing A/B cannot silently substitute lower-row C/D.
+- Adds a restricted native z-order repair after Alt+Tab owner reconciliation. It lifts Twitch members back above Dashboard and restores the intended A/B-over-C/D caption overlap only while Stream Shell itself has focus, leaving unrelated foreground applications alone.
+- Does not recreate, reload, resize, or sequentially focus Twitch slots during repair. Pane fullscreen, stream audio/mute and Auto/Stream/Page behavior are unchanged.
+- Rebuilds `background.js` from the canonical split sources so previously pending 0.19.23 Compact provider fixes are present in the shipped runtime bundle.
+
+**Native helper:** Re-run `native\install-titlebar-helper.cmd` after updating so the new native z-order reconciliation and claim-expiry reporting take effect.
+
+## 0.19.23 — Compact provider lifecycle rollback + targeted repair
+
+- Reverts the broad Compact provider lifecycle changes from 0.19.22.
+- Keeps normal provider activation on the established visible Compact surface; only the remembered warm-up provider is created/kept off-screen.
+- Adds Compact provider HWND claims without changing provider window geometry.
+- Uses a short in-memory activation lease so the Dashboard can recover a real provider-switch race without resurrecting a provider the user deliberately minimized.
+- Leaves Wide and Twitch behavior unchanged.
+
 ## 0.19.21 — Twitch Per-Window Anti-Raid Controls
 
 - Repurposes the Twitch Settings anti-raid switch into a master **HUD visibility** switch; hiding the control no longer changes raid behavior by itself.

@@ -215,31 +215,47 @@ function renderState(
             : "wide";
 
 
-    panorama.style.backgroundImage =
-        `url("${chrome.runtime.getURL(
-            `assets/backgrounds/${provider}_${backgroundVariant}.png`
-        )}")`;
+    const customProvider = getStreamShellProviderRegistry().providers.find(
+        entry => entry.id === provider && entry.kind === "custom"
+    );
+    const customBackgroundPath = customProvider
+        ? streamShellCustomArtworkPath(customProvider.artKey, backgroundVariant)
+        : null;
+    const neutralBackground = "radial-gradient(ellipse at 77% 20%, rgba(70, 79, 104, .21), transparent 62%), linear-gradient(135deg, #0b0e17, #03050a)";
+    const backgroundPath = STREAM_SHELL_BUILTIN_IDS.has(provider)
+        ? `assets/backgrounds/${provider}_${backgroundVariant}.png`
+        : customBackgroundPath;
+    panorama.style.backgroundImage = backgroundPath
+        ? `url("${chrome.runtime.getURL(backgroundPath)}"), ${neutralBackground}`
+        : neutralBackground;
 
-
-    const wordmark =
-        WORDMARKS[
-            provider
-        ];
-
-
-    if (
-        wordmark
-    ) {
-        providerWordmark.src =
-            chrome.runtime.getURL(
-                wordmark
-            );
-
+    const wordmark = WORDMARKS[provider] ||
+        (customProvider ? streamShellCustomArtworkPath(customProvider.artKey, "wordmark") : null);
+    providerWordmark.onload = () => {
+        if (document.body.dataset.provider !== provider) return;
+        providerWordmark.hidden = false;
+        providerCustomWordmark.hidden = true;
+    };
+    providerWordmark.onerror = () => {
+        if (document.body.dataset.provider !== provider) return;
+        providerWordmark.hidden = true;
+        providerCustomWordmark.hidden = !customProvider;
+    };
+    providerCustomWordmark.textContent = customProvider?.name || "";
+    providerCustomWordmark.hidden = !customProvider || Boolean(wordmark);
+    providerWordmark.hidden = !wordmark;
+    if (wordmark) {
+        const nextSrc = chrome.runtime.getURL(wordmark);
+        if (providerWordmark.src !== nextSrc) providerWordmark.src = nextSrc;
+        else if (providerWordmark.complete && providerWordmark.naturalWidth > 0) {
+            providerWordmark.hidden = false;
+            providerCustomWordmark.hidden = true;
+        } else if (providerWordmark.complete) {
+            providerWordmark.hidden = true;
+            providerCustomWordmark.hidden = !customProvider;
+        }
     } else {
-
-        providerWordmark.removeAttribute(
-            "src"
-        );
+        providerWordmark.removeAttribute("src");
     }
 
 

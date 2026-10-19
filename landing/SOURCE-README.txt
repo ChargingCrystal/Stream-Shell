@@ -1,7 +1,11 @@
 Stream Shell Landing source layout
 ==================================
 
-The browser loads ONLY landing.js.
+The browser loads ONLY landing.js. `build-landing.ps1` now prepends the
+shared/provider-registry-core.js helpers to the standalone Landing bundle, because
+Wide Landing must resolve custom-provider backgrounds just like Dashboard. Compact
+Home already has this shared registry in dashboard.js and reuses the Landing source
+chunks inside its isolated compact-home.js function.
 
 Files in landing/src/ are source chunks for maintainability. They are deliberately
 NOT loaded as separate <script> tags because splitting one classic script into

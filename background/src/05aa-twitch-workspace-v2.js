@@ -22,7 +22,7 @@
  */
 
 const TWITCH_WORKSPACE_V2_VERSION = 7;
-const TWITCH_WORKSPACE_V2_LIFECYCLE = "direct-final-geometry-4slot+persistent-controllers+caption-overlap-20+chatless-audio+event-claims+surface-wake+pane-fullscreen";
+const TWITCH_WORKSPACE_V2_LIFECYCLE = "direct-final-geometry-4slot+persistent-controllers+caption-overlap-20+chatless-audio+acknowledged-claims+z-order-repair+surface-wake+pane-fullscreen";
 const TWITCH_WORKSPACE_V2_SLOT_IDS = ["a", "b", "c", "d"];
 const TWITCH_WORKSPACE_V2_STREAM_REFRESH_ALARM_PREFIX = "streamShellTwitchWorkspaceStreamRefresh:";
 const TWITCH_WORKSPACE_V2_STREAM_REFRESH_MINUTES = 60;
@@ -504,14 +504,41 @@ async function ensureTwitchWorkspaceV2Slot(record, slotId, focused = false) {
     return { record: await setTwitchWorkspaceV2Record(next, false), window: win };
 }
 
-const twitchWorkspaceV2ClaimedWindowIds = new Set();
+/* A native claim is NOT a completed mapping until the helper acknowledges it.
+ * Previously we cached the chrome.windows ID immediately after postMessage;
+ * a title/geometry race or native timeout then stranded that Twitch window
+ * underneath Opera for the lifetime of the service worker. */
+const twitchWorkspaceV2ClaimStates = new Map();
+const twitchWorkspaceV2ClaimRequests = new Map();
+const TWITCH_WORKSPACE_V2_CLAIM_RETRY_MS = 9000;
+let twitchWorkspaceV2ClaimGeneration = 0;
+let twitchWorkspaceV2ClaimAuditRunning = false;
 
 function resetTwitchWorkspaceV2ClaimCache(windowId = null) {
     if (Number.isInteger(windowId)) {
-        twitchWorkspaceV2ClaimedWindowIds.delete(windowId);
+        twitchWorkspaceV2ClaimStates.delete(windowId);
         return;
     }
-    twitchWorkspaceV2ClaimedWindowIds.clear();
+    twitchWorkspaceV2ClaimStates.clear();
+}
+
+function acknowledgeTwitchWorkspaceV2Claim(message) {
+    if (message?.layoutProfile !== "wide" || message?.side !== "right" || message?.mode !== "twitch") return;
+    const member = String(message.member || "").toLowerCase();
+    if (!TWITCH_WORKSPACE_V2_SLOT_IDS.includes(member)) return;
+    for (const [windowId, state] of twitchWorkspaceV2ClaimStates) {
+        if (state.member !== member || state.phase !== "pending") continue;
+        twitchWorkspaceV2ClaimStates.set(windowId, { ...state, phase: "confirmed", acknowledgedAt: Date.now() });
+        return;
+    }
+}
+
+function invalidateTwitchWorkspaceV2Claim(message) {
+    if (message?.layoutProfile !== "wide" || message?.side !== "right" || message?.mode !== "twitch") return;
+    const member = String(message.member || "").toLowerCase();
+    for (const [windowId, state] of twitchWorkspaceV2ClaimStates) {
+        if (state.member === member) twitchWorkspaceV2ClaimStates.delete(windowId);
+    }
 }
 
 async function claimTwitchWorkspaceV2WindowById(windowId) {
@@ -526,7 +553,22 @@ async function claimTwitchWorkspaceV2WindowById(windowId) {
 
 async function claimTwitchWorkspaceV2Window(windowId, member, rect) {
     if (shuttingDown || !Number.isInteger(windowId) || !rect) return false;
-    if (twitchWorkspaceV2ClaimedWindowIds.has(windowId)) return true;
+    const pending = twitchWorkspaceV2ClaimRequests.get(windowId);
+    if (pending) return pending;
+    const task = postTwitchWorkspaceV2WindowClaim(windowId, member, rect);
+    twitchWorkspaceV2ClaimRequests.set(windowId, task);
+    try {
+        return await task;
+    } finally {
+        if (twitchWorkspaceV2ClaimRequests.get(windowId) === task) {
+            twitchWorkspaceV2ClaimRequests.delete(windowId);
+        }
+    }
+}
+
+async function postTwitchWorkspaceV2WindowClaim(windowId, member, rect) {
+    const prior = twitchWorkspaceV2ClaimStates.get(windowId);
+    if (prior?.member === member && prior.phase === "confirmed") return true;
     if (!titlebarPort) await ensureTitlebarNative();
     if (!titlebarPort || !titlebarProtocolReady) return false;
 
@@ -537,7 +579,16 @@ async function claimTwitchWorkspaceV2Window(windowId, member, rect) {
         const titleHint = typeof tab?.title === "string" ? tab.title.trim().slice(0, 180) : "";
         if (!titleHint) return false;
 
-        titlebarPort.postMessage({
+        /* A newly available real page title may replace the provisional
+         * Twitch/slot title while native is still resolving the HWND. */
+        const now = Date.now();
+        if (prior?.member === member && prior.phase === "pending" &&
+            prior.titleHint === titleHint && now - prior.sentAt < TWITCH_WORKSPACE_V2_CLAIM_RETRY_MS) {
+            return false;
+        }
+
+        const port = titlebarPort;
+        port.postMessage({
             type: "claim",
             protocolVersion: TITLEBAR_PROTOCOL_VERSION,
             layoutProfile: "wide",
@@ -550,41 +601,70 @@ async function claimTwitchWorkspaceV2Window(windowId, member, rect) {
             width: rect.width,
             height: rect.height
         });
-        /* The native claim keeps retrying its HWND match after this post. Avoid
-         * re-queuing the same A-D claim on every Twitch title/SPA update. */
-        twitchWorkspaceV2ClaimedWindowIds.add(windowId);
+        twitchWorkspaceV2ClaimStates.set(windowId, {
+            member, phase: "pending", sentAt: now, titleHint,
+            attempts: (prior?.attempts || 0) + 1
+        });
         return true;
     } catch {
         return false;
     }
 }
 
-let twitchWorkspaceV2ClaimGeneration = 0;
-
 function scheduleTwitchWorkspaceV2Claims(record) {
     const generation = ++twitchWorkspaceV2ClaimGeneration;
     const rects = getTwitchWorkspaceV2Rects();
-    const members = [];
-    for (const id of TWITCH_WORKSPACE_V2_SLOT_IDS) {
-        const windowId = record?.slots?.[id]?.windowId;
-        if (Number.isInteger(windowId)) members.push({ member: id, windowId, rect: rects[id] });
-    }
-    /*
-     * Claim at most twice. 0.19.1 could manufacture 9 claim waves and every
-     * delayed z-order retry scheduled another 9-wave batch, which turned one
-     * click into a native-message storm. The first pass catches controller and
-     * already-loaded Twitch windows; the second catches slow Twitch titles.
-     */
-    for (const delay of [0, 700]) {
+    const members = TWITCH_WORKSPACE_V2_SLOT_IDS
+        .map(member => ({ member, windowId: record?.slots?.[member]?.windowId, rect: rects[member] }))
+        .filter(entry => Number.isInteger(entry.windowId));
+
+    /* Fast first pass plus one late-title pass. Unacknowledged members are
+     * subsequently recovered by the slow titlebar heartbeat audit. */
+    for (const delay of [0, 700, 1800]) {
         setTimeout(() => {
             if (shuttingDown || generation !== twitchWorkspaceV2ClaimGeneration) return;
-            Promise.all(
-                members.map(entry =>
-                    claimTwitchWorkspaceV2Window(entry.windowId, entry.member, entry.rect)
-                        .catch(() => false)
-                )
-            ).catch(() => {});
+            Promise.all(members.map(entry =>
+                claimTwitchWorkspaceV2Window(entry.windowId, entry.member, entry.rect)
+                    .catch(() => false)
+            )).catch(() => {});
         }, delay);
+    }
+}
+
+/* The native host may forget one HWND independently of the extension after a
+ * helper restart or a failed claim. Audit only when Twitch is the visible right
+ * surface, at the existing 10-second reconciliation cadence. */
+async function reconcileTwitchWorkspaceV2Claims() {
+    if (shuttingDown || !titlebarPort || !titlebarProtocolReady || twitchWorkspaceV2ClaimAuditRunning) return;
+    twitchWorkspaceV2ClaimAuditRunning = true;
+    try {
+        const stored = await chrome.storage.local.get(["rightMode", TWITCH_WORKSPACE_V2_STORAGE_KEY]);
+        if (stored.rightMode !== "twitch") return;
+        const record = stored[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+        if (!record || record.version !== TWITCH_WORKSPACE_V2_VERSION) return;
+
+        /* Native status is authoritative about *presence* of a member, not
+         * about the identity of a particular chrome.windows ID. Never treat
+         * a status entry as a positive acknowledgement for a new window. */
+        const status = titlebarLastNativeStatus;
+        const nativeMembers = status?.event === "status" && status.heartbeatFresh === true
+            ? new Set(String(status.twitchClusterMap || "")
+                .split(";").map(entry => entry.split("=")[0].toLowerCase()).filter(Boolean))
+            : null;
+        const rects = getTwitchWorkspaceV2Rects();
+        const jobs = [];
+        for (const member of TWITCH_WORKSPACE_V2_SLOT_IDS) {
+            const windowId = record.slots?.[member]?.windowId;
+            if (!Number.isInteger(windowId)) continue;
+            const claim = twitchWorkspaceV2ClaimStates.get(windowId);
+            if (claim?.phase === "confirmed" && nativeMembers && !nativeMembers.has(member)) {
+                twitchWorkspaceV2ClaimStates.delete(windowId);
+            }
+            jobs.push(claimTwitchWorkspaceV2Window(windowId, member, rects[member]).catch(() => false));
+        }
+        await Promise.all(jobs);
+    } finally {
+        twitchWorkspaceV2ClaimAuditRunning = false;
     }
 }
 
@@ -856,6 +936,10 @@ async function showTwitchWorkspaceV2(target = "workspace") {
         rightMode: "twitch",
         twitchTarget: target === "drops" ? "drops" : "resume"
     });
+
+    // The helper now refuses Twitch cluster raises while Dashboard is active.
+    // Synchronize intent before trying to raise A-D on a deliberate transition.
+    await syncConnectedTitlebarNative().catch(() => {});
 
     record = await raiseTwitchWorkspaceV2(record, preferredSlot);
     scheduleTwitchWorkspaceV2Claims(record);
@@ -1309,8 +1393,32 @@ async function getTwitchWorkspaceV2Diagnostics() {
             }).catch(() => []);
             identity = results.find(result => result?.result)?.result || null;
         }
+        // A short bounded request prevents a throttled Twitch page from
+        // blocking the entire diagnostics export indefinitely.
+        let twitchRuntime = null;
+        let twitchRuntimeStatus = "not-opened";
+        if (Number.isInteger(tab?.id) && /^https:\/\/([^/]+\.)?twitch\.tv\//i.test(tab.url || "")) {
+            twitchRuntimeStatus = "unresponsive";
+            let timeoutId;
+            try {
+                const response = await Promise.race([
+                    chrome.tabs.sendMessage(tab.id, { type: "stream-shell-twitch-runtime-diagnostics" }),
+                    new Promise(resolve => { timeoutId = setTimeout(() => resolve(null), 1300); })
+                ]);
+                if (response?.ok === true && response.runtime) {
+                    twitchRuntime = response.runtime;
+                    twitchRuntimeStatus = "ok";
+                }
+            } catch {
+                twitchRuntimeStatus = "unavailable";
+            } finally {
+                clearTimeout(timeoutId);
+            }
+        }
         windows.push({
             slot: id,
+            twitchRuntimeStatus,
+            twitchRuntime,
             kind: slot?.kind || "empty",
             kindSource: slot?.kindSource || "auto",
             configuredUrl: slot?.url || null,
@@ -1321,6 +1429,20 @@ async function getTwitchWorkspaceV2Diagnostics() {
             state: win?.state || null,
             focused: win?.focused === true,
             bounds: win ? { left: win.left, top: win.top, width: win.width, height: win.height } : null,
+            nativeClaim: Number.isInteger(slot?.windowId) && twitchWorkspaceV2ClaimStates.has(slot.windowId)
+                ? (() => {
+                    const claim = twitchWorkspaceV2ClaimStates.get(slot.windowId);
+                    return {
+                        phase: claim.phase,
+                        member: claim.member,
+                        sentAgoMs: Math.max(0, Date.now() - claim.sentAt),
+                        attempts: claim.attempts,
+                        acknowledgedAgoMs: claim.acknowledgedAt
+                            ? Math.max(0, Date.now() - claim.acknowledgedAt)
+                            : null
+                    };
+                })()
+                : null,
             documentIdentity: identity,
             tab: tab ? {
                 id: tab.id,

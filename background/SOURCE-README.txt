@@ -8,6 +8,7 @@ Do not add individual src files to manifest.json unless intentionally changing r
 
 Build order
 -----------
+- ../shared/provider-registry-core.js   shared validated Registry used by the worker and Dashboard
 - ../shared/resume-utils.js       shared Continue Watching URL canonicalization, media identity + stale-link reconstruction fallback
 - 00-config-home.js               constants, service-worker state, action click handler and shell-home orchestration
 - 00a-flight-recorder.js          session-scoped Diagnostics event ringbuffer
@@ -17,6 +18,8 @@ Build order
 - 03-landing-window.js            Landing window lifecycle, focus and reload logic
 - 04-dashboard-window.js          Dashboard window lifecycle and focus logic
 - 05-discord.js                   Discord native host show/status integration
+- 05a-twitch.js                  Twitch controls and monitoring
+- 05aa-twitch-workspace-v2.js    native A-D Twitch window lifecycle
 - 06-titlebar.js                  titlebar native host connection, state and native messages
 - 06a-volume-capture.js           tabCapture/offscreen volume routing and titlebar command bridge
 - 06b-crunchyroll-skip-events.js  Crunchyroll public skip-timing fetch helper

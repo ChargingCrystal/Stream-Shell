@@ -17,6 +17,7 @@
 - [ ] Twitch
 - [ ] Discord integration
 - [ ] Native titlebar/helper
+- [ ] Custom providers / registry / local artwork
 - [ ] Volume / fullscreen bridge
 - [ ] Display profile / layout
 - [ ] Diagnostics / settings
@@ -31,8 +32,11 @@
 - [ ] Provider Safe Mode checked where relevant
 - [ ] Native titlebar behavior checked where relevant
 - [ ] No unrelated provider/layout regressions noticed
+- [ ] Custom artwork/Background files not included in the change
 
 ## Architecture notes
+
+<!-- If Provider Registry changed, confirm stable IDs, dashboard/titlebar independence, import/export and local art exclusion. -->
 
 <!-- Mention shared-vs-provider logic, native ownership/trust changes, new permissions, or other non-obvious decisions. -->
 

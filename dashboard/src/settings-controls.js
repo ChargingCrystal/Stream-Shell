@@ -658,6 +658,9 @@ async function exportStreamShellSettings() {
 }
 
 function normalizeImportedSetting(key, value) {
+    if (key === STREAM_SHELL_PROVIDER_REGISTRY_KEY) {
+        return normalizeStreamShellProviderRegistry(value);
+    }
     const fallback = settingDefaultValue(key);
     if (typeof fallback === "boolean") return value === true;
     if (typeof fallback === "number") {

@@ -77,7 +77,7 @@ internal static class StreamShellTitlebarHost
     private const ushort VT_LPWSTR = 31;
     private const string STREAM_SHELL_APP_ID = "SvenRieseler.StreamShell.Desktop";
     private const string CONTROL_PIPE_NAME = "StreamShell.ControlBridge.v1";
-    private const int TITLEBAR_PROTOCOL_VERSION = 6;
+    private const int TITLEBAR_PROTOCOL_VERSION = 9;
     private const uint HEARTBEAT_TIMEOUT_MS = 6500;
 
     private static readonly HashSet<string> ControlBridgeActions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -249,6 +249,11 @@ internal static class StreamShellTitlebarHost
 
     private static readonly Dictionary<string, Bitmap> ButtonIcons =
         new Dictionary<string, Bitmap>(StringComparer.OrdinalIgnoreCase);
+    // Old rasters remain alive until shutdown: native messages arrive on the
+    // reader thread, while the overlay can still be drawing the previous icon.
+    private static readonly List<Bitmap> RetiredDynamicIcons = new List<Bitmap>();
+    private static readonly HashSet<string> DynamicIconActions =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
     private sealed class SurfaceClaimState
     {
@@ -339,6 +344,7 @@ internal static class StreamShellTitlebarHost
         public string IconFile;
         public int IconWidth;
         public int IconHeight;
+        public string AccentColor;
 
         public ButtonDef(string label, string action)
             : this(label, action, null, 0, 0)
@@ -414,6 +420,21 @@ internal static class StreamShellTitlebarHost
         new ButtonDef("CR", "crunchyroll", "crunchyroll.png", 19, 19),
         new ButtonDef("X", "kill", "kill.png", 18, 18)
     };
+
+    // The right-side buttons and Twitch/Discord HWND ownership are deliberately static.
+    // The left provider section alone is replaced by validated messages from the extension.
+    private static ButtonDef[] DynamicProviderButtons = new ButtonDef[]
+    {
+        new ButtonDef("YT", "youtube", "youtube.png", 19, 14),
+        new ButtonDef("N", "netflix", "netflix.png", 12, 20),
+        new ButtonDef("P", "prime", "prime.png", 18, 18),
+        new ButtonDef("D+", "disney", "disney.png", 20, 20),
+        new ButtonDef("CR", "crunchyroll", "crunchyroll.png", 19, 19)
+    };
+    private static Dictionary<string, string> ProviderMenuNames =
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    private static int ProviderConfigGeneration = 0;
+    private static readonly ButtonDef OverflowButton = new ButtonDef("...", "provider-overflow");
 
     private static readonly ButtonDef[] RightButtons = new ButtonDef[]
     {
@@ -660,6 +681,24 @@ internal static class StreamShellTitlebarHost
 
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    private const uint TPM_RIGHTALIGN = 0x0008;
+    private const uint TPM_TOPALIGN = 0x0000;
+    private const uint TPM_NONOTIFY = 0x0080;
+    private const uint TPM_RETURNCMD = 0x0100;
+    private const uint MF_STRING = 0;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr CreatePopupMenu();
+
+    [DllImport("user32.dll")]
+    private static extern bool DestroyMenu(IntPtr hMenu);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool AppendMenu(IntPtr hMenu, uint flags, UIntPtr itemId, string itemText);
+
+    [DllImport("user32.dll")]
+    private static extern uint TrackPopupMenuEx(IntPtr hMenu, uint flags, int x, int y, IntPtr hWnd, IntPtr reserved);
 
     [DllImport("user32.dll")]
     private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
@@ -1189,6 +1228,10 @@ internal static class StreamShellTitlebarHost
                 {
                     TriggerTwitchVolumeShortcut();
                 }
+                else if (isLeft && buttons[index].Action == "provider-overflow")
+                {
+                    ShowProviderOverflowMenu(hWnd);
+                }
                 else
                 {
                     SendAction(buttons[index].Action);
@@ -1227,46 +1270,302 @@ internal static class StreamShellTitlebarHost
         TrackMouseEvent(ref track);
     }
 
+    private static ButtonDef BuiltinProviderButton(string id)
+    {
+        if (id == "youtube") return new ButtonDef("YT", id, "youtube.png", 19, 14);
+        if (id == "netflix") return new ButtonDef("N", id, "netflix.png", 12, 20);
+        if (id == "prime") return new ButtonDef("P", id, "prime.png", 18, 18);
+        if (id == "disney") return new ButtonDef("D+", id, "disney.png", 20, 20);
+        if (id == "crunchyroll") return new ButtonDef("CR", id, "crunchyroll.png", 19, 19);
+        return null;
+    }
+
+    private static bool HasLeftDividerAfter(ButtonDef[] buttons, int index, bool compact)
+    {
+        if (index < 0 || index >= buttons.Length - 1) return false;
+        string current = buttons[index].Action;
+        string next = buttons[index + 1].Action;
+        if (compact)
+        {
+            return current == "volume" || next == "kill";
+        }
+        return next == "dashboard" || next == "kill";
+    }
+
+    private static int MeasureLeftButtons(ButtonDef[] buttons, int dpi, bool compact)
+    {
+        int width = buttons.Length * GetLeftButtonWidth(dpi);
+        for (int i = 0; i < buttons.Length - 1; i++)
+        {
+            width += HasLeftDividerAfter(buttons, i, compact)
+                ? 2 * GetLeftDividerMargin(dpi) + GetLeftDividerWidth(dpi)
+                : GetLeftGap(dpi);
+        }
+        return width;
+    }
+
+    private static ButtonDef[] ComposeLeftButtons(bool compact, ButtonDef[] providers, int paneWidth, int dpi)
+    {
+        ButtonDef[] before = compact
+            ? new ButtonDef[] { CompactButtons[0], CompactButtons[1], CompactButtons[2], CompactButtons[3] }
+            : new ButtonDef[] { LeftButtons[0], LeftButtons[1] };
+        ButtonDef[] after = compact
+            ? new ButtonDef[] { CompactButtons[CompactButtons.Length - 1] }
+            : new ButtonDef[] { LeftButtons[7], LeftButtons[8], LeftButtons[9], LeftButtons[10], LeftButtons[11] };
+
+        // Leave the native caption's drag/title area clear; never expand into
+        // the adjacent Wide pane or a Compact caption control at small DPI.
+        int budget = Math.Max(Scale(100, dpi), paneWidth - Scale(180, dpi));
+        for (int visible = providers.Length; visible >= 0; visible--)
+        {
+            List<ButtonDef> entries = new List<ButtonDef>(before);
+            for (int i = 0; i < visible; i++) entries.Add(providers[i]);
+            if (visible < providers.Length) entries.Add(OverflowButton);
+            entries.AddRange(after);
+            ButtonDef[] result = entries.ToArray();
+            if (MeasureLeftButtons(result, dpi, compact) <= budget || visible == 0) return result;
+        }
+        return new ButtonDef[0];
+    }
+
     private static ButtonDef[] GetOverlayButtons(bool isLeft)
     {
-        bool compact = String.Equals(layoutProfile, "compact", StringComparison.OrdinalIgnoreCase);
+        bool compact;
+        ButtonDef[] providers;
+        int paneWidth;
+        string currentRightMode;
+        lock (StateLock)
+        {
+            compact = String.Equals(layoutProfile, "compact", StringComparison.OrdinalIgnoreCase);
+            providers = DynamicProviderButtons;
+            paneWidth = leftPane.Width;
+            currentRightMode = rightMode;
+        }
 
         if (isLeft)
         {
-            return compact ? CompactButtons : LeftButtons;
+            return ComposeLeftButtons(compact, providers, paneWidth, GetTargetDpi(leftOwner));
         }
-
-        if (compact)
-        {
-            return new ButtonDef[0];
-        }
-
-        lock (StateLock)
-        {
-            if (String.Equals(rightMode, "discord", StringComparison.OrdinalIgnoreCase))
-            {
-                return RightDiscordButtons;
-            }
-
-            if (String.Equals(rightMode, "twitch", StringComparison.OrdinalIgnoreCase))
-            {
-                return RightTwitchButtons;
-            }
-
-            return RightButtons;
-        }
+        if (compact) return new ButtonDef[0];
+        if (String.Equals(currentRightMode, "discord", StringComparison.OrdinalIgnoreCase)) return RightDiscordButtons;
+        if (String.Equals(currentRightMode, "twitch", StringComparison.OrdinalIgnoreCase)) return RightTwitchButtons;
+        return RightButtons;
     }
 
-    private static bool HasLeftDividerAfter(int buttonIndex)
+    private static void ShowProviderOverflowMenu(IntPtr overlay)
     {
-        if (String.Equals(layoutProfile, "compact", StringComparison.OrdinalIgnoreCase))
+        ButtonDef[] displayed = GetOverlayButtons(true);
+        HashSet<string> visible = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ButtonDef button in displayed) visible.Add(button.Action);
+        List<ButtonDef> hidden = new List<ButtonDef>();
+        Dictionary<string, string> names;
+        lock (StateLock)
         {
-            // Dashboard + Settings + Reload + Volume | providers | Kill
-            return buttonIndex == 3 || buttonIndex == 8;
+            foreach (ButtonDef button in DynamicProviderButtons)
+                if (!visible.Contains(button.Action)) hidden.Add(button);
+            names = new Dictionary<string, string>(ProviderMenuNames, StringComparer.OrdinalIgnoreCase);
         }
+        if (hidden.Count == 0) return;
+        IntPtr menu = CreatePopupMenu();
+        if (menu == IntPtr.Zero) return;
+        try
+        {
+            for (int i = 0; i < hidden.Count; i++)
+            {
+                string name;
+                if (!names.TryGetValue(hidden[i].Action, out name)) name = hidden[i].Action;
+                AppendMenu(menu, MF_STRING, new UIntPtr((uint)(i + 1)), name);
+            }
+            RECT rectangle;
+            if (!GetWindowRect(overlay, out rectangle)) return;
+            uint selected = TrackPopupMenuEx(menu, TPM_RIGHTALIGN | TPM_TOPALIGN | TPM_NONOTIFY | TPM_RETURNCMD,
+                rectangle.Right, rectangle.Bottom, overlay, IntPtr.Zero);
+            if (selected > 0 && selected <= hidden.Count) SendAction(hidden[(int)selected - 1].Action);
+        }
+        finally { DestroyMenu(menu); }
+    }
 
-        // Landing + Volume + providers | Dashboard + Settings + Discord + Twitch | Kill
-        return buttonIndex == 6 || buttonIndex == 10;
+    private static string NormalizeTitlebarColor(string input)
+    {
+        return !String.IsNullOrEmpty(input) &&
+            Regex.IsMatch(input, "^#[0-9A-Fa-f]{6}$", RegexOptions.CultureInvariant)
+            ? input.ToUpperInvariant() : String.Empty;
+    }
+
+    // v9: PNG primary is loaded directly by the extension worker, without the
+    // offscreen SVG renderer. Normalize all received PNGs to 32px neutral-gray
+    // silhouettes on the native side. The accent applies to backgrounds only.
+    private static bool TryDecodeTitlebarIcon(string data, out Bitmap bitmap)
+    {
+        bitmap = null;
+        if (String.IsNullOrEmpty(data)) return true;
+        if (data.Length > 22000) return false;
+        try
+        {
+            byte[] bytes = Convert.FromBase64String(data);
+            if (bytes.Length < 24 || bytes.Length > 16384 ||
+                bytes[0] != 137 || bytes[1] != 80 || bytes[2] != 78 || bytes[3] != 71 ||
+                bytes[4] != 13 || bytes[5] != 10 || bytes[6] != 26 || bytes[7] != 10)
+                return false;
+            using (MemoryStream stream = new MemoryStream(bytes, false))
+            using (Image source = Image.FromStream(stream, false, true))
+            {
+                if (source.Width < 1 || source.Height < 1 ||
+                    source.Width > 4096 || source.Height > 4096) return false;
+                Bitmap normalized = new Bitmap(32, 32, PixelFormat.Format32bppArgb);
+                try
+                {
+                    using (Graphics graphics = Graphics.FromImage(normalized))
+                    {
+                        graphics.Clear(Color.Transparent);
+                        graphics.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
+                        graphics.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                        float scale = Math.Min(32f / source.Width, 32f / source.Height);
+                        float width = source.Width * scale;
+                        float height = source.Height * scale;
+                        graphics.DrawImage(source, (32f-width)/2, (32f-height)/2, width, height);
+                    }
+                    Color[] probes = new Color[] {
+                        normalized.GetPixel(16,1), normalized.GetPixel(16,30),
+                        normalized.GetPixel(1,16), normalized.GetPixel(30,16)
+                    };
+                    Color baseColor = probes[0];
+                    bool flatBackground = true;
+                    foreach (Color color in probes)
+                    {
+                        if (color.A <= 230 || Math.Max(Math.Abs(color.R-baseColor.R),
+                            Math.Max(Math.Abs(color.G-baseColor.G),Math.Abs(color.B-baseColor.B))) >= 20)
+                        { flatBackground = false; break; }
+                    }
+                    bool hasForeground = false;
+                    if (flatBackground)
+                    {
+                        for (int y=0; y<32 && !hasForeground; y++) for (int x=0; x<32; x++)
+                        {
+                            Color pixel = normalized.GetPixel(x,y);
+                            if (pixel.A > 128 && Math.Max(Math.Abs(pixel.R-baseColor.R),
+                                Math.Max(Math.Abs(pixel.G-baseColor.G),Math.Abs(pixel.B-baseColor.B))) > 55)
+                            { hasForeground = true; break; }
+                        }
+                    }
+                    int visible = 0;
+                    for (int y=0; y<32; y++) for (int x=0; x<32; x++)
+                    {
+                        Color pixel = normalized.GetPixel(x,y);
+                        int alpha = pixel.A;
+                        if (flatBackground && hasForeground)
+                        {
+                            int difference = Math.Max(Math.Abs(pixel.R-baseColor.R),
+                                Math.Max(Math.Abs(pixel.G-baseColor.G),Math.Abs(pixel.B-baseColor.B)));
+                            alpha = (int)Math.Round(alpha*Math.Min(1.0,difference/100.0));
+                        }
+                        if (alpha > 0) visible++;
+                        normalized.SetPixel(x,y,Color.FromArgb(alpha,213,208,221));
+                    }
+                    if (visible == 0) return false;
+                    bitmap = normalized;
+                    normalized = null;
+                    return true;
+                }
+                finally { if (normalized != null) normalized.Dispose(); }
+            }
+        }
+        catch { if (bitmap != null) bitmap.Dispose(); bitmap = null; return false; }
+    }
+
+    private static bool TryApplyProviderConfig(string encoded, int generation, out int buttonCount, out int skippedIcons)
+    {
+        buttonCount = 0;
+        skippedIcons = 0;
+        if (encoded == null || encoded.Length > 4000000 || generation < 1) return false;
+        string decoded;
+        try { decoded = new UTF8Encoding(false, true).GetString(Convert.FromBase64String(encoded)); }
+        catch { return false; }
+        string[] rows = decoded.Split(new char[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
+        if (rows.Length > 128) return false;
+        List<ButtonDef> buttons = new List<ButtonDef>();
+        Dictionary<string, string> names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, Bitmap> newIcons = new Dictionary<string, Bitmap>(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool accepted = false;
+        try
+        {
+            foreach (string row in rows)
+            {
+                string[] parts = row.Split('\t');
+                if (parts.Length != 5) return false;
+                string id = parts[0];
+                if (!Regex.IsMatch(id, "^(youtube|netflix|prime|disney|crunchyroll|custom-[a-z0-9]{8,40})$", RegexOptions.CultureInvariant)) return false;
+                if (!used.Add(id)) return false;
+                string label = parts[1];
+                string fullName = parts[2];
+                if (label.Length < 1 || label.Length > 8 || fullName.Length < 1 || fullName.Length > 48 ||
+                    label.IndexOfAny(new char[] { '\r', '\n', '\t' }) >= 0 ||
+                    fullName.IndexOfAny(new char[] { '\r', '\n', '\t' }) >= 0) return false;
+                string color = parts[3];
+                if (color.Length > 0 && NormalizeTitlebarColor(color).Length == 0) return false;
+                Bitmap icon;
+                // Invalid PNG data must NEVER invalidate an otherwise valid
+                // provider list. Downgrade only this icon to text initials.
+                if (!TryDecodeTitlebarIcon(parts[4], out icon))
+                {
+                    icon = null;
+                    skippedIcons++;
+                }
+                if (icon != null) newIcons[id] = icon;
+                ButtonDef builtIn = BuiltinProviderButton(id);
+                ButtonDef button = builtIn ?? new ButtonDef(label, id);
+                button.AccentColor = NormalizeTitlebarColor(color);
+                // Icons are always neutral monochrome. AccentColor is only
+                // used by CustomChromeTheme for the native background states.
+                if (icon != null) { button.IconFile = "dynamic-png"; button.IconWidth = 22; button.IconHeight = 22; }
+                buttons.Add(button);
+                names[id] = fullName;
+            }
+            lock (StateLock)
+            {
+                if (generation < ProviderConfigGeneration) return false;
+                if (generation > ProviderConfigGeneration)
+                {
+                    foreach (string id in DynamicIconActions)
+                    {
+                        Bitmap prior;
+                        if (ButtonIcons.TryGetValue(id, out prior))
+                        {
+                            RetiredDynamicIcons.Add(prior);
+                            ButtonIcons.Remove(id);
+                        }
+                    }
+                    DynamicIconActions.Clear();
+                    foreach (KeyValuePair<string, Bitmap> pair in newIcons)
+                    {
+                        ButtonIcons[pair.Key] = pair.Value;
+                        DynamicIconActions.Add(pair.Key);
+                    }
+                    // Ownership of new icons transferred to the cache.
+                    newIcons.Clear();
+                    DynamicProviderButtons = buttons.ToArray();
+                    ProviderMenuNames = names;
+                    ProviderConfigGeneration = generation;
+                    leftHover = -1;
+                    // Force DWM caption/border reapplication even when the same
+                    // provider stays open after a live color change.
+                    lock (WindowChromeModes) WindowChromeModes.Clear();
+                }
+                buttonCount = DynamicProviderButtons.Length;
+            }
+            // When the same generation is acknowledged again, dispose the
+            // newly decoded duplicate; the existing image cache remains live.
+            foreach (Bitmap redundant in newIcons.Values) redundant.Dispose();
+            newIcons.Clear();
+            accepted = true;
+            return true;
+        }
+        finally
+        {
+            if (!accepted)
+                foreach (Bitmap pending in newIcons.Values) pending.Dispose();
+        }
     }
 
     private static int GetLeftButtonWidth(int dpi)
@@ -1291,27 +1590,17 @@ internal static class StreamShellTitlebarHost
 
     private static int GetLeftOverlayWidth(int dpi)
     {
-        int width = 0;
-        int buttonWidth = GetLeftButtonWidth(dpi);
-        int gap = GetLeftGap(dpi);
-        int dividerMargin = GetLeftDividerMargin(dpi);
-        int dividerWidth = GetLeftDividerWidth(dpi);
-
-        ButtonDef[] buttons = GetOverlayButtons(true);
-        for (int i = 0; i < buttons.Length; i++)
+        bool compact;
+        ButtonDef[] providers;
+        int paneWidth;
+        lock (StateLock)
         {
-            width += buttonWidth;
-            if (i >= buttons.Length - 1)
-            {
-                continue;
-            }
-
-            width += HasLeftDividerAfter(i)
-                ? dividerMargin + dividerWidth + dividerMargin
-                : gap;
+            compact = String.Equals(layoutProfile, "compact", StringComparison.OrdinalIgnoreCase);
+            providers = DynamicProviderButtons;
+            paneWidth = leftPane.Width;
         }
-
-        return width;
+        ButtonDef[] buttons = ComposeLeftButtons(compact, providers, paneWidth, dpi);
+        return MeasureLeftButtons(buttons, dpi, compact);
     }
 
 
@@ -1334,6 +1623,8 @@ internal static class StreamShellTitlebarHost
 
         if (isLeft)
         {
+            bool compact;
+            lock (StateLock) { compact = String.Equals(layoutProfile, "compact", StringComparison.OrdinalIgnoreCase); }
             int buttonWidth = GetLeftButtonWidth(dpi);
             int gap = GetLeftGap(dpi);
             int dividerMargin = GetLeftDividerMargin(dpi);
@@ -1350,7 +1641,7 @@ internal static class StreamShellTitlebarHost
 
                 if (i < buttons.Length - 1)
                 {
-                    cursor = right + (HasLeftDividerAfter(i)
+                    cursor = right + (HasLeftDividerAfter(buttons, i, compact)
                         ? dividerMargin + dividerWidth + dividerMargin
                         : gap);
                 }
@@ -1554,13 +1845,12 @@ internal static class StreamShellTitlebarHost
                         DeleteObject(brush);
                     }
 
-                    Bitmap icon;
-                    if (
-                        isLeft &&
-                        buttons[i].IconFile != null &&
-                        ButtonIcons.TryGetValue(buttons[i].Action, out icon) &&
-                        graphics != null
-                    )
+                    Bitmap icon = null;
+                    if (isLeft && buttons[i].IconFile != null)
+                    {
+                        lock (StateLock) ButtonIcons.TryGetValue(buttons[i].Action, out icon);
+                    }
+                    if (isLeft && icon != null && graphics != null)
                     {
                         int iconWidth = Scale(buttons[i].IconWidth, dpi);
                         int iconHeight = Scale(buttons[i].IconHeight, dpi);
@@ -1608,13 +1898,14 @@ internal static class StreamShellTitlebarHost
                         );
                         IntPtr oldFont = SelectObject(hdc, font);
                         SetBkMode(hdc, TRANSPARENT);
-                        SetTextColor(hdc, active ? Rgb(225, 164, 255) : Rgb(205, 200, 211));
+                        SetTextColor(hdc, active ? Rgb(225, 215, 235) : Rgb(205, 200, 211));
                         DrawText(hdc, buttons[i].Label, -1, ref rect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
                         SelectObject(hdc, oldFont);
                         DeleteObject(font);
                     }
 
-                    if (isLeft && i < count - 1 && HasLeftDividerAfter(i))
+                    if (isLeft && i < count - 1 && HasLeftDividerAfter(buttons, i,
+                        String.Equals(layoutProfile, "compact", StringComparison.OrdinalIgnoreCase)))
                     {
                         int dividerMargin = GetLeftDividerMargin(dpi);
                         int dividerWidth = GetLeftDividerWidth(dpi);
@@ -1705,13 +1996,20 @@ internal static class StreamShellTitlebarHost
             try { icon.Dispose(); } catch { }
         }
         ButtonIcons.Clear();
+        DynamicIconActions.Clear();
+        foreach (Bitmap icon in RetiredDynamicIcons)
+        {
+            try { icon.Dispose(); } catch { }
+        }
+        RetiredDynamicIcons.Clear();
     }
 
     private static bool IsActionActive(string action)
     {
         lock (StateLock)
         {
-            if (action == "landing" || action == "youtube" || action == "netflix" || action == "prime" || action == "disney" || action == "crunchyroll")
+            if (action == "landing" || action.StartsWith("custom-", StringComparison.OrdinalIgnoreCase) ||
+                action == "youtube" || action == "netflix" || action == "prime" || action == "disney" || action == "crunchyroll")
             {
                 return String.Equals(leftMode, action, StringComparison.OrdinalIgnoreCase);
             }
@@ -1968,6 +2266,19 @@ internal static class StreamShellTitlebarHost
 
     private static void RaiseWideTwitchClusterOnce(string selectedMember)
     {
+        // HWND claims and focus/wake callbacks can arrive long after the user
+        // switched the right pane back to Dashboard or Discord. Those events
+        // may update the identity map, but must NEVER raise the Twitch cluster
+        // above the surface currently selected in the right titlebar.
+        lock (StateLock)
+        {
+            if (!String.Equals(layoutProfile, "wide", StringComparison.OrdinalIgnoreCase) ||
+                !String.Equals(rightMode, "twitch", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+        }
+
         string selected = (selectedMember ?? String.Empty).Trim().ToLowerInvariant();
 
         string fullscreenMember;
@@ -2054,6 +2365,96 @@ internal static class StreamShellTitlebarHost
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING
             );
         }
+    }
+
+    /* Do not continuously shuffle all four Opera HWNDs. A narrow 1 Hz audit
+     * repairs the two cases Windows can undo without any browser navigation:
+     * Dashboard overtakes one Twitch member, or the bottom row overtakes the
+     * top row along the shared caption overlap. Only do this while an already
+     * claimed Stream Shell window owns foreground; never lift Twitch above an
+     * unrelated app that the user deliberately brought forward. */
+    private static void RepairWideTwitchClusterZOrder()
+    {
+        IntPtr foreground = GetForegroundWindow();
+        if (foreground == IntPtr.Zero) return;
+        IntPtr foregroundRoot = GetAncestor(foreground, GA_ROOT);
+        if (foregroundRoot == IntPtr.Zero) foregroundRoot = foreground;
+        if (!IsExplicitShellSurfaceHandle(foregroundRoot)) return;
+
+        IntPtr dashboard = GetWideSurfaceHandle("right", "dashboard");
+        IntPtr a = GetWideTwitchClusterHandle("a");
+        IntPtr b = GetWideTwitchClusterHandle("b");
+        IntPtr c = GetWideTwitchClusterHandle("c");
+        IntPtr d = GetWideTwitchClusterHandle("d");
+        IntPtr[] members = { a, b, c, d };
+        bool repair = false;
+        foreach (IntPtr member in members)
+        {
+            if (member == IntPtr.Zero || !IsWindowVisible(member) || IsIconic(member)) continue;
+            if (dashboard != IntPtr.Zero && IsWindowVisible(dashboard) &&
+                !IsIconic(dashboard) && IsWindowAboveInZOrder(dashboard, member))
+            {
+                repair = true;
+                break;
+            }
+        }
+
+        if (!repair)
+        {
+            // C/D overlap A/B by 20 px; their captions must remain underneath.
+            repair = (a != IntPtr.Zero && c != IntPtr.Zero && IsWindowAboveInZOrder(c, a)) ||
+                (b != IntPtr.Zero && d != IntPtr.Zero && IsWindowAboveInZOrder(d, b));
+        }
+        if (!repair) return;
+
+        RaiseWideTwitchClusterOnce(String.Empty);
+        LogDiagnostic("twitch cluster z-order repaired (dashboard/row drift)");
+    }
+
+    /* A LEFT provider focus can lift Chromium's existing owned Twitch popups
+     * above the right Dashboard. Restore the explicitly selected right pane
+     * only when extension navigation asks us to, and never steal foreground.
+     * No 1 Hz Dashboard/Twitch tug-of-war (regression in 0.19.25). */
+    private static void ReassertWideRightPaneOnce(string requestedMode)
+    {
+        if (!String.Equals(requestedMode, "dashboard", StringComparison.OrdinalIgnoreCase) &&
+            !String.Equals(requestedMode, "twitch", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        lock (StateLock)
+        {
+            if (!String.Equals(layoutProfile, "wide", StringComparison.OrdinalIgnoreCase) ||
+                !String.Equals(rightMode, requestedMode, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+
+        IntPtr foreground = GetForegroundWindow();
+        if (foreground == IntPtr.Zero) return;
+        IntPtr foregroundRoot = GetAncestor(foreground, GA_ROOT);
+        if (foregroundRoot == IntPtr.Zero) foregroundRoot = foreground;
+        if (!IsExplicitShellSurfaceHandle(foregroundRoot)) return;
+
+        if (String.Equals(requestedMode, "twitch", StringComparison.OrdinalIgnoreCase))
+        {
+            RaiseWideTwitchClusterOnce(String.Empty);
+            return;
+        }
+
+        IntPtr dashboard = GetWideSurfaceHandle("right", "dashboard");
+        if (dashboard == IntPtr.Zero || !IsWindowVisible(dashboard) || IsIconic(dashboard))
+        {
+            LogDiagnostic("right-pane reassert: Dashboard HWND unavailable");
+            return;
+        }
+
+        // Only the explicitly selected right surface is lifted; SWP_NOACTIVATE
+        // leaves keyboard and mouse focus on the newly opened LEFT provider.
+        bool positioned = SetWindowPos(
+            dashboard, HWND_TOP, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING
+        );
+        if (!positioned)
+            LogDiagnostic("right-pane reassert: Dashboard SetWindowPos failed");
     }
 
     private static void SetWideTwitchPaneFullscreen(string member, bool enabled, PaneBounds pane)
@@ -2481,6 +2882,12 @@ internal static class StreamShellTitlebarHost
                     " visibility=" + (currentVisibility ?? "none")
                 );
                 RemovePendingSurfaceClaim(key);
+                WriteJson(
+                    "{\"event\":\"claim-expired\",\"layoutProfile\":\"" + JsonEscape(claim.LayoutProfile) +
+                    "\",\"side\":\"" + JsonEscape(claim.Side) +
+                    "\",\"mode\":\"" + JsonEscape(claim.Mode) +
+                    "\",\"member\":\"" + JsonEscape(claim.Member) + "\"}"
+                );
             }
             else
             {
@@ -2556,6 +2963,12 @@ internal static class StreamShellTitlebarHost
                     " foreground=" + DescribeWindow(GetForegroundWindow())
                 );
                 RemovePendingSurfaceClaim(key);
+                WriteJson(
+                    "{\"event\":\"claim-expired\",\"layoutProfile\":\"" + JsonEscape(claim.LayoutProfile) +
+                    "\",\"side\":\"" + JsonEscape(claim.Side) +
+                    "\",\"mode\":\"" + JsonEscape(claim.Mode) +
+                    "\",\"member\":\"" + JsonEscape(claim.Member) + "\"}"
+                );
             }
             else
             {
@@ -3295,14 +3708,15 @@ internal static class StreamShellTitlebarHost
             ? FindWideSurfaceTarget(right, "right", currentRightMode)
             : null;
 
-        List<TargetInfo> twitchClusterTargets =
-            !compactLayout && String.Equals(currentRightMode, "twitch", StringComparison.OrdinalIgnoreCase)
-                ? GetWideTwitchClusterTargets()
-                : new List<TargetInfo>();
-
-        if (twitchClusterTargets.Count > 0)
+        TargetInfo twitchTopLeft = null;
+        TargetInfo twitchTopRight = null;
+        if (!compactLayout && String.Equals(currentRightMode, "twitch", StringComparison.OrdinalIgnoreCase))
         {
-            rightTarget = twitchClusterTargets[0];
+            twitchTopLeft = TryBuildTrustedOperaTarget(GetWideTwitchClusterHandle("a"));
+            twitchTopRight = TryBuildTrustedOperaTarget(GetWideTwitchClusterHandle("b"));
+            // Never attach the Twitch titlebar chrome to C/D just because one
+            // of the upper two claims has not completed yet.
+            rightTarget = twitchTopLeft ?? twitchTopRight;
         }
 
         /*
@@ -3366,6 +3780,17 @@ internal static class StreamShellTitlebarHost
             SyncAltTabIntegration(effectiveVisibility, leftTarget, rightTarget, currentRightMode, left, right);
         }
 
+        // Alt+Tab ownership can itself change sibling HWND z-order. Audit only
+        // AFTER owner reconciliation; doing it earlier would be immediately
+        // undone by the same native tick.
+        // Twitch A-D only: preserve 0.19.24's proven recovery while Twitch
+        // is selected. Dashboard restoration is event-driven, never polled.
+        if (!compactLayout && !spanningShellFullscreen && IsHeartbeatFresh() &&
+            String.Equals(currentRightMode, "twitch", StringComparison.OrdinalIgnoreCase))
+        {
+            RepairWideTwitchClusterZOrder();
+        }
+
         SyncWindowChromeTheme(effectiveVisibility);
 
         // True fullscreen hides our own custom chrome only. Compact treats the
@@ -3424,10 +3849,10 @@ internal static class StreamShellTitlebarHost
         {
             PositionRightChrome(rightTarget);
             if (String.Equals(currentRightMode, "twitch", StringComparison.OrdinalIgnoreCase) &&
-                twitchClusterTargets.Count > 1 &&
-                ShouldShowRightChrome(twitchClusterTargets[1], currentRightMode))
+                twitchTopLeft != null && twitchTopRight != null &&
+                ShouldShowRightChrome(twitchTopRight, currentRightMode))
             {
-                PositionRightSplitChrome(twitchClusterTargets[1]);
+                PositionRightSplitChrome(twitchTopRight);
             }
             else
             {
@@ -3441,8 +3866,45 @@ internal static class StreamShellTitlebarHost
     }
 
 
+    private static byte ThemeChannel(int component, int floor, double intensity)
+    {
+        return (byte)Math.Max(0, Math.Min(255, floor + (int)Math.Round(component * intensity)));
+    }
+
+    private static uint DarkThemeColor(int red, int green, int blue, int floorR, int floorG, int floorB, double intensity)
+    {
+        return Rgb(ThemeChannel(red, floorR, intensity), ThemeChannel(green, floorG, intensity),
+            ThemeChannel(blue, floorB, intensity));
+    }
+
+    private static ChromeTheme CustomChromeTheme(string color)
+    {
+        int r = Convert.ToInt32(color.Substring(1, 2), 16);
+        int g = Convert.ToInt32(color.Substring(3, 2), 16);
+        int b = Convert.ToInt32(color.Substring(5, 2), 16);
+        return new ChromeTheme(
+            DarkThemeColor(r, g, b, 7, 6, 10, 0.13),
+            DarkThemeColor(r, g, b, 12, 10, 15, 0.20),
+            DarkThemeColor(r, g, b, 20, 15, 24, 0.32),
+            DarkThemeColor(r, g, b, 31, 27, 36, 0.32),
+            DarkThemeColor(r, g, b, 7, 6, 10, 0.13),
+            DarkThemeColor(r, g, b, 22, 18, 28, 0.27)
+        );
+    }
+
     private static ChromeTheme GetChromeTheme(string mode)
     {
+        // User colors tint the actual Titlebar/DWM palette, not merely icons.
+        // Existing five built-in palettes are preserved when no override exists.
+        lock (StateLock)
+        {
+            foreach (ButtonDef button in DynamicProviderButtons)
+            {
+                if (String.Equals(button.Action, mode, StringComparison.OrdinalIgnoreCase)
+                    && !String.IsNullOrEmpty(button.AccentColor))
+                    return CustomChromeTheme(button.AccentColor);
+            }
+        }
         if (String.Equals(mode, "youtube", StringComparison.OrdinalIgnoreCase))
         {
             return new ChromeTheme(
@@ -6767,6 +7229,23 @@ internal static class StreamShellTitlebarHost
             return;
         }
 
+        if (type.Equals("provider-buttons", StringComparison.OrdinalIgnoreCase))
+        {
+            int generation = GetJsonInt(json, "generation", 0);
+            int count;
+            int skippedIcons;
+            bool accepted = TryApplyProviderConfig(GetJsonString(json, "payloadB64"), generation, out count, out skippedIcons);
+            WriteJson("{\"event\":\"provider-buttons-ack\",\"protocolVersion\":" + TITLEBAR_PROTOCOL_VERSION +
+                ",\"generation\":" + generation + ",\"accepted\":" + (accepted ? "true" : "false") +
+                ",\"count\":" + count + ",\"skippedIcons\":" + skippedIcons + "}");
+            if (accepted && controllerWindow != IntPtr.Zero)
+                PostMessage(controllerWindow, WM_APP_SYNC, IntPtr.Zero, IntPtr.Zero);
+            if (accepted && leftOverlay != IntPtr.Zero) InvalidateRect(leftOverlay, IntPtr.Zero, false);
+            if (accepted && leftChromeOverlay != IntPtr.Zero) InvalidateRect(leftChromeOverlay, IntPtr.Zero, false);
+            if (accepted && rightChromeOverlay != IntPtr.Zero) InvalidateRect(rightChromeOverlay, IntPtr.Zero, false);
+            return;
+        }
+
         if (type.Equals("set-twitch-pane-fullscreen", StringComparison.OrdinalIgnoreCase))
         {
             string member = GetJsonString(json, "member") ?? String.Empty;
@@ -6778,6 +7257,13 @@ internal static class StreamShellTitlebarHost
                 GetJsonInt(json, "height", rightPane.Height)
             );
             SetWideTwitchPaneFullscreen(member, enabled, pane);
+            return;
+        }
+
+        if (type.Equals("reassert-right-pane", StringComparison.OrdinalIgnoreCase))
+        {
+            string selectedMode = GetJsonString(json, "rightMode") ?? String.Empty;
+            ReassertWideRightPaneOnce(selectedMode);
             return;
         }
 

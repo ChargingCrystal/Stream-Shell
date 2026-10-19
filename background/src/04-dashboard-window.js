@@ -151,15 +151,10 @@ async function showDashboard() {
         forceMinimize: compact
     });
 
-    if (compact) {
-        /* Avoid a native Discord round-trip on every Compact Home/Settings
-         * click when Discord is not the active surface (or not installed). */
-        const rightState = await chrome.storage.local.get("rightMode");
-        if (rightState.rightMode === "discord") {
-            await hideDiscordForDashboard();
-        }
-    } else {
-        /* Preserve the established Wide behavior byte-for-byte in spirit. */
+    // Native Discord should be hidden only if it actually occupies the
+    // right pane. Unrelated hide round-trips can reshuffle owned Opera HWNDs.
+    const rightState = await chrome.storage.local.get("rightMode");
+    if (rightState.rightMode === "discord") {
         await hideDiscordForDashboard();
     }
 
@@ -192,7 +187,10 @@ async function showDashboard() {
         for (const [, windowId] of providerEntries) {
             if (Number.isInteger(windowId)) {
                 await setWindowMuted(windowId, true);
-                await safelyMinimizeWindow(windowId);
+                await parkWindowOffscreenAndMinimize(
+                    windowId,
+                    LEFT
+                );
             }
         }
     }
@@ -215,6 +213,12 @@ async function showDashboard() {
     if (shuttingDown) return;
 
     await broadcastState();
+
+    if (!compact) {
+        // Right Dashboard was explicitly selected. Repair any owner-graph
+        // ordering drift after Opera completes the focus hand-off, once only.
+        scheduleWideRightPaneReassert("dashboard");
+    }
 }
 
 

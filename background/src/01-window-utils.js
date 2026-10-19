@@ -217,6 +217,36 @@ async function parkWindowOffscreen(
 }
 
 
+async function parkWindowOffscreenAndMinimize(
+    windowId,
+    referenceBounds = LEFT
+) {
+    if (
+        shuttingDown ||
+        !Number.isInteger(windowId)
+    ) {
+        return;
+    }
+
+    /*
+     * Compact provider windows must remember an off-screen restore rectangle.
+     * Minimizing first lets Opera keep the visible full-surface bounds, which
+     * can flash the provider back on-screen before Stream Shell restores and
+     * claims it. Park while normal/unfocused, then minimize.
+     */
+    try {
+        await chrome.windows.update(windowId, {
+            state: "normal",
+            focused: false
+        });
+    } catch {
+    }
+
+    await parkWindowOffscreen(windowId, referenceBounds);
+    await safelyMinimizeWindow(windowId);
+}
+
+
 async function safelyMinimizeWindow(
     windowId
 ) {

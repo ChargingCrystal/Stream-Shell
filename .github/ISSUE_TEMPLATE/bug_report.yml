@@ -14,7 +14,7 @@ body:
     attributes:
       label: Stream Shell version
       description: Release/tag or commit hash.
-      placeholder: "0.18.6"
+      placeholder: "0.20.0"
     validations:
       required: true
 
@@ -60,6 +60,7 @@ body:
         - label: Twitch
         - label: Discord integration
         - label: Native titlebar helper
+        - label: Custom Provider Registry / titlebar artwork
         - label: Volume / fullscreen bridge
         - label: Diagnostics / settings
         - label: Other
@@ -95,7 +96,7 @@ body:
     id: safe_mode
     attributes:
       label: Provider Safe Mode
-      description: If this is provider-specific, does the problem still occur with that provider's Safe Mode enabled?
+      description: For a built-in provider, does the problem still occur with that provider's Safe Mode enabled? Custom providers have no built-in adapter.
       options:
         - Not applicable
         - Still broken in Safe Mode
@@ -115,7 +116,7 @@ body:
     id: extra
     attributes:
       label: Additional context
-      description: Screenshots, recent provider UI changes, regression range, or anything else that may help.
+      description: Screenshots, whether a custom site fails in a normal Opera GX tab, current art key/asset format, helper reinstall state, regression range, or other context.
 
   - type: checkboxes
     id: checks

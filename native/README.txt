@@ -1,42 +1,28 @@
-STREAM SHELL - DISCORD DESKTOP BRIDGE
+STREAM SHELL - DISCORD DESKTOP BRIDGE (v0.20.0)
+================================================
 
-Purpose
--------
-The browser extension cannot directly move native Windows applications.
-This small local Native Messaging host lets Stream Shell show/minimize the
-stable Discord desktop client and place it on the right 1920x1080 half.
-
-Discord executable resolution
------------------------------
-The helper resolves the stable Discord client dynamically from
-%LOCALAPPDATA%\Discord\app-*\Discord.exe.
-
-Only the stable Discord tree under %LOCALAPPDATA%\Discord is accepted.
-Discord PTB, Discord Canary and Vesktop are deliberately ignored.
+The Discord Native Messaging helper is SEPARATE from the Stream Shell native
+titlebar helper. It manages the stable desktop Discord window on the right
+side of the Wide shell, without relaunching it for each Dashboard switch.
+Discord PTB, Canary and Vesktop are not supported by this helper.
 
 Install
 -------
-1. Load/reload Stream Shell in Opera.
-2. Right-click install-discord-helper.ps1 and run it with PowerShell.
-   The script requests elevation because Opera documents the Windows native
-   messaging registration under HKLM.
-3. The installer tries to detect the Stream Shell extension ID from Opera's
-   Preferences. If that fails, copy the ID from opera://extensions when asked.
-4. Reload Stream Shell once more.
+1. Load the unpacked Stream Shell extension in Opera GX.
+2. Run native\install-discord-helper.ps1 (admin permission may be requested).
+3. If the installer cannot find the extension ID, copy it from
+   opera://extensions when prompted.
+4. Reload the Stream Shell extension.
 
-Uninstall
----------
-Run uninstall-discord-helper.ps1.
+Uninstall: native\uninstall-discord-helper.ps1
 
-Behavior
---------
-- Discord button inactive: neutral translucent glass.
-- Discord button active: Discord blurple tint.
-- Clicking Discord restores/reuses the stable Discord window and places it at
-  X=1920, Y=0, W=1920, H=1080.
-- Returning to Dashboard hides Discord without terminating it. This avoids Discord/Electron's minimize-to-tray transition and makes the next restore deterministic.
+The helper discovers stable Discord under %LOCALAPPDATA%\Discord\app-*\Discord.exe.
+It shows/restores Discord on Wide's right pane. Switching to Dashboard hides
+Discord without terminating it, avoiding Electron minimize-to-tray problems.
+The native titlebar has its own installer (native\install-titlebar-helper.cmd).
 
-
+Historical change notes (old versions; current behavior described above)
+-----------------------------------------------------------------------
 0.9.0 note:
 The native helper also reports the foreground Windows window bounds so the Dashboard can tell whether the Landing page is actually covered by another application. Re-run install-discord-helper.ps1 after updating from 0.8.x to enable this exact external-window detection. Without the helper update, Stream Shell safely assumes Landing is covered whenever Opera loses focus.
 

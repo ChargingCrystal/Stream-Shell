@@ -61,6 +61,73 @@
     const marblesPlayEvents = [];
     const processedMarblesLines = new WeakSet();
 
+    // Lightweight, in-memory measurements. Never persist chat content/usernames
+    // or flood chrome.storage.local with heartbeat events.
+    const twitchRuntimeMetrics = {
+        startedAt: Date.now(),
+        lastChatMutationAt: null,
+        lastChannelChangeAt: null,
+        lastPlayObservedAt: null,
+        observedPlayCount: 0,
+        lastJoinScheduledAt: null,
+        joinScheduledDelayMs: null,
+        lastJoinAttemptAt: null,
+        lastJoinTimerDriftMs: null,
+        lastJoinResult: null,
+        lastJoinSuccessAt: null,
+        joinAttempts: 0,
+        joinSuccesses: 0,
+        visibilityChanges: 0,
+        lastVisibilityChangeAt: null,
+        heartbeatAt: null,
+        heartbeatCount: 0,
+        heartbeatLastDriftMs: null,
+        heartbeatMaxDriftMs: 0,
+        heartbeatDelayedCount: 0,
+        lastAutomationScanAt: null
+    };
+    let twitchHeartbeatTimer = null;
+
+    function getTwitchRuntimeDiagnostics() {
+        return {
+            version: 1,
+            capturedAt: Date.now(),
+            documentVisibility: document.visibilityState,
+            documentFocused: document.hasFocus(),
+            workspaceCovered: workspaceIsCovered(),
+            workspaceRightMode,
+            workspacePlaybackGuardEnabled,
+            workspaceWantedPlaying,
+            slotId: workspaceSlotId,
+            channel: currentChannelUrl(),
+            automation: {
+                marblesAutoJoinEnabled: settings.streamShellTwitchMarblesAutoJoin === true,
+                pendingJoin: marblesPendingTimer !== null,
+                uniquePlayUsersInBurst: new Set(marblesPlayEvents.map(event => event.userKey)).size,
+                triggerCount: marblesTriggerCount,
+                observedChannel: marblesObservedChannel,
+                lastSuccessfulJoinAt: marblesLastAutoPlayAt,
+                hydrationGuardUntil: marblesHydrationGuardUntil,
+                ...twitchRuntimeMetrics
+            }
+        };
+    }
+
+    function startTwitchRuntimeHeartbeat() {
+        const intervalMs = 10000;
+        let expectedAt = Date.now() + intervalMs;
+        twitchHeartbeatTimer = setInterval(() => {
+            const now = Date.now();
+            const drift = Math.max(0, now - expectedAt);
+            twitchRuntimeMetrics.heartbeatAt = now;
+            twitchRuntimeMetrics.heartbeatCount += 1;
+            twitchRuntimeMetrics.heartbeatLastDriftMs = drift;
+            twitchRuntimeMetrics.heartbeatMaxDriftMs = Math.max(twitchRuntimeMetrics.heartbeatMaxDriftMs, drift);
+            if (drift > 1500) twitchRuntimeMetrics.heartbeatDelayedCount += 1;
+            expectedAt = now + intervalMs;
+        }, intervalMs);
+    }
+
     /*
      * Workspace playback is intentionally different from core-provider
      * playback. Covering the right pane with Dashboard/Discord (or covering
@@ -212,6 +279,7 @@
 
     function armMarblesHydrationGuard(channel = currentChannelUrl()) {
         marblesObservedChannel = channel || null;
+        twitchRuntimeMetrics.lastChannelChangeAt = Date.now();
         marblesHydrationGuardUntil = Date.now() + MARBLES_CONFIG.initialHydrationGuardMs;
         cancelPendingMarblesJoin();
         resetMarblesBurst();
@@ -428,18 +496,33 @@
         if (now - marblesLastAutoPlayAt < MARBLES_CONFIG.cooldownMs) return;
 
         const delay = randomIntInclusive(MARBLES_CONFIG.minDelayMs, MARBLES_CONFIG.maxDelayMs);
+        twitchRuntimeMetrics.lastJoinScheduledAt = now;
+        twitchRuntimeMetrics.joinScheduledDelayMs = delay;
         marblesPendingTimer = setTimeout(async () => {
             marblesPendingTimer = null;
-            if (!settings.streamShellTwitchMarblesAutoJoin) return;
-            if (Date.now() - marblesLastAutoPlayAt < MARBLES_CONFIG.cooldownMs) return;
+            const firedAt = Date.now();
+            twitchRuntimeMetrics.lastJoinTimerDriftMs = Math.max(0, firedAt - now - delay);
+            if (!settings.streamShellTwitchMarblesAutoJoin) {
+                twitchRuntimeMetrics.lastJoinResult = "cancelled-disabled";
+                return;
+            }
+            if (Date.now() - marblesLastAutoPlayAt < MARBLES_CONFIG.cooldownMs) {
+                twitchRuntimeMetrics.lastJoinResult = "cancelled-cooldown";
+                return;
+            }
 
+            twitchRuntimeMetrics.lastJoinAttemptAt = Date.now();
+            twitchRuntimeMetrics.joinAttempts += 1;
             const sent = await sendMarblesPlayCommand().catch(() => false);
+            twitchRuntimeMetrics.lastJoinResult = sent ? "submitted" : "not-submitted";
             if (!sent) {
                 resetMarblesBurst({ reroll: false });
                 return;
             }
 
             marblesLastAutoPlayAt = Date.now();
+            twitchRuntimeMetrics.lastJoinSuccessAt = marblesLastAutoPlayAt;
+            twitchRuntimeMetrics.joinSuccesses += 1;
             chrome.storage.local.set({
                 [marblesCooldownStorageKey()]: marblesLastAutoPlayAt
             }).catch(() => {});
@@ -470,6 +553,8 @@
         if (!isMarblesPlayCommand(text)) return;
 
         const now = Date.now();
+        twitchRuntimeMetrics.lastPlayObservedAt = now;
+        twitchRuntimeMetrics.observedPlayCount += 1;
         const cutoff = now - MARBLES_CONFIG.burstWindowMs;
         while (marblesPlayEvents.length && marblesPlayEvents[0].time < cutoff) {
             marblesPlayEvents.shift();
@@ -483,6 +568,7 @@
 
     function observeMarblesChat(records) {
         if (!settings.streamShellTwitchMarblesAutoJoin) return;
+        if (records?.length) twitchRuntimeMetrics.lastChatMutationAt = Date.now();
         for (const mutation of records || []) {
             for (const node of mutation.addedNodes || []) {
                 for (const line of collectMarblesChatLines(node)) recordMarblesPlay(line);
@@ -634,6 +720,7 @@
 
     function scan() {
         if (!automationEnabled()) return;
+        twitchRuntimeMetrics.lastAutomationScanAt = Date.now();
         const stable = currentChannelUrl();
         if (stable && Date.now() >= raidGuardCooldownUntil) {
             lastStableChannelUrl = stable;
@@ -660,6 +747,15 @@
         if (!managed) return;
 
         document.documentElement.dataset.streamShellTwitch = "true";
+        startTwitchRuntimeHeartbeat();
+        document.addEventListener("visibilitychange", () => {
+            twitchRuntimeMetrics.visibilityChanges += 1;
+            twitchRuntimeMetrics.lastVisibilityChangeAt = Date.now();
+        });
+        chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+            if (message?.type !== "stream-shell-twitch-runtime-diagnostics") return;
+            sendResponse({ ok: true, runtime: getTwitchRuntimeDiagnostics() });
+        });
 
         try {
             const workspaceContext = await chrome.runtime.sendMessage({
@@ -870,6 +966,7 @@
         }, true);
 
         window.addEventListener("pagehide", () => {
+            if (twitchHeartbeatTimer) clearInterval(twitchHeartbeatTimer);
             if (fallbackTimer) clearInterval(fallbackTimer);
             if (scanTimer !== null) clearTimeout(scanTimer);
             clearWorkspaceResumeTimers();

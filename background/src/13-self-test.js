@@ -35,7 +35,7 @@ async function runStreamShellLaunchSelfTest() {
     );
 
     const providers = {};
-    for (const provider of Object.keys(PROVIDERS)) {
+    for (const provider of STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id)) {
         const windowId = Number.isInteger(providerWindows?.[provider])
             ? providerWindows[provider]
             : null;
@@ -62,8 +62,8 @@ async function runStreamShellLaunchSelfTest() {
             state: `MV${manifest.manifest_version || "?"}`
         },
         providerRegistry: {
-            ok: Object.keys(PROVIDERS).length === 5,
-            state: `${Object.keys(PROVIDERS).length} providers`
+            ok: STREAM_SHELL_PROVIDER_BUILTINS.length === 5,
+            state: `${STREAM_SHELL_PROVIDER_BUILTINS.length} integrated adapters`
         },
         providerApi: {
             ok: true,

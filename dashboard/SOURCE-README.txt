@@ -11,9 +11,11 @@ Edit the feature files in dashboard/src, then run build-dashboard.ps1. The scrip
 
 This deliberately avoids ES modules, extra <script> tags, bundlers and declaration/hoisting changes in the dashboard runtime.
 
-Source order
-------------
+Source order (as of 0.20.0; consult build-dashboard.ps1 for authority)
+-------------------------------------------------------------------
+- ../shared/provider-registry-core.js  validated shared registry (prefixed to bundle)
 - state.js
+- provider-registry.js           dynamic Dashboard cards, separate titlebar management, custom provider settings
 - contextual-motion.js
 - now-playing-ui.js
 - now-playing-artwork.js
@@ -25,19 +27,19 @@ Source order
 - provider-search.js
 - provider-open.js
 - selected-media.js
-- settings-config.js              settings defaults, section/search metadata, state and Anarchy page color lifecycle
-- settings-controls.js            reusable settings fields, provider-generic playback/subtitle/audio/anarchy controls, sleep timer and settings import/export
-- settings-diagnostics.js         Performance-aware panel/full Diagnostics collection, rendering, Flight Recorder timeline, Safe Mode/Repair actions and JSON export
-- settings-provider-pages.js      provider-specific settings pages plus settings search result rendering
-- settings-runtime.js             settings content/sidebar/tabs lifecycle, input persistence and click/change routing
+- settings-config.js
+- settings-controls.js
+- settings-diagnostics.js
+- settings-provider-pages.js
+- settings-runtime.js
 - click-router.js
+- compact-home-loader.js        loads dedicated Compact Home bundle in Compact only
 - shell-state.js
 
-Compact-only appended block (0.14.x)
-------------------------------------
-- compact-home-prefix.js            detects Compact, enables Landing styles and loads Compact-only media helpers
-- landing/src/state.js ... orchestrator.js  reused inside an isolated async scope; Wide returns before this block
-- compact-home-suffix.js            opens the persistent Compact Watchlist view
+Compact bundle dashboard/compact-home.js is separately built from
+compact-home-prefix.js + the canonical landing/src chunks +
+compact-home-suffix.js. The browser does not load those landing chunks in
+Wide's Dashboard.
 
 Notes
 -----

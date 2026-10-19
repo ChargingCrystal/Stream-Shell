@@ -1,14 +1,18 @@
-# Local release archives / diagnostics
+# Local releases, logs and diagnostics
 *.zip
 StreamShell-diagnostics-*.json
 *.log
 
-# Windows / editors
+# User-supplied artwork: never include it in Git pushes
+# (The README.txt instructions in custom folders remain tracked.)
+/assets/backgrounds/*.png
+/assets/providers/custom/*.svg
+/native/titlebar-icons/custom/*.png
+
+# Windows / editors / temporary files
 Thumbs.db
 Desktop.ini
 .vscode/
 .idea/
-
-# Build/editor scratch
 *.tmp
 *.bak
