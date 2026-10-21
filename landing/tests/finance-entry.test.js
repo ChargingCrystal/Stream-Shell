@@ -117,4 +117,20 @@ test('five Subscriptions heading clicks open the Wide finance overlay and RECONC
   assert.equal(consoleMessages.length, 0, 'no finance UI errors');
   const print = body.children[0].querySelector('#finance-print');
   assert.equal(print.disabled, false, 'COBOL-generated report becomes printable');
+
+  const originalHost = chrome.runtime.sendNativeMessage;
+  chrome.runtime.sendNativeMessage = async () => { throw new Error('Native host disconnected'); };
+  reconcile.handlers.get('click')();
+  await settle();
+  assert.equal(print.disabled, true, 'previous report must not remain printable after a failed reconciliation');
+  assert.equal(reconcile.disabled, false, 'a failed COBOL call must restore the retry button');
+  assert.equal(reconcile.textContent, 'RECONCILE', 'retry button label restored after failure');
+  assert.equal(consoleMessages.length, 1, 'native failure is recorded without escaping the UI handler');
+  assert.match(String(consoleMessages[0][1]), /Native host disconnected/);
+
+  chrome.runtime.sendNativeMessage = originalHost;
+  reconcile.handlers.get('click')();
+  await settle();
+  assert.equal(print.disabled, false, 'after Native host recovery, printing is enabled again');
+  assert.equal(reconcile.disabled, false, 'recovery leaves the form interactive');
 });

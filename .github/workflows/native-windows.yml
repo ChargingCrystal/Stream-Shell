@@ -1,0 +1,30 @@
+name: Stream Shell native Windows build
+
+on:
+  push:
+    paths:
+      - 'native/**/*.cs'
+      - 'native/install-titlebar-helper.ps1'
+      - 'native/tests/compile-titlebar-host.ps1'
+      - '.github/workflows/native-windows.yml'
+  pull_request:
+    paths:
+      - 'native/**/*.cs'
+      - 'native/install-titlebar-helper.ps1'
+      - 'native/tests/compile-titlebar-host.ps1'
+      - '.github/workflows/native-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile native C# helper (no installation)
+    runs-on: windows-2022
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compile using the installer's C# source assembly order
+        shell: powershell
+        run: .\native\tests\compile-titlebar-host.ps1

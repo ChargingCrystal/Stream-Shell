@@ -108,7 +108,22 @@ for (const file of jsFiles) {
 }
 console.log(`  JavaScript syntax: ${syntaxOk}/${jsFiles.length}`);
 
-const tests = all.filter(file => /(?:^|\/)tests\/[^/]+\.test\.js$/.test(file));
+// Discover every *.test.js, including legacy tests beside their production files.
+const tests = all.filter(file => file.endsWith('.test.js')).sort();
+const requiredBehaviorTests = [
+    'landing/tests/finance-entry.test.js',
+    'landing/provider-background.test.js',
+    'offscreen/titlebar-svg.test.js',
+    'background/tests/renderer-startup-admission.test.js',
+    'background/tests/native-idle-reconcile.test.js',
+    'background/tests/native-resilience-regression.test.js',
+    'dashboard/tests/twitch-skeleton.test.js',
+    'dashboard/tests/hidden-idle-budget.test.js'
+];
+for (const file of requiredBehaviorTests) {
+    check(tests.includes(file), `required regression missing: ${file}`);
+}
+check(tests.length >= requiredBehaviorTests.length, 'no regression tests discovered');
 let passing = 0;
 for (const file of tests) {
     const command = spawnSync(process.execPath, [absolute(file)], { encoding: 'utf8', timeout: 30_000 });
