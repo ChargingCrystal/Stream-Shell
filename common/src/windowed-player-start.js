@@ -1,4 +1,6 @@
     async function startWindowedPlayer() {
+        if (!WINDOWED_PLAYER_PROVIDERS.has(getCurrentProvider())) return;
+        return startProviderFeatureOnce(`windowed-player:${getCurrentProvider()}`, async () => {
         const provider =
             getCurrentProvider();
 
@@ -37,9 +39,12 @@
             null;
 
 
-        let enabled =
-            false;
-
+        let enabled = false;
+        // Keep the current display override and its legacy fallback in memory.
+        // Reading storage again inside onChanged can finish out of order and
+        // overwrite a newer setting after rapid toggles/imports.
+        let baseEnabled = false;
+        let scopedEnabled;
 
         try {
             const storageKeys = [
@@ -61,13 +66,11 @@
                 );
 
 
-            enabled =
-                readDisplayScopedSetting(
-                    stored,
-                    storageKey,
-                    false
-                ) === true;
-
+            baseEnabled = stored[storageKey] === true;
+            scopedEnabled = Object.prototype.hasOwnProperty.call(
+                stored, scopedStorageKey
+            ) ? stored[scopedStorageKey] === true : undefined;
+            enabled = readDisplayScopedSetting(stored, storageKey, false) === true;
 
             windowedExtension
                 ?.hydrate
@@ -77,13 +80,10 @@
         }
 
 
-        const sync =
-            () => {
-                syncWindowedPlayerMode(
-                    provider,
-                    enabled
-                );
-            };
+        const sync = () => {
+            enabled = scopedEnabled === undefined ? baseEnabled : scopedEnabled;
+            syncWindowedPlayerMode(provider, enabled);
+        };
 
 
         sync();
@@ -106,42 +106,25 @@
                     false;
 
 
-                if (
-                    Object.prototype.hasOwnProperty.call(
-                        changes,
-                        scopedStorageKey
-                    )
-                ) {
-                    if (changes[scopedStorageKey]?.newValue === undefined) {
-                        chrome.storage.local.get(storageKey)
-                            .then(stored => {
-                                enabled = stored[storageKey] === true;
-                                sync();
-                            })
-                            .catch(() => {});
-                    } else {
-                        enabled = changes[scopedStorageKey]?.newValue === true;
-                    }
+                // Apply storage change batches atomically. The scoped value
+                // always wins while present, even if the legacy key changes
+                // in the same batch. Removing it immediately reveals the
+                // latest legacy fallback without an asynchronous read.
+                const scopedChanged = Object.prototype.hasOwnProperty.call(
+                    changes, scopedStorageKey
+                );
+                const baseChanged = Object.prototype.hasOwnProperty.call(
+                    changes, storageKey
+                );
 
-
-                    changed =
-                        true;
-                } else if (
-                    Object.prototype.hasOwnProperty.call(
-                        changes,
-                        storageKey
-                    )
-                ) {
-                    chrome.storage.local.get(scopedStorageKey)
-                        .then(stored => {
-                            if (!Object.prototype.hasOwnProperty.call(stored, scopedStorageKey)) {
-                                enabled = changes[storageKey]?.newValue === true;
-                                sync();
-                            }
-                        })
-                        .catch(() => {});
+                if (scopedChanged) {
+                    const value = changes[scopedStorageKey]?.newValue;
+                    scopedEnabled = value === undefined ? undefined : value === true;
                 }
-
+                if (baseChanged) {
+                    baseEnabled = changes[storageKey]?.newValue === true;
+                }
+                changed = scopedChanged || (baseChanged && scopedEnabled === undefined);
 
                 if (
                     windowedExtension
@@ -189,6 +172,7 @@
                 sync
             );
         }
+        });
     }
 
 

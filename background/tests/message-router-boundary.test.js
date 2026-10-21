@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
+const helpers = fs.readFileSync(path.join(__dirname, '../src/09-message-helpers.js'), 'utf8');
 const router = fs.readFileSync(path.join(__dirname, '../src/09-message-router.js'), 'utf8');
 let handler = null;
 const state = { reject: false };
@@ -16,7 +17,7 @@ const chrome = {
         }
     }
 };
-vm.runInNewContext(router, {
+vm.runInNewContext(helpers + "\n" + router, {
     chrome,
     isLandingExposed: () => Promise.resolve(false),
     getStreamShellDisplayProfile: () => Promise.resolve({ mode: 'wide' }),

@@ -12,6 +12,7 @@ const code = source.replace(tail, `    globalThis.__getTelemetry = getTwitchRunt
 const ctx = vm.createContext({
   URL, Date, Set, WeakMap, WeakSet, Math, console,
   document: { visibilityState: 'hidden', hasFocus: () => false },
+  chrome: {runtime: {onMessage: {addListener: () => {}}}},
   location: { pathname: '/example_channel' }
 });
 vm.runInContext(code, ctx, { filename: file });

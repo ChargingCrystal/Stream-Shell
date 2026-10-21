@@ -140,10 +140,32 @@ const requiredBehaviorTests = [
     'landing/tests/provider-background.test.js',
     'offscreen/tests/titlebar-svg.test.js',
     'background/tests/renderer-startup-admission.test.js',
+    'background/tests/renderer-handoff-session-lease.test.js',
+    'background/tests/twitch-cold-window-identity.test.js',
+    'background/tests/twitch-staged-content-startup.test.js',
+    'background/tests/twitch-lazy-hud-admission.test.js',
+    'background/tests/twitch-marbles-history-admission.test.js',
+    'background/tests/twitch-automation-code-split.test.js',
+    'background/tests/twitch-startup-reflow-and-navigation-audit.test.js',
+    'background/tests/twitch-alarm-concurrent-admission.test.js',
+    'background/tests/twitch-player-audio-raid-navigation.test.js',
+    'background/tests/twitch-first-playback-autoplay-policy.test.js',
     'background/tests/native-idle-reconcile.test.js',
     'background/tests/native-resilience-regression.test.js',
+    'background/tests/message-ipc-contract.test.js',
+    'background/tests/dashboard-ipc-regression.test.js',
     'dashboard/tests/twitch-skeleton.test.js',
-    'dashboard/tests/hidden-idle-budget.test.js'
+    'dashboard/tests/hidden-idle-budget.test.js',
+    'dashboard/tests/settings-storage-contract.test.js',
+    'dashboard/tests/settings-validation.test.js',
+    'common/tests/provider-api-contract.test.js',
+    'common/tests/provider-media-resolver.test.js',
+    'common/tests/provider-loop-lifecycle.test.js',
+    'common/tests/provider-feature-start-lifecycle.test.js',
+    'common/tests/provider-window-state-ordering.test.js',
+    'common/tests/youtube-observer-wake-budget.test.js',
+    'common/tests/provider-dom-governor-wake-budget.test.js',
+    'common/tests/windowed-player-storage-order.test.js'
 ];
 for (const file of requiredBehaviorTests) {
     check(tests.includes(file), `required regression missing: ${file}`);

@@ -2,8 +2,10 @@
  * synchronous Marbles chat parsing (hidden Chrome timers are throttled). */
 const fs=require('node:fs');const vm=require('node:vm');const path=require('node:path');const assert=require('node:assert/strict');
 const src=fs.readFileSync(path.resolve(__dirname,'../../providers/player/twitch-utility.js'),'utf8');
-assert.match(src,/const inspected = new Set\(\)/);
-assert.match(src,/for \(const line of collectMarblesChatLines\(node\)\) recordMarblesPlay\(line\);/);
+const deferred=fs.readFileSync(path.resolve(__dirname,'../../providers/player/twitch-automation.js'),'utf8');
+assert.match(deferred,/const inspected = new Set\(\)/);
+assert.match(deferred,/for \(const line of lines\) recordMarblesPlay\(line\);/);
+assert.doesNotMatch(src,/function observeMarblesChat/, 'Marbles DOM scan must not parse at document_start');
 const start=src.indexOf('        let lastInteractionNoticeAt = 0;');
 const end=src.indexOf('        document.addEventListener("click", event => {',start);
 assert.ok(start>0&&end>start);

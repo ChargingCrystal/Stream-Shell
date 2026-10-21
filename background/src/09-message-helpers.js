@@ -1,3 +1,45 @@
+// Shared response boundary for low-risk runtime messages. Keep sender checks in
+// the router BEFORE entering this helper; this never grants permissions.
+// Returning true holds the MV3 sendResponse channel open while work settles.
+function streamShellMessageErrorText(error, fallback = "Request failed.") {
+    const message = error?.message || (typeof error === "string" ? error : null);
+    return typeof message === "string" && message.trim() ? message : fallback;
+}
+
+function streamShellRespondAsync(sendResponse, operation, options = {}) {
+    const success = options.success || (result => result);
+    const failure = options.failure || (error => ({
+        ok: false,
+        error: streamShellMessageErrorText(error, options.fallback)
+    }));
+
+    // Exactly one reply on either success or failure. The operation is invoked
+    // INSIDE the try block: synchronously throwing APIs are handled as well as
+    // rejecting promises. Closed sender ports must not leak an unhandled error.
+    void (async () => {
+        let reply;
+        try {
+            reply = success(await operation());
+        } catch (error) {
+            if (options.logLabel) console.error(options.logLabel, error);
+            try {
+                reply = failure(error);
+            } catch (responseError) {
+                reply = {
+                    ok: false,
+                    error: streamShellMessageErrorText(responseError)
+                };
+            }
+        }
+        try {
+            sendResponse(reply);
+        } catch {
+            // The requesting page/port may have closed during asynchronous work.
+        }
+    })();
+    return true;
+}
+
 async function isManagedProviderWindow(
     windowId
 ) {

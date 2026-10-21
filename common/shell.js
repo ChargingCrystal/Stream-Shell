@@ -2538,9 +2538,15 @@ function resolveProviderMediaLink(
         adapter.label = adapter.label || PROVIDERS[provider].label;
         adapter.apiVersion = STREAM_SHELL_PROVIDER_API_VERSION;
         adapter.adapterKind = String(adapter.adapterKind || "generic");
-        adapter.getCapabilities = typeof adapter.getCapabilities === "function"
-            ? adapter.getCapabilities
-            : () => getProviderCapabilities(provider, adapter);
+        // Rebind the inherited generic getter to the *resolved* adapter.
+        // The base closure captures the base instance and misses extensions;
+        // explicit factory overrides must still take precedence.
+        if (
+            typeof adapter.getCapabilities !== "function" ||
+            adapter.getCapabilities === baseAdapter.getCapabilities
+        ) {
+            adapter.getCapabilities = () => getProviderCapabilities(provider, adapter);
+        }
         adapter.extensions = adapter.extensions || {};
 
         providerAdapterInstances.set(provider, adapter);
@@ -2883,8 +2889,48 @@ function resolveProviderMediaLink(
     let providerResourceGovernorState = null;
     let providerResourceGovernorStarted = false;
     let providerResourceGovernorLastFlightSignature = "";
+    // Window snapshots are asynchronous. A later visibility/focus request or
+    // native push must not be overwritten by an older, delayed reply.
+    let providerResourceWindowRefreshSequence = 0;
+    let providerResourceWindowPushRevision = 0;
     const providerResourceGovernorListeners = new Set();
     const providerResourceGovernorWorkloads = new Map();
+    // A provider feature owns its page-lifetime event listeners/DOM observers.
+    // The polling-loop guard alone cannot stop duplicate listeners when two
+    // startup paths overlap across an awaited storage read. Keep the promise
+    // registered before invoking the initializer so reentrant starts are safe.
+    const providerResourceFeatureStarts = new Map();
+
+    function startProviderFeatureOnce(name, initialize) {
+        const key = String(name || "").trim();
+        if (!key || typeof initialize !== "function") {
+            return Promise.reject(new TypeError("Invalid provider feature initializer."));
+        }
+
+        const existing = providerResourceFeatureStarts.get(key);
+        if (existing) return existing;
+
+        let resolveStart;
+        let rejectStart;
+        const started = new Promise((resolve, reject) => {
+            resolveStart = resolve;
+            rejectStart = reject;
+        });
+        providerResourceFeatureStarts.set(key, started);
+
+        try {
+            // Invoked synchronously: do not postpone the existing startup
+            // order. A rejected/partial initialization stays owned; retrying
+            // it without teardown would duplicate subscriptions.
+            Promise.resolve(initialize()).then(resolveStart, rejectStart);
+        } catch (error) {
+            rejectStart(error);
+        }
+        return started;
+    }
+
+    // One owned polling loop per workload name within this provider document.
+    const providerResourceGovernorLoopHandles = new Map();
 
     function getProviderResourceGovernorMode({
         visible,
@@ -3099,6 +3145,12 @@ function resolveProviderMediaLink(
         let running = false;
         const key = String(name || "loop");
 
+        // SPA reinitialization may request an existing named loop. Stop its
+        // timer and governor listener before registering the replacement.
+        // An in-flight async callback cannot be interrupted, but its stopped
+        // handle will not reschedule work when it eventually settles.
+        providerResourceGovernorLoopHandles.get(key)?.stop();
+
         const workloadState = {
             name: key,
             kind: String(workload || "poll"),
@@ -3185,19 +3237,25 @@ function resolveProviderMediaLink(
 
         const handle = {
             stop() {
+                if (stopped) return;
                 stopped = true;
                 if (timer) {
                     clearTimeout(timer);
                     timer = null;
                 }
                 unsubscribe();
-                providerResourceGovernorWorkloads.delete(key);
+                // Stale handles must never delete a newer loop's state.
+                if (providerResourceGovernorLoopHandles.get(key) === handle) {
+                    providerResourceGovernorLoopHandles.delete(key);
+                    providerResourceGovernorWorkloads.delete(key);
+                }
             },
             wake() {
                 schedule(0);
             }
         };
 
+        providerResourceGovernorLoopHandles.set(key, handle);
         schedule(immediate ? 0 : undefined);
         return handle;
     }
@@ -3205,12 +3263,24 @@ function resolveProviderMediaLink(
     async function refreshProviderResourceWindowState(
         reason = "background"
     ) {
+        const requestSequence = ++providerResourceWindowRefreshSequence;
+        const pushRevision = providerResourceWindowPushRevision;
+
         try {
             const state = await chrome.runtime.sendMessage({
                 type: "provider-resource-state"
             });
 
-            if (state?.managed === true) {
+            // Visibility/focus and native window events can overlap. Only
+            // the newest outstanding request may commit, and a native push
+            // always takes precedence over a snapshot begun before it.
+            if (
+                state?.managed === true &&
+                requestSequence === providerResourceWindowRefreshSequence &&
+                pushRevision === providerResourceWindowPushRevision &&
+                (!state.provider ||
+                    state.provider === providerResourceGovernorWindowState.provider)
+            ) {
                 providerResourceGovernorWindowState = {
                     ...providerResourceGovernorWindowState,
                     ...state
@@ -3242,6 +3312,9 @@ function resolveProviderMediaLink(
                 return;
             }
 
+            // Invalidate any asynchronous state request that was started
+            // before this fresher native/background push arrived.
+            providerResourceWindowPushRevision += 1;
             providerResourceGovernorWindowState = {
                 ...providerResourceGovernorWindowState,
                 ...(message.state || {})
@@ -3768,12 +3841,14 @@ function resolveProviderMediaLink(
                 return;
             }
 
-            Promise.resolve(
-                adapter?.resolveMediaUrl?.(
+            // Invoke inside the Promise chain: a provider resolver may throw
+            // synchronously (e.g. on a half-hydrated SPA document). Such errors
+            // must still get a response, not escape the MV3 message listener.
+            Promise.resolve()
+                .then(() => adapter?.resolveMediaUrl?.(
                     message.identity,
                     message.fallbackUrl
-                )
-            )
+                ))
                 .then(result => {
                     if (
                         !result?.url ||
@@ -3878,6 +3953,8 @@ function resolveProviderMediaLink(
 
 
     function startNowPlayingTracking() {
+        if (!getCurrentProvider() || !getProviderAdapter(getCurrentProvider())) return;
+        return startProviderFeatureOnce(`now-playing-tracking:${getCurrentProvider()}`, () => {
         const provider =
             getCurrentProvider();
 
@@ -4291,6 +4368,7 @@ function resolveProviderMediaLink(
                 );
             }
         );
+        });
     }
 
 
@@ -5805,6 +5883,8 @@ function resolveProviderMediaLink(
     });
 
     async function startPlaybackUtilities() {
+        if (!PLAYBACK_UTILITY_PROVIDERS.includes(getCurrentProvider())) return;
+        return startProviderFeatureOnce(`playback-utilities:${getCurrentProvider()}`, async () => {
         const provider = getCurrentProvider();
 
         if (!provider || !PLAYBACK_UTILITY_PROVIDERS.includes(provider)) {
@@ -5910,6 +5990,7 @@ function resolveProviderMediaLink(
 
         onProviderResourceGovernorChange(() => {
             syncPlaybackUtilities(provider);
+        });
         });
     }
     /*
@@ -6198,12 +6279,8 @@ function resolveProviderMediaLink(
             }
         };
 
-        adapter.getMediaSnapshot = () =>
-            getProviderMediaSnapshot("disney", adapter);
         adapter.getExtensionCapabilities = context =>
             getDisneyAdapterExtensionCapabilities(context);
-        adapter.getCapabilities = () =>
-            getProviderCapabilities("disney", adapter);
 
         return adapter;
     }
@@ -6311,6 +6388,8 @@ function resolveProviderMediaLink(
     }
 
     async function startNetflixEnhancements() {
+        if (getCurrentProvider() !== "netflix") return;
+        return startProviderFeatureOnce(`netflix-enhancements:${getCurrentProvider()}`, async () => {
         if (getCurrentProvider() !== "netflix") {
             return;
         }
@@ -6366,12 +6445,25 @@ function resolveProviderMediaLink(
             "dom"
         );
 
-        onProviderResourceGovernorChange(() => {
+        onProviderResourceGovernorChange((next, previous) => {
+            // A focus-only or playback-rate state update does not change
+            // whether Netflix's DOM observer may run. Avoid rechecking the
+            // same full-document DOM on every Opera/window focus event.
+            if (
+                previous &&
+                next?.domObserversAllowed === previous.domObserversAllowed
+            ) {
+                return;
+            }
+
             syncNetflixEnhancementObserver();
-            scheduleNetflixEnhancementRun();
+            if (next?.domObserversAllowed === true) {
+                scheduleNetflixEnhancementRun();
+            }
         });
 
         runNetflixEnhancements();
+        });
     }
     /*
      * ============================================================
@@ -6927,12 +7019,8 @@ function resolveProviderMediaLink(
             }
         };
 
-        adapter.getMediaSnapshot = () =>
-            getProviderMediaSnapshot("netflix", adapter);
         adapter.getExtensionCapabilities = context =>
             getNetflixAdapterExtensionCapabilities(context);
-        adapter.getCapabilities = () =>
-            getProviderCapabilities("netflix", adapter);
 
         return adapter;
     }
@@ -6962,6 +7050,8 @@ function resolveProviderMediaLink(
     };
 
     async function startCrunchyrollEnhancements() {
+        if (getCurrentProvider() !== "crunchyroll") return;
+        return startProviderFeatureOnce(`crunchyroll-enhancements:${getCurrentProvider()}`, async () => {
         if (getCurrentProvider() !== "crunchyroll") {
             return;
         }
@@ -7010,6 +7100,7 @@ function resolveProviderMediaLink(
                 }
             }
         );
+        });
     }
     /*
      * ============================================================
@@ -7487,12 +7578,8 @@ function resolveProviderMediaLink(
             }
         };
 
-        adapter.getMediaSnapshot = () =>
-            getProviderMediaSnapshot("crunchyroll", adapter);
         adapter.getExtensionCapabilities = context =>
             getCrunchyrollAdapterExtensionCapabilities(context);
-        adapter.getCapabilities = () =>
-            getProviderCapabilities("crunchyroll", adapter);
 
         return adapter;
     }
@@ -7706,6 +7793,8 @@ function resolveProviderMediaLink(
 
     async function startPrimeEnhancements() {
         if (getCurrentProvider() !== "prime") return;
+        return startProviderFeatureOnce(`prime-enhancements:${getCurrentProvider()}`, async () => {
+        if (getCurrentProvider() !== "prime") return;
 
         const keys = Object.keys(PRIME_SETTINGS_DEFAULTS);
 
@@ -7724,9 +7813,23 @@ function resolveProviderMediaLink(
         syncPrimeEnhancementMarkers();
         syncPrimeAutoSkipObserver();
 
-        onProviderResourceGovernorChange(() => {
-            syncPrimeEnhancementMarkers();
-            syncPrimeAutoSkipObserver();
+        onProviderResourceGovernorChange((next, previous) => {
+            // Prime's presentation markers depend on settings / Safe Mode,
+            // not window focus. Anarchy depends on visual eligibility and
+            // the auto-skip observer depends on DOM eligibility. Only
+            // reconcile the relevant subsystem when its gate changes.
+            if (
+                !previous ||
+                next?.visualWorkAllowed !== previous.visualWorkAllowed
+            ) {
+                syncPrimeSubtitleAnarchy();
+            }
+            if (
+                !previous ||
+                next?.domObserversAllowed !== previous.domObserversAllowed
+            ) {
+                syncPrimeAutoSkipObserver();
+            }
         });
 
         chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -7749,6 +7852,7 @@ function resolveProviderMediaLink(
 
             syncPrimeEnhancementMarkers();
             syncPrimeAutoSkipObserver();
+        });
         });
     }
     /*
@@ -8534,12 +8638,8 @@ function resolveProviderMediaLink(
             getExtensionState: getPrimeAdapterExtensionState
         };
 
-        adapter.getMediaSnapshot = () =>
-            getProviderMediaSnapshot("prime", adapter);
         adapter.getExtensionCapabilities = context =>
             getPrimeAdapterExtensionCapabilities(context);
-        adapter.getCapabilities = () =>
-            getProviderCapabilities("prime", adapter);
 
         return adapter;
     }
@@ -11990,6 +12090,8 @@ function resolveProviderMediaLink(
         };
     }
     async function startYouTubeUtilities() {
+        if (getCurrentProvider() !== "youtube") return;
+        return startProviderFeatureOnce(`youtube-utilities:${getCurrentProvider()}`, async () => {
         if (
             getCurrentProvider() !==
                 "youtube"
@@ -12141,7 +12243,17 @@ function resolveProviderMediaLink(
 
 
         onProviderResourceGovernorChange(
-            state => {
+            (state, previous) => {
+                // Provider focus or playback-rate changes need not restart
+                // five SPA settle passes while DOM observing remains allowed.
+                // Actual SPA navigation uses its own rebinding path.
+                if (
+                    previous &&
+                    state?.domObserversAllowed === previous.domObserversAllowed
+                ) {
+                    return;
+                }
+
                 if (
                     state?.domObserversAllowed ===
                         true
@@ -12171,6 +12283,7 @@ function resolveProviderMediaLink(
                 1000,
                 "dom"
             );
+        });
     }
 
     /*
@@ -12618,8 +12731,6 @@ function resolveProviderMediaLink(
 
         adapter.getExtensionCapabilities = context =>
             getYouTubeAdapterExtensionCapabilities(context);
-        adapter.getCapabilities = () =>
-            getProviderCapabilities("youtube", adapter);
 
         return adapter;
     }
@@ -13253,6 +13364,8 @@ function resolveProviderMediaLink(
         return true;
     });
     async function startWindowedPlayer() {
+        if (!WINDOWED_PLAYER_PROVIDERS.has(getCurrentProvider())) return;
+        return startProviderFeatureOnce(`windowed-player:${getCurrentProvider()}`, async () => {
         const provider =
             getCurrentProvider();
 
@@ -13291,9 +13404,12 @@ function resolveProviderMediaLink(
             null;
 
 
-        let enabled =
-            false;
-
+        let enabled = false;
+        // Keep the current display override and its legacy fallback in memory.
+        // Reading storage again inside onChanged can finish out of order and
+        // overwrite a newer setting after rapid toggles/imports.
+        let baseEnabled = false;
+        let scopedEnabled;
 
         try {
             const storageKeys = [
@@ -13315,13 +13431,11 @@ function resolveProviderMediaLink(
                 );
 
 
-            enabled =
-                readDisplayScopedSetting(
-                    stored,
-                    storageKey,
-                    false
-                ) === true;
-
+            baseEnabled = stored[storageKey] === true;
+            scopedEnabled = Object.prototype.hasOwnProperty.call(
+                stored, scopedStorageKey
+            ) ? stored[scopedStorageKey] === true : undefined;
+            enabled = readDisplayScopedSetting(stored, storageKey, false) === true;
 
             windowedExtension
                 ?.hydrate
@@ -13331,13 +13445,10 @@ function resolveProviderMediaLink(
         }
 
 
-        const sync =
-            () => {
-                syncWindowedPlayerMode(
-                    provider,
-                    enabled
-                );
-            };
+        const sync = () => {
+            enabled = scopedEnabled === undefined ? baseEnabled : scopedEnabled;
+            syncWindowedPlayerMode(provider, enabled);
+        };
 
 
         sync();
@@ -13360,42 +13471,25 @@ function resolveProviderMediaLink(
                     false;
 
 
-                if (
-                    Object.prototype.hasOwnProperty.call(
-                        changes,
-                        scopedStorageKey
-                    )
-                ) {
-                    if (changes[scopedStorageKey]?.newValue === undefined) {
-                        chrome.storage.local.get(storageKey)
-                            .then(stored => {
-                                enabled = stored[storageKey] === true;
-                                sync();
-                            })
-                            .catch(() => {});
-                    } else {
-                        enabled = changes[scopedStorageKey]?.newValue === true;
-                    }
+                // Apply storage change batches atomically. The scoped value
+                // always wins while present, even if the legacy key changes
+                // in the same batch. Removing it immediately reveals the
+                // latest legacy fallback without an asynchronous read.
+                const scopedChanged = Object.prototype.hasOwnProperty.call(
+                    changes, scopedStorageKey
+                );
+                const baseChanged = Object.prototype.hasOwnProperty.call(
+                    changes, storageKey
+                );
 
-
-                    changed =
-                        true;
-                } else if (
-                    Object.prototype.hasOwnProperty.call(
-                        changes,
-                        storageKey
-                    )
-                ) {
-                    chrome.storage.local.get(scopedStorageKey)
-                        .then(stored => {
-                            if (!Object.prototype.hasOwnProperty.call(stored, scopedStorageKey)) {
-                                enabled = changes[storageKey]?.newValue === true;
-                                sync();
-                            }
-                        })
-                        .catch(() => {});
+                if (scopedChanged) {
+                    const value = changes[scopedStorageKey]?.newValue;
+                    scopedEnabled = value === undefined ? undefined : value === true;
                 }
-
+                if (baseChanged) {
+                    baseEnabled = changes[storageKey]?.newValue === true;
+                }
+                changed = scopedChanged || (baseChanged && scopedEnabled === undefined);
 
                 if (
                     windowedExtension
@@ -13443,6 +13537,7 @@ function resolveProviderMediaLink(
                 sync
             );
         }
+        });
     }
 
 

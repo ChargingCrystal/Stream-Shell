@@ -19,6 +19,8 @@
     };
 
     async function startCrunchyrollEnhancements() {
+        if (getCurrentProvider() !== "crunchyroll") return;
+        return startProviderFeatureOnce(`crunchyroll-enhancements:${getCurrentProvider()}`, async () => {
         if (getCurrentProvider() !== "crunchyroll") {
             return;
         }
@@ -67,4 +69,5 @@
                 }
             }
         );
+        });
     }

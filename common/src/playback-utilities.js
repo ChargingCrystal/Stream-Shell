@@ -254,6 +254,8 @@
     });
 
     async function startPlaybackUtilities() {
+        if (!PLAYBACK_UTILITY_PROVIDERS.includes(getCurrentProvider())) return;
+        return startProviderFeatureOnce(`playback-utilities:${getCurrentProvider()}`, async () => {
         const provider = getCurrentProvider();
 
         if (!provider || !PLAYBACK_UTILITY_PROVIDERS.includes(provider)) {
@@ -359,5 +361,6 @@
 
         onProviderResourceGovernorChange(() => {
             syncPlaybackUtilities(provider);
+        });
         });
     }

@@ -97,6 +97,8 @@
     }
 
     async function startNetflixEnhancements() {
+        if (getCurrentProvider() !== "netflix") return;
+        return startProviderFeatureOnce(`netflix-enhancements:${getCurrentProvider()}`, async () => {
         if (getCurrentProvider() !== "netflix") {
             return;
         }
@@ -152,10 +154,23 @@
             "dom"
         );
 
-        onProviderResourceGovernorChange(() => {
+        onProviderResourceGovernorChange((next, previous) => {
+            // A focus-only or playback-rate state update does not change
+            // whether Netflix's DOM observer may run. Avoid rechecking the
+            // same full-document DOM on every Opera/window focus event.
+            if (
+                previous &&
+                next?.domObserversAllowed === previous.domObserversAllowed
+            ) {
+                return;
+            }
+
             syncNetflixEnhancementObserver();
-            scheduleNetflixEnhancementRun();
+            if (next?.domObserversAllowed === true) {
+                scheduleNetflixEnhancementRun();
+            }
         });
 
         runNetflixEnhancements();
+        });
     }

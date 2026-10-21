@@ -400,10 +400,7 @@ async function loadSettingsValues() {
             SETTINGS_STORAGE_KEYS
         );
 
-        settingsValues = {
-            ...SETTINGS_DEFAULTS,
-            ...stored
-        };
+        settingsValues = streamShellHydrateSettings(stored);
     } catch {
         settingsValues = {
             ...SETTINGS_DEFAULTS
@@ -706,76 +703,61 @@ function handleSettingsClick(event) {
 
 function normalizeSettingInput(input) {
     const key = input.dataset.settingKey;
-    if (!key) {
-        return null;
-    }
-
-    let value;
-
-    if (input.type === "checkbox") {
-        value = input.checked;
-    } else if (input.dataset.settingNumber === "true") {
-        const min = Number(input.min);
-        const max = Number(input.max);
-        let numeric = Number(input.value);
-
-        if (!Number.isFinite(numeric)) {
-            numeric = Number(settingDefaultValue(key)) || 0;
-        }
-
-        if (Number.isFinite(min)) {
-            numeric = Math.max(min, numeric);
-        }
-
-        if (Number.isFinite(max)) {
-            numeric = Math.min(max, numeric);
-        }
-
-        input.value = String(numeric);
-        value = numeric;
-    } else {
-        value = input.value;
-    }
-
+    if (!key) return null;
+    const value = streamShellNormalizeSettingValue(
+        key,
+        input.type === "checkbox" ? input.checked : input.value
+    );
+    if (input.dataset.settingNumber === "true") input.value = String(value);
     return { key, value };
 }
 
 async function persistSettingInput(input) {
-    const normalized = normalizeSettingInput(input);
-    if (!normalized) {
+    let normalized;
+    try {
+        normalized = normalizeSettingInput(input);
+    } catch {
+        showSettingsIoStatus("Invalid setting value");
+        if (settingsCenter && !settingsCenter.hidden) renderSettingsContent();
+        return;
+    }
+    if (!normalized) return;
+
+    try {
+        await streamShellWriteSetting(normalized.key, normalized.value);
+    } catch {
+        // Do not pretend that a failed chrome.storage write was successful.
+        // The cached settingsValues remains the last committed value.
+        showSettingsIoStatus("Save failed");
+        if (!settingsCenter.hidden) renderSettingsContent();
         return;
     }
 
     settingsValues[normalized.key] = normalized.value;
-
+    // Flight Recorder failure must not turn a successful settings save into an error.
     try {
-        await chrome.storage.local.set({
-            [normalized.key]: normalized.value
-        });
+        chrome.runtime.sendMessage({
+            type: "dashboard-flight-event",
+            event: {
+                category: "settings",
+                action: "changed",
+                detail: { key: normalized.key }
+            }
+        }).catch(() => {});
+    } catch {
+        // Telemetry must not break a committed setting.
+    }
 
+    if (normalized.key === "streamShellSleepTimerAction" && sleepTimerState) {
         try {
-            await chrome.runtime.sendMessage({
-                type: "dashboard-flight-event",
-                event: {
-                    category: "settings",
-                    action: "changed",
-                    detail: { key: normalized.key }
-                }
-            });
-        } catch {
-        }
-
-        if (
-            normalized.key === "streamShellSleepTimerAction" &&
-            sleepTimerState
-        ) {
             const response = await chrome.runtime.sendMessage({
                 type: "sleep-timer-action",
                 action: normalized.value
             });
             sleepTimerState = response?.session || sleepTimerState;
+        } catch {
+            showSettingsIoStatus("Sleep timer update failed");
         }
-    } catch {
     }
 }
 

@@ -443,8 +443,6 @@
 
         adapter.getExtensionCapabilities = context =>
             getYouTubeAdapterExtensionCapabilities(context);
-        adapter.getCapabilities = () =>
-            getProviderCapabilities("youtube", adapter);
 
         return adapter;
     }

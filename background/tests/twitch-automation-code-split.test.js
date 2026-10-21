@@ -1,0 +1,25 @@
+/* Prevent later refactors from accidentally broadening optional script injection. */
+const assert=require('node:assert/strict');
+const fs=require('node:fs');const path=require('node:path');
+const root=path.resolve(__dirname,'../..');
+const router=fs.readFileSync(path.join(root,'background/src/09-message-router.js'),'utf8');
+const core=fs.readFileSync(path.join(root,'providers/player/twitch-utility.js'),'utf8');
+const late=fs.readFileSync(path.join(root,'providers/player/twitch-automation.js'),'utf8');
+const manifest=JSON.parse(fs.readFileSync(path.join(root,'manifest.json'),'utf8'));
+const route=router.slice(router.indexOf('if (message.type === "twitch-workspace-v2-load-automation")'),router.indexOf('// The large Twitch HUD is optional;'));
+assert.match(route,/sender\.frameId !== 0/);
+assert.match(route,/isTwitchUrl\(tab\.url\)/);
+assert.match(route,/getTwitchWorkspaceV2Context\(tab\.windowId\)/);
+assert.match(route,/context\?\.role !== "slot"/);
+assert.match(route,/documentIds: \[sender\.documentId\]/);
+assert.match(route,/!sender\.documentId/);
+assert.match(route,/files: \["providers\/player\/twitch-automation\.js"\]/);
+assert.match(core,/twitch-workspace-v2-load-automation/);
+assert.match(core,/if \(!automationDocumentAlive \|\| automationClient/);
+assert.match(core,/registerAutomation\(client\)/);
+assert.match(late,/__streamShellTwitchAutomationLoaded === true/);
+assert.match(late,/if \(!core\.registerAutomation/);
+assert.doesNotMatch(late,/stream-shell-twitch-workspace-wake/);
+assert.doesNotMatch(core,/MutationObserver|for \(const line of lines\)/);
+assert.ok(!manifest.content_scripts.some(c=>(c.js||[]).includes('providers/player/twitch-automation.js')));
+console.log('Twitch optional automation top-frame + slot + document admission: PASS');

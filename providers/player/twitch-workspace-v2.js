@@ -1,7 +1,8 @@
 (() => {
+    if (globalThis.__streamShellTwitchHudLoaded === true) return;
+    globalThis.__streamShellTwitchHudLoaded = true;
     const ROOT_ID = "stream-shell-twitch-workspace-v2";
     const STYLE_ID = "stream-shell-twitch-workspace-v2-style";
-    const CLEANUP_STYLE_ID = "stream-shell-twitch-workspace-v2-cleanup";
     const HUD_POSITIONS_KEY = "streamShellTwitchHudPositionsV1";
 
     let context = null;
@@ -15,6 +16,11 @@
     let suppressLauncherClickUntil = 0;
     let hudSettleGeneration = 0;
     let surfaceCheckGeneration = 0;
+    // Auto Stream pages often expose their LIVE badge only after SPA hydration.
+    // Do not undo the kernel's early cleanup during that transient unknown state.
+    const AUTO_STREAM_SURFACE_SETTLE_MS = 14000;
+    const documentStartedAt = Number.isFinite(performance.timeOrigin)
+        ? performance.timeOrigin : Date.now();
 
     const send = (type, payload = {}) => chrome.runtime.sendMessage({ type, ...payload });
 
@@ -231,47 +237,27 @@
          * An explicit Stream choice remains user-authoritative; pane fullscreen
          * still arrives as effectiveKind=page and therefore stays Page there. */
         if ((context?.kindSource || "auto") === "explicit") return "stream";
-        return isCurrentLiveStreamSurface() ? "stream" : "page";
+        if (isCurrentLiveStreamSurface()) return "stream";
+        // Until Twitch has had time to hydrate, "no live badge yet" is not
+        // equivalent to a confirmed offline channel. Keep the early CSS marker
+        // steady rather than flashing Twitch chrome in and out.
+        return Date.now() - documentStartedAt < AUTO_STREAM_SURFACE_SETTLE_MS
+            ? "stream" : "page";
     }
 
+    // The passive Stream cleanup CSS is installed at document_start by the
+    // manifest. HUD updates only its managed-slot marker, never injects a
+    // late stylesheet after Twitch has already painted its header/sidebar.
     function removeCleanup() {
-        document.getElementById(CLEANUP_STYLE_ID)?.remove();
         delete document.documentElement.dataset.streamShellTwitchWorkspaceClean;
     }
 
     function applyStreamCleanup() {
-        const effectiveKind = currentVisibleKind();
-        if (context?.role !== "slot" || effectiveKind !== "stream") {
+        if (context?.role === "slot" && currentVisibleKind() === "stream") {
+            document.documentElement.dataset.streamShellTwitchWorkspaceClean = "true";
+        } else {
             removeCleanup();
-            return;
         }
-
-        document.documentElement.dataset.streamShellTwitchWorkspaceClean = "true";
-        let style = document.getElementById(CLEANUP_STYLE_ID);
-        if (!style) {
-            style = document.createElement("style");
-            style.id = CLEANUP_STYLE_ID;
-            (document.head || document.documentElement).appendChild(style);
-        }
-        style.textContent = `
-            /* Stream mode keeps Twitch's player, chat, channel information and
-             * lower page content. Only the global header and left sidebar are
-             * hidden. Pane fullscreen temporarily exposes Page mode instead. */
-            html[data-stream-shell-twitch-workspace-clean="true"] [data-a-target="top-nav-container"],
-            html[data-stream-shell-twitch-workspace-clean="true"] [data-test-selector="top-nav"],
-            html[data-stream-shell-twitch-workspace-clean="true"] nav.top-nav,
-            html[data-stream-shell-twitch-workspace-clean="true"] .top-nav,
-            html[data-stream-shell-twitch-workspace-clean="true"] #sideNav,
-            html[data-stream-shell-twitch-workspace-clean="true"] .side-nav,
-            html[data-stream-shell-twitch-workspace-clean="true"] .side-nav__overlay-wrapper,
-            html[data-stream-shell-twitch-workspace-clean="true"] [data-test-selector="side-nav"],
-            html[data-stream-shell-twitch-workspace-clean="true"] [data-a-target="side-nav-bar"] {
-                display: none !important;
-            }
-            html[data-stream-shell-twitch-workspace-clean="true"] .root-scrollable__wrapper {
-                top: 0 !important;
-            }
-        `;
     }
 
     function clampHudPosition(hud, position = hudPosition) {
@@ -629,7 +615,9 @@
 
     function scheduleSurfacePresentationChecks() {
         const generation = ++surfaceCheckGeneration;
-        for (const delay of [0, 350, 900, 1800, 3500, 7000]) {
+        const afterHydration = Math.max(0,
+            AUTO_STREAM_SURFACE_SETTLE_MS - (Date.now() - documentStartedAt) + 300);
+        for (const delay of [0, 350, 900, 1800, 3500, 7000, afterHydration]) {
             setTimeout(() => {
                 if (generation !== surfaceCheckGeneration) return;
                 refreshSurfacePresentation();
@@ -659,36 +647,9 @@
         scheduleSurfacePresentationChecks();
     }
 
-    function pulseCompositorSurface() {
-        const host = document.documentElement || document.body;
-        if (!host) return;
-
-        const pulse = document.createElement("div");
-        pulse.setAttribute("aria-hidden", "true");
-        pulse.style.cssText = [
-            "position:fixed",
-            "left:0",
-            "top:0",
-            "width:1px",
-            "height:1px",
-            "opacity:0.001",
-            "pointer-events:none",
-            "z-index:2147483646",
-            "transform:translate3d(0,0,0)",
-            "will-change:transform"
-        ].join(";");
-        host.appendChild(pulse);
-        void pulse.getBoundingClientRect();
-        requestAnimationFrame(() => {
-            pulse.style.transform = "translate3d(1px,0,0)";
-            requestAnimationFrame(() => pulse.remove());
-        });
-    }
-
-    chrome.runtime.onMessage.addListener(message => {
-        if (message?.type !== "stream-shell-twitch-workspace-wake") return;
-        pulseCompositorSurface();
-    });
+    // Native surface wake is owned by twitch-utility.js (document_start),
+    // not by this document_idle HUD script. Late HUD injection must never
+    // cause the startup compositor pulse to be missed.
 
     async function start() {
         for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -721,7 +682,8 @@
                 setTimeout(refreshSurfacePresentation, 120);
             }, true);
         }
-        scheduleSurfacePresentationChecks();
+        // Initial refreshContext() already scheduled bounded HUD surface checks.
+        // Avoid a duplicate set of six timers per fresh Twitch popup.
         window.addEventListener("resize", () => {
             settleHudAfterViewportChange(true);
         });

@@ -311,8 +311,67 @@ function isStreamShellRendererCold(kind, name) {
     return false;
 }
 
+/* IDs persisted in the focus cache are not proof that Chromium still owns
+ * those windows. In 0.20.26 four Twitch popups were created even though their
+ * old IDs made admission classify the launch as warm (3s instead of 5.5s).
+ * Verify actual window existence before choosing the shorter grace period. */
+async function isStreamShellRendererColdVerified(kind, name) {
+    if (isStreamShellRendererCold(kind, name)) return true;
+    if (!chrome.windows?.get) return false; // Offline mock without window API.
+    let windowIds;
+    if (kind === 'twitch') {
+        const record = shellWideFocusCache[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+        windowIds = ['a', 'b', 'c', 'd'].map(slot => record?.slots?.[slot]?.windowId);
+    } else if (kind === 'provider') {
+        windowIds = [shellWideFocusCache.providerWindows?.[name.slice('provider:'.length)]];
+    } else {
+        return false;
+    }
+    const live = await Promise.all(windowIds.map(async windowId => {
+        if (!Number.isInteger(windowId)) return false;
+        try { return Number.isInteger((await chrome.windows.get(windowId))?.id); }
+        catch { return false; }
+    }));
+    return !live.every(Boolean);
+}
+
 let streamShellLastRendererLaunchKind = null;
 let streamShellLastRendererLaunchFinishedAt = 0;
+let streamShellRendererLeaseSource = 'memory';
+const STREAM_SHELL_RENDERER_LEASE_KEY = 'streamShellRendererHandoffLease';
+
+/* A Chromium MV3 service worker may be evicted/restarted while the browser
+ * renderer it just launched is still busy. The window-transition FIFO and its
+ * last-launch timestamp are worker-local; keeping the short handoff lease in
+ * session storage lets the next worker honor provider -> Twitch (and reverse).
+ * This is a timestamp, never a durable task or an extra renderer timer. */
+async function hydrateStreamShellRendererHandoffLease() {
+    if (streamShellLastRendererLaunchKind) return;
+    try {
+        const stored = (await chrome.storage.session?.get(STREAM_SHELL_RENDERER_LEASE_KEY))
+            ?.[STREAM_SHELL_RENDERER_LEASE_KEY];
+        const at = Number(stored?.at);
+        const age = Date.now() - at;
+        if (!['provider', 'twitch'].includes(stored?.kind) ||
+            !Number.isFinite(at) || at <= 0 || age < 0 ||
+            age > STREAM_SHELL_RENDERER_WARM_AFTER_MS) return;
+        streamShellLastRendererLaunchKind = stored.kind;
+        streamShellLastRendererLaunchFinishedAt = at;
+        streamShellRendererLeaseSource = 'session';
+    } catch { /* Session storage can be unavailable in an old test host. */ }
+}
+
+async function rememberStreamShellRendererLaunch(kind) {
+    const at = Date.now();
+    streamShellLastRendererLaunchKind = kind;
+    streamShellLastRendererLaunchFinishedAt = at;
+    streamShellRendererLeaseSource = 'memory';
+    try {
+        await chrome.storage.session?.set({
+            [STREAM_SHELL_RENDERER_LEASE_KEY]: { kind, at }
+        });
+    } catch { /* Retain the same-worker protection if storage fails. */ }
+}
 
 function streamShellRendererLaunchKind(name) {
     if (name.startsWith('provider:')) return 'provider';
@@ -320,12 +379,14 @@ function streamShellRendererLaunchKind(name) {
     return null;
 }
 
-async function waitForStreamShellRendererHandoff(name) {
+async function waitForStreamShellRendererHandoff(name, verifiedCold = null) {
     const kind = streamShellRendererLaunchKind(name);
     if (!kind || !streamShellLastRendererLaunchKind ||
         streamShellLastRendererLaunchKind === kind) return 0;
     const cold = Date.now() < streamShellRendererColdUntil ||
-        isStreamShellRendererCold(kind, name);
+        (verifiedCold === null
+            ? await isStreamShellRendererColdVerified(kind, name)
+            : verifiedCold);
     const graceMs = cold
         ? STREAM_SHELL_RENDERER_HANDOFF_GRACE_MS
         : STREAM_SHELL_RENDERER_HANDOFF_WARM_MS;
@@ -335,7 +396,8 @@ async function waitForStreamShellRendererHandoff(name) {
     recordFlightEvent({
         category: 'window-transition', action: 'renderer-handoff-staggered',
         detail: { from: streamShellLastRendererLaunchKind, to: kind,
-            delayMs: remaining, graceMs, cold }
+            delayMs: remaining, graceMs, cold,
+            leaseSource: streamShellRendererLeaseSource }
     }).catch(() => {});
     return remaining;
 }
@@ -371,27 +433,37 @@ function runStreamShellWindowTransition(name, operation) {
         streamShellTransitionActive = name;
         const kind = streamShellRendererLaunchKind(name);
         const visualId = ++streamShellTransitionVisualSerial;
-        const showTwitchLoading = kind === 'twitch' &&
-            (isStreamShellRendererCold(kind, name) ||
-             (streamShellLastRendererLaunchKind === 'provider' &&
-              Date.now() - streamShellLastRendererLaunchFinishedAt < STREAM_SHELL_RENDERER_HANDOFF_GRACE_MS));
-        if (showTwitchLoading) notifyStreamShellTransitionVisual({
-            surface:'twitch', stage:'waiting', id:visualId
-        });
+        let showTwitchLoading = false;
         try {
+            // Read any outstanding lease before deciding that a freshly
+            // restarted worker can launch Twitch without a provider cooldown.
+            if (kind) await hydrateStreamShellRendererHandoffLease();
+            // Verify Twitch windows on first admission, or the target provider
+            // during a Twitch -> provider handoff. Ordinary provider changes
+            // and non-renderer FIFO commands need no cold/window API probes.
+            const shouldVerifyCold = kind === 'twitch' &&
+                streamShellLastRendererLaunchKind !== 'twitch' ||
+                kind === 'provider' && streamShellLastRendererLaunchKind === 'twitch';
+            const verifiedCold = shouldVerifyCold
+                ? await isStreamShellRendererColdVerified(kind, name)
+                : kind === 'twitch' ? isStreamShellRendererCold(kind, name) : false;
+            showTwitchLoading = kind === 'twitch' &&
+                (verifiedCold ||
+                 (streamShellLastRendererLaunchKind === 'provider' &&
+                  Date.now() - streamShellLastRendererLaunchFinishedAt < STREAM_SHELL_RENDERER_HANDOFF_GRACE_MS));
+            if (showTwitchLoading) notifyStreamShellTransitionVisual({
+                surface:'twitch', stage:'waiting', id:visualId
+            });
             // Explicit commands stay ordered, but renderer initialization
             // must also be given room to settle before crossing surfaces.
-            const delayMs = await waitForStreamShellRendererHandoff(name);
+            const delayMs = await waitForStreamShellRendererHandoff(name, verifiedCold);
             if (shuttingDown) throw new Error("Stream Shell is shutting down.");
             if (showTwitchLoading) notifyStreamShellTransitionVisual({
                 surface:'twitch', stage:'creating', id:visualId,
                 delayMs
             });
             const result = await operation();
-            if (kind) {
-                streamShellLastRendererLaunchKind = kind;
-                streamShellLastRendererLaunchFinishedAt = Date.now();
-            }
+            if (kind) await rememberStreamShellRendererLaunch(kind);
             if (showTwitchLoading) notifyStreamShellTransitionVisual({
                 surface:'twitch', stage:'done', id:visualId
             });
@@ -620,8 +692,7 @@ async function _openShellWarmLastProvider() {
     // immediately after Shell launch must honor the same settling lease as a
     // deliberate provider click, even though startup-warm is not a provider:
     // command in the transition FIFO.
-    streamShellLastRendererLaunchKind = 'provider';
-    streamShellLastRendererLaunchFinishedAt = Date.now();
+    await rememberStreamShellRendererLaunch('provider');
 }
 
 

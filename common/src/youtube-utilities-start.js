@@ -1,4 +1,6 @@
     async function startYouTubeUtilities() {
+        if (getCurrentProvider() !== "youtube") return;
+        return startProviderFeatureOnce(`youtube-utilities:${getCurrentProvider()}`, async () => {
         if (
             getCurrentProvider() !==
                 "youtube"
@@ -150,7 +152,17 @@
 
 
         onProviderResourceGovernorChange(
-            state => {
+            (state, previous) => {
+                // Provider focus or playback-rate changes need not restart
+                // five SPA settle passes while DOM observing remains allowed.
+                // Actual SPA navigation uses its own rebinding path.
+                if (
+                    previous &&
+                    state?.domObserversAllowed === previous.domObserversAllowed
+                ) {
+                    return;
+                }
+
                 if (
                     state?.domObserversAllowed ===
                         true
@@ -180,5 +192,6 @@
                 1000,
                 "dom"
             );
+        });
     }
 

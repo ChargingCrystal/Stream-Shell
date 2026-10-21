@@ -11,7 +11,7 @@ Edit the feature files in dashboard/src, then run build-dashboard.ps1. The scrip
 
 This deliberately avoids ES modules, extra <script> tags, bundlers and declaration/hoisting changes in the dashboard runtime.
 
-Source order (as of 0.20.0; consult build-dashboard.ps1 for authority)
+Source order (consult build-dashboard.ps1 for authority)
 -------------------------------------------------------------------
 - ../shared/provider-registry-core.js  validated shared registry (prefixed to bundle)
 - state.js
@@ -28,6 +28,7 @@ Source order (as of 0.20.0; consult build-dashboard.ps1 for authority)
 - provider-open.js
 - selected-media.js
 - settings-config.js
+- settings-storage.js            Dashboard hydration, import/UI validation, ordered per-key writes
 - settings-controls.js
 - settings-diagnostics.js
 - settings-provider-pages.js
@@ -70,3 +71,7 @@ The Landing-derived Compact Home runtime is no longer appended to dashboard.js. 
 0.14.3 Compact layout rhythm / source-of-truth rule
 --------------------------------------------------
 Compact layout geometry derives its physical spacing from the established Wide UI and halves those measurements for the laptop's 200% Windows scale. Watchlist/Search/Continue/Recent/Direct/Subscriptions remain sourced only from the canonical landing/src chunks. landing.js and compact-home.js are generated host bundles; never fork feature/data logic into dashboard/src just to support Compact presentation.
+
+0.20.22 import/UI validation
+---------------------------
+The settings-storage.js normalizer constrains Dashboard options and numeric inputs and checks imports before any storage mutation. Scoped display migration removes only explicitly covered base keys. Other scripts' independent settings storage is not redirected.

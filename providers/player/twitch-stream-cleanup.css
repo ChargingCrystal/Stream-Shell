@@ -1,0 +1,16 @@
+/* v0.20.34: passive Stream-only layout rules delivered at document_start.
+   No Twitch page changes unless the admitted managed-slot kernel/HUD opts in. */
+html[data-stream-shell-twitch-workspace-clean="true"] [data-a-target="top-nav-container"],
+html[data-stream-shell-twitch-workspace-clean="true"] [data-test-selector="top-nav"],
+html[data-stream-shell-twitch-workspace-clean="true"] nav.top-nav,
+html[data-stream-shell-twitch-workspace-clean="true"] .top-nav,
+html[data-stream-shell-twitch-workspace-clean="true"] #sideNav,
+html[data-stream-shell-twitch-workspace-clean="true"] .side-nav,
+html[data-stream-shell-twitch-workspace-clean="true"] .side-nav__overlay-wrapper,
+html[data-stream-shell-twitch-workspace-clean="true"] [data-test-selector="side-nav"],
+html[data-stream-shell-twitch-workspace-clean="true"] [data-a-target="side-nav-bar"] {
+    display: none !important;
+}
+html[data-stream-shell-twitch-workspace-clean="true"] .root-scrollable__wrapper {
+    top: 0 !important;
+}

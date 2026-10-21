@@ -22,6 +22,7 @@ $Files = @(
     "provider-open.js"
     "selected-media.js"
     "settings-config.js"
+    "settings-storage.js"
     "settings-controls.js"
     "settings-diagnostics.js"
     "settings-provider-pages.js"

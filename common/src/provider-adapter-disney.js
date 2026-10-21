@@ -284,12 +284,8 @@
             }
         };
 
-        adapter.getMediaSnapshot = () =>
-            getProviderMediaSnapshot("disney", adapter);
         adapter.getExtensionCapabilities = context =>
             getDisneyAdapterExtensionCapabilities(context);
-        adapter.getCapabilities = () =>
-            getProviderCapabilities("disney", adapter);
 
         return adapter;
     }

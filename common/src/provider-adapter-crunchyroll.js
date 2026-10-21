@@ -474,12 +474,8 @@
             }
         };
 
-        adapter.getMediaSnapshot = () =>
-            getProviderMediaSnapshot("crunchyroll", adapter);
         adapter.getExtensionCapabilities = context =>
             getCrunchyrollAdapterExtensionCapabilities(context);
-        adapter.getCapabilities = () =>
-            getProviderCapabilities("crunchyroll", adapter);
 
         return adapter;
     }

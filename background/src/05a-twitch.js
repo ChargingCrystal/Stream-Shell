@@ -1133,58 +1133,24 @@ async function setTwitchRaidGuardMap(guards) {
     await chrome.storage.session.set({ [TWITCH_RAID_GUARD_SESSION_KEY]: Object.fromEntries(entries) });
 }
 
-async function armTwitchRaidGuard(tab, sourceUrl) {
-    if (!tab?.id || !Number.isInteger(tab.windowId)) return false;
-    if (!(await isManagedTwitchWindow(tab.windowId))) return false;
-
-    const sourceChannel = twitchChannelKey(sourceUrl);
-    if (!sourceChannel) return false;
-
-    const normalizedSource = `https://www.twitch.tv/${sourceChannel}`;
-    const guards = await getTwitchRaidGuardMap();
-    guards[String(tab.id)] = {
-        tabId: tab.id,
-        windowId: tab.windowId,
-        sourceUrl: normalizedSource,
-        sourceChannel,
-        expiresAt: Date.now() + 45000
-    };
-    await setTwitchRaidGuardMap(guards);
-    return true;
+/* v0.20.36: a browser-tab URL change does not reveal whether navigation
+ * was a raid or the user's deliberate channel choice. The old 45s session
+ * guard force-restored the previous stream and repeatedly trapped the user.
+ * Raid protection now cancels ONLY the visible raid UI on the Twitch page;
+ * never overwrite a destination URL in the background. Keep this API as a
+ * harmless compatibility endpoint for already-open content documents. */
+async function armTwitchRaidGuard(_tab, _sourceUrl) {
+    return false;
 }
 
 async function disarmTwitchRaidGuard(tab) {
-    if (!tab?.id || !Number.isInteger(tab.windowId)) return false;
-    if (!(await isManagedTwitchWindow(tab.windowId))) return false;
-
+    if (!Number.isInteger(tab?.id)) return false;
     const guards = await getTwitchRaidGuardMap();
     const key = String(tab.id);
     if (!guards[key]) return false;
     delete guards[key];
     await setTwitchRaidGuardMap(guards);
     return true;
-}
-
-async function enforceTwitchRaidGuard(tabId, url) {
-    if (!isTwitchUrl(url)) return;
-
-    const guards = await getTwitchRaidGuardMap();
-    const key = String(tabId);
-    const guard = guards[key];
-    if (!guard) return;
-
-    if (!Number.isFinite(guard.expiresAt) || guard.expiresAt < Date.now()) {
-        delete guards[key];
-        await setTwitchRaidGuardMap(guards);
-        return;
-    }
-
-    const nextChannel = twitchChannelKey(url);
-    if (!nextChannel || nextChannel === guard.sourceChannel) return;
-
-    delete guards[key];
-    await setTwitchRaidGuardMap(guards);
-    await chrome.tabs.update(tabId, { url: guard.sourceUrl }).catch(() => {});
 }
 
 
@@ -1221,7 +1187,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
      * workspace/storage lookups only for actual navigation, completed loads or
      * mute-policy changes. */
     if (urlChanged && url) {
-        enforceTwitchRaidGuard(tabId, url).catch(() => {});
         resolveTwitchSpawnCandidate(tabId, url, tab).catch(() => {});
     }
 

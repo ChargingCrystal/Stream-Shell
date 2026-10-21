@@ -32,6 +32,56 @@ const TWITCH_WORKSPACE_V2_CAPTION_OVERLAP = 20;
 const TWITCH_WORKSPACE_V2_PANE_CAPTION_FALLBACK = 34;
 const twitchWorkspaceV2NativeCaptionHeights = new Map();
 
+/* v0.20.34: actual top-frame document navigation audit. A visually reflowing
+ * Twitch SPA is NOT necessarily a reload. Track browser commits separately
+ * from HUD initialization, and include only bounded counts in Diagnostics.
+ * MV3 worker restarts clear this in-memory history by design. */
+const twitchWorkspaceV2NavigationAudit = new Map();
+const TWITCH_WORKSPACE_V2_NAV_AUDIT_MAX_TABS = 64;
+const twitchWorkspaceV2NavAuditStartedAt = Date.now();
+
+function trackTwitchWorkspaceV2TopLevelCommit(details) {
+    if (!Number.isInteger(details?.tabId) || details.frameId !== 0 ||
+        !isTwitchUrl(details.url)) return false;
+    const previous = twitchWorkspaceV2NavigationAudit.get(details.tabId);
+    const transition = String(details.transitionType || "unknown");
+    const modifiers = Array.isArray(details.transitionQualifiers) ? details.transitionQualifiers : [];
+    const changedAt = Number.isFinite(details.timeStamp) ? details.timeStamp : Date.now();
+    const entry = {
+        observedCommits: (previous?.observedCommits || 0) + 1,
+        observedReloads: (previous?.observedReloads || 0) + (transition === "reload" ? 1 : 0),
+        clientRedirects: (previous?.clientRedirects || 0) + (modifiers.includes("client_redirect") ? 1 : 0),
+        lastTransitionType: transition,
+        lastCommittedAt: changedAt,
+        firstSeenAt: previous?.firstSeenAt || changedAt
+    };
+    // Move re-used tabs to the end so old tabs are the first to evict.
+    twitchWorkspaceV2NavigationAudit.delete(details.tabId);
+    twitchWorkspaceV2NavigationAudit.set(details.tabId, entry);
+    if (twitchWorkspaceV2NavigationAudit.size > TWITCH_WORKSPACE_V2_NAV_AUDIT_MAX_TABS) {
+        twitchWorkspaceV2NavigationAudit.delete(twitchWorkspaceV2NavigationAudit.keys().next().value);
+    }
+    if (transition === "reload") {
+        recordFlightEvent({source:"background", category:"twitch-workspace-v2",
+            action:"document-reloaded", provider:"twitch", detail:{tabId:details.tabId}}).catch(() => {});
+    }
+    return true;
+}
+
+function getTwitchWorkspaceV2NavigationAudit(tabId) {
+    return {
+        trackingSince: twitchWorkspaceV2NavAuditStartedAt,
+        tracked: Number.isInteger(tabId) && twitchWorkspaceV2NavigationAudit.has(tabId),
+        ...(Number.isInteger(tabId) ? twitchWorkspaceV2NavigationAudit.get(tabId) || {} : {})
+    };
+}
+
+if (chrome.webNavigation?.onCommitted) {
+    chrome.webNavigation.onCommitted.addListener(details => {
+        trackTwitchWorkspaceV2TopLevelCommit(details);
+    });
+}
+
 function rememberTwitchWorkspaceV2NativeCaption(message) {
     const member = String(message?.member || "").trim().toLowerCase();
     const height = Number(message?.titlebarHeight);
@@ -106,7 +156,10 @@ async function scheduleTwitchWorkspaceV2StreamRefresh(slotId, delayMinutes = nul
 
 async function syncTwitchWorkspaceV2StreamRefreshAlarms(record = null) {
     const current = record || await getTwitchWorkspaceV2Record();
-    for (const slotId of TWITCH_WORKSPACE_V2_SLOT_IDS) {
+    // The four independent per-slot alarms can be checked concurrently.
+    // Serial get() calls used to add measurable latency (567ms in v0.20.34)
+    // during the already expensive cold four-window Twitch handoff.
+    await Promise.all(TWITCH_WORKSPACE_V2_SLOT_IDS.map(async slotId => {
         const name = twitchWorkspaceV2StreamRefreshAlarmName(slotId);
         const slot = current?.slots?.[slotId];
         const shouldRefresh = slot?.kind === "stream" && isTwitchUrl(slot?.url);
@@ -116,7 +169,7 @@ async function syncTwitchWorkspaceV2StreamRefreshAlarms(record = null) {
         } else if (existing) {
             await chrome.alarms.clear(name).catch(() => {});
         }
-    }
+    }));
 }
 
 async function handleTwitchWorkspaceV2StreamRefreshAlarm(alarm) {
@@ -928,6 +981,15 @@ function scheduleTwitchWorkspaceV2SurfaceWake(record, preferredSlot, coldStart =
     }
 }
 
+async function isTwitchWorkspaceV2ColdStart(record) {
+    // Persisted IDs alone do not distinguish an existing workspace from A-D
+    // windows that Opera closed since the last session.
+    const slotWindows = await Promise.all(TWITCH_WORKSPACE_V2_SLOT_IDS.map(
+        id => getTwitchWorkspaceV2Window(record.slots?.[id]?.windowId)
+    ));
+    return !slotWindows.every(win => Number.isInteger(win?.id));
+}
+
 function showTwitchWorkspaceV2(target = "workspace") {
     return runStreamShellWindowTransition(
         `twitch:${target}`,
@@ -965,9 +1027,10 @@ async function _showTwitchWorkspaceV2(target = "workspace") {
         preferredSlot = record.paneFullscreenSlot;
     }
 
-    const coldStart = !TWITCH_WORKSPACE_V2_SLOT_IDS.every(
-        id => Number.isInteger(record.slots?.[id]?.windowId)
-    );
+    // Stored slot IDs can outlive their Opera popup. Treat missing actual
+    // windows as a cold A-D start so the final surface-wake/cluster repair is
+    // scheduled even after a previous session left stale slot IDs behind.
+    const coldStart = await isTwitchWorkspaceV2ColdStart(record);
 
     record = {
         ...record,
@@ -982,6 +1045,13 @@ async function _showTwitchWorkspaceV2(target = "workspace") {
         twitchTarget: target === "drops" ? "drops" : "resume"
     });
 
+    // Maintenance alarms depend on the persisted slot kinds/URLs, not popup
+    // HWND claims or UI paint. Overlap their browser-API reads with native sync
+    // and A-D window creation; still await completion before announcing success.
+    // Do not move CSS, compositor wake, or the already stable 1.25s stagger.
+    const refreshAlarmsTask = measureShellWindowStep("twitch:refresh-alarms", () =>
+        syncTwitchWorkspaceV2StreamRefreshAlarms(record).catch(() => {}));
+
     // The helper now refuses Twitch cluster raises while Dashboard is active.
     // Synchronize intent before trying to raise A-D on a deliberate transition.
     await measureShellWindowStep("twitch:sync-titlebar", () => syncConnectedTitlebarNative().catch(() => {}));
@@ -989,7 +1059,7 @@ async function _showTwitchWorkspaceV2(target = "workspace") {
     record = await measureShellWindowStep("twitch:raise-workspace", () => raiseTwitchWorkspaceV2(record, preferredSlot));
     scheduleTwitchWorkspaceV2Claims(record);
     scheduleTwitchWorkspaceV2SurfaceWake(record, preferredSlot, coldStart);
-    await measureShellWindowStep("twitch:refresh-alarms", () => syncTwitchWorkspaceV2StreamRefreshAlarms(record).catch(() => {}));
+    await refreshAlarmsTask;
 
     await recordFlightEvent({
         source: "background",
@@ -1485,6 +1555,7 @@ async function getTwitchWorkspaceV2Diagnostics() {
             slot: id,
             twitchRuntimeStatus,
             twitchRuntime,
+            navigationAudit: getTwitchWorkspaceV2NavigationAudit(tab?.id),
             kind: slot?.kind || "empty",
             kindSource: slot?.kindSource || "auto",
             configuredUrl: slot?.url || null,

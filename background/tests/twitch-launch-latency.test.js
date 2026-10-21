@@ -30,6 +30,7 @@ const ctx = vm.createContext({
     isTwitchDropsUrl: () => false,
     assignTwitchWorkspaceV2Slot: async () => record,
     setTwitchWorkspaceV2Record: async rec => rec,
+    isTwitchWorkspaceV2ColdStart: async () => false, // All four mock slot windows exist.
     syncConnectedTitlebarNative: async () => {},
     raiseTwitchWorkspaceV2: async rec => { calls.push('raise'); return rec; },
     scheduleTwitchWorkspaceV2Claims: () => { calls.push('claims'); },

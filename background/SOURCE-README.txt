@@ -26,7 +26,7 @@ Build order
 - 06c-sleep-timer.js              persistent sleep-timer alarms and provider pause/dashboard actions
 - 07-shutdown.js                  Stream Shell shutdown/kill orchestration
 - 08-subscriptions.js             subscription scraping, Prime verification and sync pipeline
-- 09-message-helpers.js           sender guards, MAIN-world YouTube quality helper and active-provider/full-export Diagnostics collection
+- 09-message-helpers.js           sender guards, reply-once async IPC boundary, MAIN-world YouTube quality helper and active-provider/full-export Diagnostics collection
 - 09-message-router.js            chrome.runtime message routing
 - 10-window-visibility.js         window geometry, foreground bounds and Landing exposure checks
 - 10a-resource-governor.js        provider window minimized/focused/active state for content-side workload throttling
@@ -60,3 +60,11 @@ Titlebar state messages now carry the current LEFT/RIGHT pane geometry and inclu
 0.14.0 Compact single-surface host
 ---------------------------------
 Compact no longer uses the temporary 50/50 staging split. LEFT and RIGHT resolve to the same full 16:10 work area; Dashboard is Compact Shell Home and provider windows are swapped onto that same surface. Landing remains Wide-only. State broadcasts include layoutProfile so Dashboard and the native titlebar can select the correct host/navigation model.
+
+0.20.20 IPC consistency
+-----------------------
+Selected Settings/Diagnostics messages and get-state use the reply-once async helper
+in 09-message-helpers.js. See docs/IPC-CONVENTIONS.md; no change to Twitch/Native
+message contracts, window queue, deep Diagnostics or synchronous cached panel.
+
+0.20.27 startup admission: the renderer grace period is session-backed and verifies actual window liveness before warm/cold classification; Twitch A-D cold wake makes the same check.

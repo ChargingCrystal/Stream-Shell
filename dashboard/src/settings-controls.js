@@ -622,19 +622,7 @@ function showSettingsIoStatus(text) {
 
 async function exportStreamShellSettings() {
     const stored = await chrome.storage.local.get(SETTINGS_STORAGE_KEYS);
-    const settings = {};
-
-    for (const key of SETTINGS_STORAGE_KEYS) {
-        if (stored[key] !== undefined) {
-            settings[key] = stored[key];
-            continue;
-        }
-
-        const baseKey = baseSettingKeyForStorageKey(key);
-        settings[key] = stored[baseKey] === undefined
-            ? SETTINGS_DEFAULTS[baseKey]
-            : stored[baseKey];
-    }
+    const settings = streamShellExportSettings(stored);
 
     const extensionVersion = chrome.runtime.getManifest?.().version || "unknown";
     const payload = {
@@ -657,23 +645,6 @@ async function exportStreamShellSettings() {
     showSettingsIoStatus("Exported");
 }
 
-function normalizeImportedSetting(key, value) {
-    if (key === STREAM_SHELL_PROVIDER_REGISTRY_KEY) {
-        return normalizeStreamShellProviderRegistry(value);
-    }
-    const fallback = settingDefaultValue(key);
-    if (typeof fallback === "boolean") return value === true;
-    if (typeof fallback === "number") {
-        const numeric = Number(value);
-        if (!Number.isFinite(numeric)) return fallback;
-        if (key === "streamShellContinueWatchingCompletePercent") {
-            return Math.max(1, Math.min(100, Math.round(numeric)));
-        }
-        return numeric;
-    }
-    return typeof value === "string" ? value : fallback;
-}
-
 async function importStreamShellSettings(file) {
     const text = await file.text();
     const parsed = JSON.parse(text);
@@ -681,30 +652,13 @@ async function importStreamShellSettings(file) {
         ? parsed.settings
         : parsed;
 
-    if (!source || typeof source !== "object" || Array.isArray(source)) {
-        throw new Error("Invalid Stream Shell settings file.");
-    }
+    const { next, legacyScopedKeys } = streamShellPrepareSettingsImport(source);
 
-    const next = {};
-    for (const key of SETTINGS_STORAGE_KEYS) {
-        if (Object.prototype.hasOwnProperty.call(source, key)) {
-            next[key] = normalizeImportedSetting(key, source[key]);
-        }
-    }
-
-    const importedScopedKeys = SETTINGS_STORAGE_KEYS.some(
-        key => baseSettingKeyForStorageKey(key) !== key &&
-            Object.prototype.hasOwnProperty.call(source, key)
-    );
-
-    if (!importedScopedKeys) {
-        const legacyScopedKeys = SETTINGS_STORAGE_KEYS.filter(
-            key => baseSettingKeyForStorageKey(key) !== key
-        );
+    // Never discard old scoped values before the replacement write succeeds.
+    await chrome.storage.local.set(next);
+    if (legacyScopedKeys.length) {
         await chrome.storage.local.remove(legacyScopedKeys);
     }
-
-    await chrome.storage.local.set(next);
     try {
         await chrome.runtime.sendMessage({
             type: "dashboard-flight-event",

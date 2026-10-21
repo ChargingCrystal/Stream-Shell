@@ -552,12 +552,8 @@
             }
         };
 
-        adapter.getMediaSnapshot = () =>
-            getProviderMediaSnapshot("netflix", adapter);
         adapter.getExtensionCapabilities = context =>
             getNetflixAdapterExtensionCapabilities(context);
-        adapter.getCapabilities = () =>
-            getProviderCapabilities("netflix", adapter);
 
         return adapter;
     }

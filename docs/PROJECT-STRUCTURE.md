@@ -42,3 +42,144 @@ The **root is not a generic place for new modules**. It retains only the extensi
 3. Run `node tools/check-project.mjs`; CI should reject stray root files/tests and stale bundles.
 4. Keep release patches compatible with existing installations: moving/deleting files requires explicitly removing the old paths from existing working copies. ZIP extraction alone never deletes them.
 5. The live Windows Opera GX / C# runtime still needs real integration testing for behavior changes; a green CI check does not replace it.
+
+## Dashboard settings/storage ownership (v0.20.22)
+
+`dashboard/src/settings-config.js` defines defaults and key scopes;
+`dashboard/src/settings-storage.js` centralizes the Dashboard settings codecs and
+per-key write queue plus import/UI value constraints. UI and lifecycle remain in the existing `settings-controls.js`
+and `settings-runtime.js`. Provider registry changes stay in `provider-registry.js`
+with their own queue. See [Settings storage conventions](SETTINGS-STORAGE-CONVENTIONS.md).
+
+## Background IPC ownership (v0.20.20)
+
+Keep listener/sender authorization in `background/src/09-message-router.js` and
+shared response mechanics in the **existing** `09-message-helpers.js`; do not add a
+new top-level IPC directory. New handlers follow [IPC conventions](IPC-CONVENTIONS.md).
+Critical window/Twitch/Native requests retain their dedicated contracts until independently tested.
+
+## Provider API ownership (v0.20.23)
+
+`common/src/provider-api-core.js` owns the common adapter factory registry, the
+inherited capability binding to each concrete adapter (explicit factory overrides remain supported) and the default media-snapshot method.
+Provider-specific implementations live in the existing
+`common/src/provider-adapter-*.js` modules. Do not duplicate generic capability
+getters or introduce a separate providers runtime directory. YouTube deliberately
+overrides the snapshot method for its cached static metadata; keep that override.
+`provider-api-start.js` owns the runtime event wiring and media-link message
+response; synchronous and asynchronous link-resolution failures must both reply.
+The existing domain-ownership check remains mandatory. Tests:
+`common/tests/provider-api-contract.test.js` and
+`common/tests/provider-media-resolver.test.js`.
+
+## Provider Resource Governor lifecycle (v0.20.24)
+
+The existing `common/src/provider-resource-governor.js` owns every `createProviderResourceLoop()` timeout and governor event subscription by workload **name**. Recreating a named loop stops the previous handle before registering its replacement. A stale handle cannot unregister or overwrite the newer loop's Diagnostics entry. In-flight async callbacks finish naturally but must never schedule more work after `stop()`. Keep the names stable for features that intentionally replace the same task; use distinct names for independent workloads. The regression is `common/tests/provider-loop-lifecycle.test.js` (required by the root project quality gate). Do not replace specialized Twitch timers with this provider-only scheduler.
+
+## Page-lifetime provider feature startup (v0.20.25)
+
+`common/src/provider-resource-governor.js` also owns a small
+`startProviderFeatureOnce(name, initialize)` registry for long-lived content-script
+features. A feature is started at most once per provider document, including
+concurrent calls while `chrome.storage.local.get()` is unresolved. Seven owner
+entrypoints use this: YouTube utilities, Netflix/Prime/Crunchyroll enhancements,
+Windowed Player, Playback Utilities and Now Playing tracking. The API and
+Resource Governor have separate existing startup guards.
+
+This is deliberately **not** a generic dispose/recreate system: SPA route
+changes rebind their dedicated DOM observers and feature-specific handlers,
+while page-lifetime Storage/DOM/window/Governor subscriptions remain attached.
+A failed partial initialization stays owned; a true retry requires a fresh
+provider document, not a second registration with potentially leaked handlers.
+Behavioral regression: `common/tests/provider-feature-start-lifecycle.test.js`.
+
+## Provider window-state ordering and YouTube observer wake budget (v0.20.26)
+
+The provider Resource Governor requests window snapshots asynchronously. Only
+its latest request can replace the cached window state; a pushed resource-window
+state invalidates in-flight older replies. This ordering is content-script
+only and does not change background transition timing, native claims or the
+provider-side playback state machine. `common/tests/provider-window-state-ordering.test.js`
+checks late replies, pushes, foreign providers and rejection safety.
+
+YouTube's governor subscription only schedules new bounded DOM settle passes
+when the DOM-observation permission toggles; SPA route navigation keeps its
+independent rebinding schedule. `common/tests/youtube-observer-wake-budget.test.js`
+checks unchanged-focus, playback, parked and newly-observable transitions.
+
+
+## Cross-surface renderer admission (v0.20.27)
+
+`background/src/00-config-home.js` owns admission for every `provider:*` and
+`twitch:*` explicit FIFO transition. The last completed renderer surface kind
+and timestamp also live briefly in `chrome.storage.session` so an MV3 worker
+restart cannot silently bypass the 5.5s cold / 3s warm cooldown. Only the
+source worker's own timestamp is persisted (not a recurring task). Cache IDs
+for provider and A–D Twitch windows must be verified with `chrome.windows.get`
+before classifying cross-surface changes as warm. `startup-warm` records a
+provider launch lease even though it isn't a `provider:*` FIFO command.
+
+`background/src/05aa-twitch-workspace-v2.js` independently tests whether
+stored A–D IDs still represent live Opera windows to drive actual cold-start
+wakes and native cluster reconciliation. These checks do not replace the
+existing 1.25s sequential new-popup pacing or Native focus path. Tests:
+`background/tests/renderer-handoff-session-lease.test.js` and
+`background/tests/twitch-cold-window-identity.test.js`.
+
+## Provider DOM observer admission (v0.20.28)
+
+`common/src/netflix-enhancements.js` reconciles its MutationObserver on governor **DOM-eligibility** changes, not focus/play churn; its automation scan remains rate-managed by the governor. `common/src/prime-enhancements.js` gates skip observers on DOM eligibility and subtitle Anarchy timers on **visual eligibility**. UI marker writes remain settings/Safe-Mode-owned. Both use their existing source files and the page-lifetime start registry; no new shared runtime abstractions or directories. Behavior contract: `common/tests/provider-dom-governor-wake-budget.test.js`.
+
+## Windowed Player scoped storage ownership (v0.20.29)
+
+`common/src/windowed-player-start.js` keeps the current provider's legacy base setting and active display-scoped override in its page-lifetime feature closure. One initial hydration read, then atomic application of `chrome.storage.onChanged` batches; **no per-event asynchronous storage read**. This fixes the callback ordering hazard when an override is deleted or legacy/scoped keys are updated rapidly. Provider adapter extension callbacks are preserved. Required test: `common/tests/windowed-player-storage-order.test.js`. Do not move this state into the Dashboard settings queue or Native/Twitch worker.
+
+## Twitch staged content startup (v0.20.30)
+
+`manifest.json` registers two Twitch `content_scripts` entries with the **same** Twitch host matches: `providers/player/twitch-utility.js` at `document_start` and `providers/player/twitch-workspace-v2.js` at `document_idle`. Keep Native compositor wake in the early utility, not in the delayed HUD: native surface recovery must work even before the HUD is injected.
+
+`providers/player/twitch-utility.js` starts the managed-window handshake, per-slot playback guard, transport/navigation/raid opt-out, diagnostics and storage listener before scheduling heavier DOM automation. The first observer/claim/drop/raid scan and fallback timer begin after 650/1000/1350/1700ms for A/B/C/D; the chat MutationObserver still parses new Marbles lines synchronously after attachment. SPA channel guards/cooldown, stream playback intent, raid protection, the 1.25s browser popup stagger and renderer handoff leases do not depend on the deferred HUD. Record `automation.startup.phase` plus scheduling/activation timing in per-slot diagnostics. Do not reintroduce duplicate HUD surface-check timers.
+
+Validation: required `background/tests/twitch-staged-content-startup.test.js` exercises real utility startup under a simulated managed Twitch document, all four slot delays, early wake, active/idle scheduling, and cleanup during a pending wake. This VM simulation does **not** prove Chromium streaming, visibility or Marbles success; test these on Opera GX before further deferring automation.
+
+## Twitch optional HUD lazy load (v0.20.31)
+
+The manifest retains `providers/player/twitch-utility.js` at `document_start` and registers a tiny `providers/player/twitch-hud-loader.js` at `document_idle`. The full `providers/player/twitch-workspace-v2.js` is no longer automatically loaded: the verified top-frame A–D Twitch slot requests its injection via `background/src/09-message-router.js` and `chrome.scripting.executeScript`. When available, the sender document ID pins injection to the requesting document. Keep the HUD singleton and Native compositor wake in the early utility. Test `background/tests/twitch-lazy-hud-admission.test.js`.
+
+## Twitch Marbles chat-history admission (v0.20.32)
+
+`providers/player/twitch-utility.js` continues to own a single once-per-document MutationObserver after the slot-staggered automation wake. The `recordMarblesPlay`/`observeMarblesChat` path now protects new-round automation from late chat-history hydration using a Marbles-only channel epoch, 12-second initial quarantine, additional 8-second quarantine on bulk replay, optional source timestamp age check and tail-order check. This logic is **not** a new DOM observer or a change to native/renderer/window handshake. Cancel queued `!play` on replays and channel changes; keep the existing unique-user quorum/jitter/cooldown. Test: `background/tests/twitch-marbles-history-admission.test.js`.
+
+## Physical Twitch automation split (v0.20.33)
+
+`providers/player/twitch-utility.js` remains the single `document_start` Twitch JS
+entry. It owns Native compositor wake, identity, playback, telemetry and
+navigation. `providers/player/twitch-automation.js` owns deferred Points/Drops,
+raid DOM, Marbles history filtering and chat DOM MutationObserver. The deferred
+script **must not be registered as an automatic `manifest.content_scripts` entry**.
+After an existing per-slot stagger, the kernel asks the background router to
+inject the script only into an approved top-frame A–D V2 slot, targeting
+`sender.documentId` (required, without a frame-ID fallback). The late module registers with the early
+kernel's `__streamShellTwitchCoreV1` once and cleans up on `pagehide`. No generic
+Twitch tab may load it. Keep `twitch-hud-loader.js` as an independent, small
+`document_idle` admission for the separate full HUD. Regression ownership:
+`background/tests/twitch-automation-code-split.test.js`,
+`twitch-staged-content-startup.test.js`, `twitch-marbles-history-admission.test.js`.
+This layout intentionally keeps new files under `providers/player/`, not the
+extension root or a new one-off folder.
+
+## Twitch stream presentation vs navigation (v0.20.34)
+
+`providers/player/twitch-stream-cleanup.css` is a **passive document_start stylesheet** registered alongside `twitch-utility.js`: no Twitch UI is hidden without a managed Stream slot's `data-stream-shell-twitch-workspace-clean` marker. The early kernel sets the marker after managed-slot admission, and late `twitch-workspace-v2.js` refines/removes it when the actual surface is offline Page mode or pane fullscreen. Keep HUD shadow styling lazy but never restore the old late-injected cleanup stylesheet, which produces visible header/sidebar reshuffles. The background V2 workspace module owns bounded `webNavigation.onCommitted` audit counters; exposed `navigationAudit` fields are **since MV3 worker activation**, not guaranteed lifetime counts. Do not confuse these with Twitch SPA rerenders or Chromium surface repaints. Test: `background/tests/twitch-startup-reflow-and-navigation-audit.test.js`.
+
+## Twitch maintenance alarm parallel admission (v0.20.35)
+
+`background/src/05aa-twitch-workspace-v2.js` remains the sole owner of each slot's ~60-minute stream refresh alarm. The four alarm reads are independent and **concurrent**, and explicit `_showTwitchWorkspaceV2` begins reconciliation on the persisted slot snapshot before the Native/renderer raise; the final `shown` event and UI transition wait for that work. Do not serialize four `chrome.alarms.get()` calls on the visible Twitch launch, and do not defer the alarm task beyond the returned MV3 transition promise. Scope is bookkeeping only: keep the three 1250ms Chrome popup gaps, early cleanup CSS and lazy modules unchanged. Regression: `background/tests/twitch-alarm-concurrent-admission.test.js`.
+
+## Twitch raid navigation only / player-audio experiment rolled back (v0.20.39)
+
+`providers/player/twitch-utility.js` is exactly the v0.20.35 early kernel again. The v0.20.36–v0.20.38 **Twitch player-unmute**, `playerAudio` Diagnostics, UI polling/auto-clicks and autoplay probes were all removed by explicit user choice. **Do not silently reintroduce player-side mute handling** or schedule more debugging; it is an accepted Twitch/Opera cold-start quirk. Early cleanup CSS, covered-stream playback, HUD split, Marbles/Drops and Native surfaces remain unmodified.
+
+**Separate mute responsibilities:** `background/src/05aa-twitch-workspace-v2.js` owns the original per-slot Chromium tab `audioMuted` state and Floating-Bar controls; `background/src/05a-twitch.js` retains legacy tab mute policy. These are **tab-level**, not in-page Twitch player mute. Do not roll them back when changing a Twitch player-audio feature.
+
+**Raid Guard kept:** `providers/player/twitch-automation.js` still cancels only visible raid UI, while `background/src/05a-twitch.js` must **never** force `chrome.tabs.update({url: guard.sourceUrl})` after a user's intentional channel navigation. The old `twitch-arm-raid-guard` handler stays a compatibility no-op. Regression: `background/tests/twitch-player-audio-raid-navigation.test.js` / `background/tests/twitch-first-playback-autoplay-policy.test.js` asserts both this fix and the absence of player-audio repair.

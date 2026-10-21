@@ -10,6 +10,95 @@ Version-by-version implementation history belongs in release-notes/ and must not
 
 TODO
 ----
+- Twitch raid guard forced return to previous consciously left channel
+  (v0.20.36): root cause was 45s `enforceTwitchRaidGuard` rollback on ANY
+  cross-channel URL change. Removed browser URL rollback entirely; visible
+  Leave/Cancel Raid UI interception remains. Next manual test: intentionally
+  switch through Twitch search/channel links during raid offer, confirm no
+  snapback; also test actual raid cancellation while UI is visible. Do not
+  reintroduce generic previous-URL enforcement without proof of raid intent.
+
+- Twitch maintenance alarm admission (v0.20.35): the 0.20.34 live log
+  recorded `twitch:refresh-alarms` 567ms after 4-slot popup startup while
+  visual early CSS fixed the user-visible flicker; all four navigation audits
+  showed initial link-only commits and zero actual reloads. v0.20.35 overlaps
+  the bounded per-slot alarm sync with Native/renderer raise (but still awaits
+  it before final launch completion). NEXT: compare critical-path `twitch:resume`
+  vs `twitch:raise-workspace` across cold and warm Opera GX sessions; alarm
+  `step-timing` remains total task duration, not blocking time. Do not shorten
+  renderer leases or 1250ms slot gap based on one run. See release-notes/v0.20.35.
+
+- Twitch early CSS/reload audit (v0.20.34; VERIFIED in Opera GX): user
+  confirms early managed Stream CSS removed late header/sidebar flicker;
+  navigationAudit observed 1 commit and 0 reloads in each of A-D. Keep this
+  lightweight visual CSS at document_start even with all lazy code-splitting.
+  If visual resets recur, distinguish actual navigation commits vs SPA/hydration
+  reflows from the new audit; do not add blind reload delays. Retain Native
+  leases, Marbles freshness gate, fullscreen Page, managed-only injection.
+
+- Provider lifecycle (v0.20.23–v0.20.28): shared adapter contract, v0.20.24
+  named-loop ownership/idempotent stop, v0.20.25 once-per-document startup
+  of seven feature groups, v0.20.26 latest-only window-state snapshots and
+  YouTube DOM wake budget; v0.20.28 extends focus-only DOM wake budget to
+  Netflix and Prime (separate Prime visual/skip observer gates).
+  NEXT: live Opera GX SPA/navigation, feature-setting toggles, provider switches
+  and multi-hour idle verification, especially Netflix/Prime observer activity.
+  Do NOT globally dispose SPA DOM observers, Netflix MAIN-world bridge,
+  YouTube refresh or native/Twitch controllers. See release-notes/RELEASE_NOTES_v0.20.28.md.
+
+- Settings/storage consistency (v0.20.21–0.20.22, v0.20.29): Dashboard-specific codec, per-key
+  serialized writes, explicit failure rollback and CI tests. v0.20.22 added shared
+  import/UI validation (numeric bounds, enumerated choices, invalid-data rejection)
+  and fixed partial legacy backups removing unrelated scoped display overrides.
+  v0.20.29 fixes the common Windowed Player's out-of-order asynchronous scoped
+  fallback reads: one hydration and atomic base/scoped onChanged handling.
+  NEXT: audit the independent provider content-script storage handlers one domain
+  at a time (Safe Mode/YouTube/Netflix etc.) and test live display override
+  changes; never build one global queue for Native, Twitch, browser windows,
+  COBOL Finance or provider registry. See docs/SETTINGS-STORAGE-CONVENTIONS.md.
+
+- IPC consistency roadmap (STARTED v0.20.20): shared reply-once request helper introduced
+  for low-risk Dashboard Settings/Flight-Recorder/Repair commands and `get-state`,
+  with trusted-sender, thrown/rejected work, and closed-port regression tests.
+  NEXT: audit remaining Settings/Diagnostics route contracts one group at a time;
+  do not alter Twitch/Native/Win32 recovery or long-running Deep collectors just
+  for pattern uniformity. See docs/IPC-CONVENTIONS.md.
+
+- Twitch staged startup, replay protection and code-splitting (v0.20.30–v0.20.33): essential identity, covered-stream
+  playback guard, navigation/raid opt-out and compositor wake remain at
+  document_start; the HUD moves to document_idle and heavier claim/Drop/Marbles
+  DOM observer+first scan+fallback starts per slot after 650/1000/1350/1700ms.
+  A-D opening remains 1.25s apart and prior renderer handoff delays stay fixed.
+  Deep Diagnostics now exposes each slot's automation.startup phase/timing.
+  v0.20.31 adds physical late loading of the 709-line HUD only for verified
+  A-D slots through a small document_idle loader. The early core remains hot.
+  v0.20.32 addresses the live-observed Marbles wrong-round joins: 12-second
+  channel-specific initial quarantine, batch-replay quarantine, timestamp/order
+  screening, cancellation of queued joins, and diagnostic discard counters.
+  v0.20.32 Deep Log confirms 3 batches / 148 historical lines rejected, and
+  one normal C-slot autojoin without a user-visible misfire.
+  v0.20.33 moves the complete heavy Twitch DOM/Marbles/Claims/Drops/raid
+  automation code into optional `providers/player/twitch-automation.js`,
+  injected only after verified A-D slot admission + existing per-slot wake.
+  The 430-line early utility retains the essential Native/playback code.
+  NEXT: live Opera GX cold/warm stress, Points/Drops reliability, legitimate
+  !play after history hydration, per-slot late-module startup and HUD latency.
+  Consider narrower chat-root observation only with real data; no global
+  polling, no new provider/Twitch renderer delays. See v0.20.33 release notes.
+
+- v0.20.27 cross-surface startup admission: cached Twitch A-D IDs were stale
+  in the 0.20.26 Deep Log (four recreated windows while coldStart:false).
+  FIXED IN CODE: verify actual window existence before selecting 5.5s cold
+  vs 3s warm handoff; make the provider/Twitch launch lease survive MV3 worker
+  restart via session storage, and correctly classify real Twitch cold wakes.
+  VERIFIED 2026-10-21 (0.20.27 and 0.20.28): user reported YouTube first
+  -> Twitch previously froze but now works in repeated worst-case launches.
+  Deep Logs show provider->twitch 4379ms / 3798ms admission, coldStart:true,
+  four native claims confirmed, and no queue backlog.
+  NEXT: repeated warm navigation and other provider combinations on Opera GX. The 1.25s
+  Twitch popup stagger and deliberate startup grace values remain unchanged.
+  See release-notes/RELEASE_NOTES_v0.20.27.md.
+
 - Runtime v0.20.1 stress validation: reproduce launch-time provider + Twitch contention,
   long WuWa foreground sessions, and multi-minute Opera shutdown. Verify that the
   bounded transition queue/storage coalescing reduce delayed browser API traffic.
@@ -164,6 +253,15 @@ SUPPORTED PERSONAL DISPLAY TARGETS
 
 RULED OUT
 ---------
+- Twitch in-page player-unmute/first-playback auto-repair and autoplay-policy
+  diagnostics (v0.20.36–v0.20.38, ROLLED BACK v0.20.39 BY USER CHOICE).
+  Directly restored Twitch channels may show muted Twitch-player UI at first
+  video frame even while the per-slot tab is independently muted. ACCEPTED.
+  Restored original v0.20.35 Twitch utility byte-for-byte; no retry timers,
+  simulated click, media muted/volume overrides, read-only autoplay diagnosis,
+  or `playerAudio` runtime fields remain. Do not reopen without request.
+  KEEP the normal Floating-Bar / Chromium tab `audioMuted` configuration and
+  the v0.20.36 Raid Guard deliberate-navigation fix.
 - Expanded session restore beyond existing persistent extension storage.
 - Mini command palette.
 - Global playback hotkeys; external hardware/software already owns that job.
@@ -180,8 +278,18 @@ RULED OUT
 
 ARCHITECTURE GUARDRAILS
 -----------------------
+- Async IPC that expects a response must complete on success AND error, while retaining
+  the message's existing payload format and sender authorization. Prefer the tested
+  streamShellRespondAsync helper on suitable non-hot paths. Do not force it onto
+  synchronous Runtime Diagnostics or fire-and-forget commands.
+- No blanket timeouts, listener rewrites, or logging of expected background failures;
+  any change to expensive Deep Diagnostics or Native/Twitch transitions needs separate
+  latency budgets and behavioral tests.
 - Shared Home/media data stays single-source. Do not fork separate Compact copies of Watchlist/Search/Continue/Recent/Direct/Subscriptions logic.
 - Provider-specific DOM/player behavior belongs behind the dedicated provider adapters.
+- Provider factories may override media snapshots (YouTube cache), but should not
+  copy generic getCapabilities getters; the core binds them to the resolved adapter.
+  Provider-owned media links must be validated and failed requests always answered.
 - Provider API surface grows only for real shared-shell consumers.
 - Netflix playback writes must use the MAIN-world bridge / Netflix player API; do not fall back to direct video.currentTime/play()/pause()/rate/volume mutations.
 - Keep provider windows warm/minimized for fast switching; do not auto-close/reload inactive providers as a resource strategy.

@@ -781,12 +781,8 @@
             getExtensionState: getPrimeAdapterExtensionState
         };
 
-        adapter.getMediaSnapshot = () =>
-            getProviderMediaSnapshot("prime", adapter);
         adapter.getExtensionCapabilities = context =>
             getPrimeAdapterExtensionCapabilities(context);
-        adapter.getCapabilities = () =>
-            getProviderCapabilities("prime", adapter);
 
         return adapter;
     }

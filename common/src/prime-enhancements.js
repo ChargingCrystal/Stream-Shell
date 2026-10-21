@@ -203,6 +203,8 @@
 
     async function startPrimeEnhancements() {
         if (getCurrentProvider() !== "prime") return;
+        return startProviderFeatureOnce(`prime-enhancements:${getCurrentProvider()}`, async () => {
+        if (getCurrentProvider() !== "prime") return;
 
         const keys = Object.keys(PRIME_SETTINGS_DEFAULTS);
 
@@ -221,9 +223,23 @@
         syncPrimeEnhancementMarkers();
         syncPrimeAutoSkipObserver();
 
-        onProviderResourceGovernorChange(() => {
-            syncPrimeEnhancementMarkers();
-            syncPrimeAutoSkipObserver();
+        onProviderResourceGovernorChange((next, previous) => {
+            // Prime's presentation markers depend on settings / Safe Mode,
+            // not window focus. Anarchy depends on visual eligibility and
+            // the auto-skip observer depends on DOM eligibility. Only
+            // reconcile the relevant subsystem when its gate changes.
+            if (
+                !previous ||
+                next?.visualWorkAllowed !== previous.visualWorkAllowed
+            ) {
+                syncPrimeSubtitleAnarchy();
+            }
+            if (
+                !previous ||
+                next?.domObserversAllowed !== previous.domObserversAllowed
+            ) {
+                syncPrimeAutoSkipObserver();
+            }
         });
 
         chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -246,5 +262,6 @@
 
             syncPrimeEnhancementMarkers();
             syncPrimeAutoSkipObserver();
+        });
         });
     }

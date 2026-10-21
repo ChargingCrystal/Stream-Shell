@@ -1,3 +1,151 @@
+## [0.20.39] — 2026-10-21 — Twitch player-audio rollback; Raid Guard fix preserved
+
+- User accepts Twitch/Opera cold-start player muting as a Stream Shell quirk; fully revert experimental Twitch **in-page player-audio auto-unmute, UI/button clicking, first-playback probes, trusted-gesture recovery, periodic audit and Diagnostics** from v0.20.36–v0.20.38. Restore `providers/player/twitch-utility.js` **byte-for-byte to v0.20.35**. No replacement polling or speculative browser policy work.
+- Preserve v0.20.36 raid fix: no old-channel URL snapback after deliberate user navigation; visible `Leave Raid` / `Cancel Raid` UI interception remains in deferred Twitch automation. Preserve all other post-v0.20.35 behavior, especially four Twitch windows, tab mute/Floating Bars, Points/Drops, Marbles, managed early CSS, maintenance refresh, Native mapping and renderer pacing.
+- Replace the two now-invalid player-audio test implementations with required **raid-only/no-player-mute rollback** and **passive first-playback policy** regressions (preserve filenames for overwrite PATCH compatibility). Historical v0.20.36–v0.20.38 release notes remain for traceability but their audio claims are superseded. Update README/structure/decision register and patch/full archives.
+
+## [0.20.38] — 2026-10-21 — Twitch first-playback autoplay audit / trusted recovery
+
+- Live v0.20.37 log **proved** Twitch itself muted on initial playback: Stream slots B/C showed `Unmute (m)`, `video.muted=true`, `volume=0` while video continued playing; **11** synthetic UI-unmute attempts in each did not produce a single confirmed success. D briefly showed one confirmed unmute but became muted again. User observed unmuted UI during black-screen hydration, then muted from the first picture. Cold direct-channel restoration, not normal intra-Twitch user navigation, is the trigger.
+- **No fake autoplay fix**: Browser/Twitch may require real user activation to play audio. Repeated `.click()` from isolated extension content scripts cannot manufacture a trusted gesture. Cap unactivated synthetic UI attempts to **2 per video** (previously up to 12), then record `autoplayBlockSuspected` and `lastResult=unmute-needs-real-site-gesture-or-policy`. Twitch stream playback continues silently for Drops; no video pause, tab unmute, global flags or permission rewrites.
+- Add a **trusted pointer recovery** on verified managed Twitch Stream pages. If the user genuinely interacts with the page while the player is still muted, request one UI-unmute synchronously during the trusted event (rather than a later timeout). Respect intentional manual Twitch mute-button clicks. Result is confirmed only after a subsequent scan finds UI=`unmuted` and video unmuted.
+- New independent `playerAudio` telemetry: first playing timestamp/UI/mute state, first muted observation after playing, latest media volume/mute state, saved Twitch `video-muted` / `volume` preferences, `autoplayPermission` (`navigator.userActivation`, optional `navigator.getAutoplayPolicy`), no-activation attempt count and user gesture recovery count. Stored preferences are **read-only** and can explain a genuine saved user preference vs autoplay fallback on the next real log.
+- New VM regression reproducing rejected programmatic Twitch UI clicks followed by successful trusted pointer recovery; 0.20.36 raid guard still never forces URLs backwards. No extra DOM observers, no Native changes or changed 5.5s renderer lease / Twitch stagger / early CSS.
+
+## [0.20.37] — 2026-10-21 — Twitch player mute UI / media state reconciliation
+
+- Field log v0.20.36 shows the old player-audio repair claiming 2/2 successes per Twitch Stream while `video.muted=false`, but the user still sees Twitch's own mute icon. Direct document autoplay differs from opening a stream after visiting another Twitch page. Recognize Twitch's **UI state** as separate from the HTML video state: `Unmute` means muted even if `video.muted` is already false.
+- Retry via Twitch's actual mute/unmute button and count success **only after later confirmation** that the Twitch control now reads `Mute` AND video is unmuted. Unknown UI no longer produces false positive success. Include independent UI state and verified-unmute counts in `playerAudio` Deep Diagnostics.
+- Light, bounded 2.2s player UI scan for 120s after a verified Stream-slot admission (max 12 attempts per video); respect intentional trusted manual mute clicks; do not change browser tab mute/Volume Floating Bar, autoplay gate, raid guard (v0.20.36 now confirmed not to snap back), Native or Marbles. Add regression for the exact UI/media mismatch and hydrated player re-mutes.
+
+## [0.20.36] — 2026-10-21 — Twitch player audio / raid navigation ownership
+
+- Correct the long-standing duplicate-mute problem on fresh/periodic Twitch player loads: browser tab mute belongs to the floating bar, while the Twitch stream's own HTML video/UI mute is repaired during a bounded early startup/hydration window. No extra DOM observer or tab-mute toggles; expose `playerAudio` in Deep Diagnostics.
+- Remove the old 45-second anti-raid background URL restoration. An arbitrary new Twitch channel may be a **deliberate user choice**, so `chrome.tabs.update({url:oldChannel})` is no longer allowed. Keep visible raid cancellation buttons without trapping users on their previous channels; old IPC remains a harmless compatibility endpoint.
+- Add a regression covering initial player mute, Twitch re-mute, timer lifecycle, non-stream pages and no URL rollback. Retain early CSS, true code-splitting, popup stagger, Marbles history protection and all Native constraints.
+
+## [0.20.35] — 2026-10-21 — Concurrent Twitch maintenance admission
+
+- Check independent A-D stream-refresh alarms in parallel rather than serially blocking on four browser API calls. The previous Twitch startup alarm step cost ~567ms in the v0.20.34 cold-start log.
+- Overlap alarm reconciliation with Native titlebar sync and existing staggered popup creation. Still await its completion before returning/showing the final Twitch transition result; no lost MV3 cleanup or fire-and-forget maintenance work.
+- Confirmed in user field log: early Twitch CSS prevents visible stream reflow, zero actual reloads across all four tabs, all four lazy modules active/first-attempt, and Marbles replay batches correctly rejected.
+- Add required regression test for alarm concurrency, page/stream reconciliation, failure recovery, and launch ordering. No other startup timings, CSS, HUD, extension permissions, native protocol or personal artwork changed.
+
+## [0.20.34] — 2026-10-21 — Twitch startup layout stability / navigation audit
+
+- Deliver passive, managed-Stream-only Twitch header/sidebar cleanup CSS at `document_start`, rather than injecting a second stylesheet from the late lazy HUD. The early kernel sets the slot marker after admission, and the HUD only refines it for auto/offline/fullscreen routes (including a bounded 14-second Twitch live-badge hydration hold).
+- Diagnose actual Twitch tab main-frame reloads separately from DOM reflow: bounded `webNavigation.onCommitted` audit, per-slot Deep Diagnostics `navigationAudit`, and one Flight Recorder marker per confirmed `reload` commit.
+- Keep deferred HUD/automation modules, Marbles history safeguards, Native mapping, A–D spacing and provider↔Twitch admission unchanged. Add required regression for CSS admission and navigation audit.
+
+## v0.20.33 – Twitch Automation Physical Code-Split (2026-10-21)
+
+- Move DOM automation (Marbles history/freshness parser and `!play` chat-submission controls, channel-point claims, Drops, raid DOM recognition and MutationObserver scans) out of the `document_start` `twitch-utility.js` into a **separate on-demand `providers/player/twitch-automation.js`**. Early utility shrinks from 1,157 to ~430 lines; heavy automation script (~760 lines) is not referenced in manifest content scripts.
+- Keep managed Twitch identity, native compositor wake, covered-playback protection, navigation/raid opt-out, settings and lightweight per-slot diagnostics hot. Stage actual script injection after the existing A–D 650/1000/1350/1700ms delays; background validates Twitch top-frame + managed V2 slot and requires `sender.documentId` to pin injection to the requesting document (rejects requests without document identity). An early-to-late bridge registers automation once, forwards settings/slot changes, stops it on pagehide and supports bounded injection retries.
+- Preserve Marbles v0.20.32 replay batch discards, 12s hydration guard, timestamp/order freshness checks, unique-user threshold and saved cooldown; continue Twitch points/Drops/raid and 30-second fallback only **after** injection. Core diagnostics remain callable before injection, and report the late module after registration.
+- New regression for true lazy loading and admission, refactor prior staged-start and Marbles-history VM tests across both physical modules; native/HUD start paths unchanged. Deep v0.20.32 confirmed **three rejected chat history batches totaling 148 rows** (B 50/C 48/D 50), one legitimate Marbles autojoin on C and another successful cold provider→Twitch handoff. No regression observed by user; one v0.20.32 diagnostic snapshot had a pending Dashboard Native claim despite four Twitch claims confirmed.
+
+## v0.20.32 – Marbles Live-Chat Freshness Admission (2026-10-21)
+
+- Fix premature Marbles `!play` autojoin against slowly hydrated, historical Twitch chat. Extend the **Marbles-only** initial/channel navigation guard from 5 to 12 seconds after settings hydration; detect and discard inserted chat-history batches with an additional bounded 8-second quarantine during startup.
+- Reject inserted `!play` lines when Twitch provides an old timestamp (ISO/epoch, or visible HH:mm conservatively) or when inserted ahead of previously mounted chat lines. Cancel a pending false join if a history batch arrives before its timer fires.
+- Continue counting only live incremental `!play` lines from distinct usernames; preserve 5–10 unique-user quorum, 30-second burst window, 1–4-second jitter, 2-minute cooldown and single per-slot mutation observer. Expose historical/hydration discard counters in per-slot Deep Diagnostics.
+- New mandatory isolated Node VM regression for replay after 5s, staggered history batch, pending timer invalidation, stale/fresh timestamps, prepends, valid join quorum and channel reset. No changes to renderer 5.5/3s handshake, Native, popup spacing or HUD lazy-loader.
+- v0.20.31 Deep Log confirmed another successful YouTube→Twitch cold handoff and four acknowledged Native claims, while Marbles B/C joined just after the old chat guard; this change addresses the user's observed false-midround joining without inferring from diagnostics alone that any particular join was historical.
+
+## v0.20.31 – Twitch Lazy HUD Admission (2026-10-21)
+
+- Defer parsing the full Twitch workspace HUD until a managed A–D slot explicitly requests it through a tiny `document_idle` loader; no automatic heavy HUD script in the manifest.
+- Inject only into validated top-frame managed slot documents; prefer Chromium sender documentId to prevent stale navigation injection. Document-lifetime duplicate guard.
+- Stagger secondary HUD admission A/B/C/D by 750/1050/1350/1650ms (visible tabs skip delay). Early Native wake, playback guard, Marbles, channel points, Drops and rendering handoff delays stay unchanged.
+- Add mandatory tests covering loader timing, pagehide, non-slot rejection and injection contract; refresh release docs.
+
+## v0.20.30 – Twitch Staged Content Initialization (2026-10-21)
+
+- Separate essential Twitch `document_start` content work from the per-slot HUD: manifest injects `twitch-workspace-v2.js` at `document_idle`, so each of the four popup renderers can establish a stream without immediately parsing and mounting its controls alongside the automation DOM scan.
+- Move Native compositor surface-wake message handling into the early `twitch-utility.js` bootstrap; HUD delay must not lose an A–D surface pulse. Avoid the duplicate initial batch of six HUD surface timers.
+- Arm the large Twitch DOM/Marbles observer, first auto-claim/drop/raid scan and 30-second fallback only after per-slot bounded delays (A 650ms, B 1000ms, C 1350ms, D 1700ms) following settings hydration. Keep immediate playback/visibility guard, diagnostics, interaction/navigation, opt-out and storage listeners. Cancel pending initialization on `pagehide` and guard against reentry.
+- Add startup phase and scheduled/actual wake timestamps to Twitch Deep Diagnostics. Add required VM-based behavioral regression coverage for early Native wake, every slot's delay, delayed storage updates, observer single ownership, synchronous Marbles, and unload cancellation.
+- Preserve the confirmed provider→Twitch cold handoff, 5.5s/3s admission, 1.25s popup stagger, native helper protocol and all user-local artwork.
+- v0.20.29 Opera GX Deep Log: another successful YouTube→Twitch cold start (2711ms residual handoff, four confirmed Twitch claims, 0 YouTube workload failures, queue empty). One Dashboard-only Native claim was pending at capture, not a Twitch A–D failure.
+
+## v0.20.29 – Windowed Player Storage Event Ordering (2026-10-21)
+
+- Eliminate a provider-side display-scoped setting race in the common Windowed Player startup/listener path: in-flight `chrome.storage.local.get()` fallbacks could previously apply after newer `storage.onChanged` events and roll back the current UI mode.
+- Cache the legacy base setting and active display-specific override once during initial hydration; apply both keys from each storage change event atomically, with scoped precedence and immediate fallback when the scoped key is removed. No extra storage reads on settings toggles/imports.
+- Preserve provider-specific `hydrate` / `handleStorageChanges` / `start` hooks, page-lifetime startup guard and the existing visibility/DOM navigation behavior.
+- Add mandatory regression tests for rapid storage events, mixed legacy/scoped batches, override deletion, precedence, extension-owned settings and single startup ownership. Update project docs and version metadata.
+- The 0.20.28 Opera GX worst-case Deep Log confirms a successful provider-first -> Twitch cold handoff, 3798ms admission, `coldStart:true`, 4/4 native claims, zero YouTube governor failures and no transition backlog. Renderer delays, Twitch, Native C#, storage schemas and local artwork untouched.
+
+## v0.20.28 – Netflix & Prime DOM Governor Wake Budget (2026-10-21)
+
+- Extend v0.20.26's focus-only observer wake reduction to Netflix and Prime Video. Their page-lifetime DOM handlers no longer reconcile observers or requeue enhancement work for focus/play-mode changes that leave DOM eligibility unchanged.
+- Netflix reconnects its broad page observer and schedules one coalesced recovery pass only on a real DOM-observation eligibility change. Settings changes and Safe Mode still follow their existing explicit sync paths.
+- Prime distinguishes `domObserversAllowed` (skip-control observer) from `visualWorkAllowed` (subtitle Anarchy timer). Presentation markers are settings/Safe-Mode-driven, so governor churn no longer rewrites DOM markers or emits duplicate state notifications.
+- Add mandatory behavior tests for Netflix/Prime initialization, focus-only churn, background-playing, sleeping, recovery, settings changes and Safe Mode entry paths.
+- 0.20.27 Opera GX Deep Log validates provider-first -> Twitch cold handoff (`coldStart:true`, 4379ms admission), four confirmed native claims, no stuck transition queue or YouTube workload failures. Keep renderer grace, Twitch startup spacing, Native C#, storage schemas and local assets unchanged.
+
+## v0.20.27 – Cross-Surface Renderer Admission & Twitch Cold-Window Verification (2026-10-21)
+
+- Fix the provider-first / Twitch-second cold-start race. Cached integer Twitch slot IDs alone can be stale: the 0.20.26 Deep Log logged four newly created A–D popups while claiming `coldStart:false`, allowing the 3s warm handoff even though a real 5.5s cold handoff was needed. Check actual Opera window existence for both kinds before applying the shorter grace.
+- Restore the cross-surface admission timestamp from MV3 `chrome.storage.session` after service-worker restarts. Persist a short-lived timestamp for provider/Twitch completed transitions and for parked startup provider warmup. No new alarms or persistent timers.
+- Fix Twitch `coldStart` reporting to verify A–D window liveness before preparing the after-create native surface wake; do not treat stale IDs as active.
+- Add required behavior tests for both launch orders, custom providers, parked startup, service-worker restart, stale A–D IDs, and verified warm paths. Keep 5.5s cold, 3s warm, 1.25s Twitch slot stagger, Native/Win32 routing and provider media behavior unchanged.
+
+## v0.20.26 – Provider Governor Snapshot Ordering & YouTube DOM Wake Budget (2026-10-21)
+
+- Serialize provider-side window-state snapshot application by request order: slower `provider-resource-state` IPC replies cannot roll back newer focus/visibility results. A pushed `stream-shell-resource-window-state` update invalidates any previously launched snapshot, and cross-provider replies are discarded.
+- Limit YouTube governor-driven targeted observer reactivation and bounded SPA settle passes to **actual `domObserversAllowed` changes**. Focus-only and playback mode changes keep the current observers attached; SPA route navigation and genuine hidden/visible transitions still manage observers normally.
+- Add two required behavioral regression tests covering out-of-order IPC response, native-push precedence, stale startup responses, failed requests, foreign provider payload, YouTube focus-only and real visibility state transitions.
+- Diagnostics v0.20.25 confirmed healthy YouTube governor workloads and native claims; its slow Twitch cold-start/provider broadcast timings remain a separate performance investigation, **not** addressed by this patch.
+- No Native C#, Twitch A–D automation/window scheduling, renderer admission/grace delays, storage schema, local artwork or other provider adapters changed. Native reinstall not needed.
+
+## v0.20.25 – Provider Feature Startup Ownership (2026-10-21)
+
+- Extend v0.20.24's named polling-loop guard with a document-lifetime startup registry in the existing `common/src/provider-resource-governor.js`. Concurrent/reentrant starts share one owner even when the first initializer is waiting for asynchronous settings hydration.
+- Apply the guard to YouTube utilities, Netflix/Prime/Crunchyroll enhancements, shared Windowed Player, Playback Utilities and Now Playing tracking. This prevents duplicated Storage/DOM/window/Provider API/Resource Governor subscriptions if a startup path runs again in the same provider document. The provider API and Governor already guard their own initialization; Disney has no separate enhancement startup function.
+- Keep existing dedicated SPA navigation/observer rebinding and settings-change behavior. Do not dispose Netflix MAIN-world bridge, YouTube targeted observers or Prime/Crunchyroll adapters on route changes. Provider documents retain their subscriptions until unload.
+- Add behavioral regression coverage for synchronous reentrancy and all seven startup owners, including overlapping `chrome.storage.local.get()` calls; register it as a required CI test.
+- No Native C#, Twitch A–D, browser-window geometry/transition scheduling, sleep timers, setting values or local artwork changes.
+
+## v0.20.24 – Provider Named-Loop Lifecycle Guard (2026-10-21)
+
+- Enforce single ownership of each named provider resource-governor polling loop. A restarted SPA/provider feature replaces its previous timeout and governor state-change listener instead of running duplicate work.
+- Make loop stop idempotent, preserve newer replacement state when stale handles are stopped, and prevent in-flight old async callbacks from scheduling new work after replacement. Preserve all adaptive pacing and exponential failure backoff.
+- Add behavioral regression coverage for replacement, stale-handle stop/wake, async completion and independent workload names. Make the new test mandatory in CI.
+- No changes to Native C#, Twitch A–D, browser window transitions, provider-specific bridge/observers, timing constants, local artwork or storage.
+
+## v0.20.23 – Provider API Contract Consolidation (2026-10-21)
+
+- Move `getCapabilities` binding onto the resolved adapter in `provider-api-core.js`; all five built-in adapters inherit the common contract instead of duplicating capability methods that could capture an incomplete base adapter.
+- Disney+, Netflix, Crunchyroll and Prime inherit the generic media-snapshot method. YouTube retains its dedicated cache-backed snapshot implementation. Provider DOM/player behavior and API response formats remain intact.
+- Fix synchronous `resolveMediaUrl` exceptions escaping the provider MV3 reply handler; keep provider-domain ownership verification and async failure replies.
+- Add two required provider contract/error-path regression tests, document adapter ownership. No changes to Native C#, Twitch A–D, Win32, renderer timing, Settings or personal artwork.
+
+## v0.20.22 – Settings Value Validation & Scoped Import Safety (2026-10-21)
+
+- Validate known Dashboard settings consistently on import and UI changes: numeric limits/step for volume and YouTube automation, bounded completion percentages, known enumerated provider, audio, subtitle, date, quality and display options. Reject malformed values instead of silently resetting them to defaults.
+- Keep value validation in existing `dashboard/src/settings-storage.js`, not global provider/content storage. No new runtime folder or polling.
+- Correct a v0.20.21 migration edge case: partial legacy settings backups now remove display-scoped overrides **only for legacy base settings explicitly present in the backup**, not all scoped overrides. Mixed imports with explicit target values preserve existing target overrides.
+- New validation tests exercise numeric clamping, invalid fields, UI/import parity, 32:9/16:9/16:10 migration safety and no partial storage mutations; required by CI.
+- No changes to Native C#, Twitch slots, COBOL Finance, renderer handoff timing, provider scripts or user artwork.
+
+## v0.20.21 – Settings & Storage Consistency (2026-10-21)
+
+- Introduce `dashboard/src/settings-storage.js` as a focused, Dashboard-owned settings storage contract (hydration, scoped export fallback, import validation and per-key write ordering). No new runtime/root folders.
+- Order concurrent updates to **the same setting** while allowing unrelated settings to persist independently. Successful saves update the Dashboard settings cache only after `chrome.storage.local.set` resolves; failures display a visible status and restore the committed UI state.
+- Prevent invalid/unrelated JSON settings imports from clearing previously stored scoped values. For legacy imports, write new settings successfully **before** removing old display-scoped overrides. Retain legacy scoped-base export fallback and existing value normalization.
+- Keep settings Flight Recorder logging best-effort; telemetry failure does not negate successful persistence. Sleep-timer action errors now have separate UI status.
+- Add storage/import/export/rejected-write/queue ordering regression coverage and make it a required CI test; document the storage conventions and remaining migration scope.
+- No changes to C#, Native Messaging, Twitch A–D, COBOL Finance, provider playback, renderer delays, display geometry or personal artwork.
+
+## v0.20.20 – Background IPC Response Consistency (2026-10-21)
+
+- Introduce an explicit reply-once async response helper within existing `background/src/09-message-helpers.js`; catch synchronously thrown work, Promise rejection and response mapping errors, and tolerate a closed requesting page/port.
+- Migrate limited non-critical routes: `dashboard-settings-visibility`, `dashboard-flight-event`, `dashboard-diagnostics-repair` and `get-state`, preserving existing response payloads and sender checks.
+- Add behavioral regression tests for trusted/untrusted senders, success/failure completion and malformed/closed message edges; require both tests in CI.
+- Document safe IPC conventions and future migration boundaries in `docs/IPC-CONVENTIONS.md`, the background source map and live TODO register.
+- No changed C#, protocol, native claims, Twitch automation, Native/Window recovery, explicit renderer handoff delay, or local artwork.
+
 ## v0.20.19 – File Structure & Repository Layout (2026-10-21)
 
 - Document the explicit responsibilities of runtime, source, Native, integrations, shared utilities, tools, documentation and release-notes without reorganizing Opera-resolved asset paths.

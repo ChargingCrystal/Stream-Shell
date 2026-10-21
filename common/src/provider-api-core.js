@@ -305,9 +305,15 @@
         adapter.label = adapter.label || PROVIDERS[provider].label;
         adapter.apiVersion = STREAM_SHELL_PROVIDER_API_VERSION;
         adapter.adapterKind = String(adapter.adapterKind || "generic");
-        adapter.getCapabilities = typeof adapter.getCapabilities === "function"
-            ? adapter.getCapabilities
-            : () => getProviderCapabilities(provider, adapter);
+        // Rebind the inherited generic getter to the *resolved* adapter.
+        // The base closure captures the base instance and misses extensions;
+        // explicit factory overrides must still take precedence.
+        if (
+            typeof adapter.getCapabilities !== "function" ||
+            adapter.getCapabilities === baseAdapter.getCapabilities
+        ) {
+            adapter.getCapabilities = () => getProviderCapabilities(provider, adapter);
+        }
         adapter.extensions = adapter.extensions || {};
 
         providerAdapterInstances.set(provider, adapter);

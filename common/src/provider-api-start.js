@@ -98,12 +98,14 @@
                 return;
             }
 
-            Promise.resolve(
-                adapter?.resolveMediaUrl?.(
+            // Invoke inside the Promise chain: a provider resolver may throw
+            // synchronously (e.g. on a half-hydrated SPA document). Such errors
+            // must still get a response, not escape the MV3 message listener.
+            Promise.resolve()
+                .then(() => adapter?.resolveMediaUrl?.(
                     message.identity,
                     message.fallbackUrl
-                )
-            )
+                ))
                 .then(result => {
                     if (
                         !result?.url ||

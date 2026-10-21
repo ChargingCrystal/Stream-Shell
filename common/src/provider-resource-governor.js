@@ -61,8 +61,48 @@
     let providerResourceGovernorState = null;
     let providerResourceGovernorStarted = false;
     let providerResourceGovernorLastFlightSignature = "";
+    // Window snapshots are asynchronous. A later visibility/focus request or
+    // native push must not be overwritten by an older, delayed reply.
+    let providerResourceWindowRefreshSequence = 0;
+    let providerResourceWindowPushRevision = 0;
     const providerResourceGovernorListeners = new Set();
     const providerResourceGovernorWorkloads = new Map();
+    // A provider feature owns its page-lifetime event listeners/DOM observers.
+    // The polling-loop guard alone cannot stop duplicate listeners when two
+    // startup paths overlap across an awaited storage read. Keep the promise
+    // registered before invoking the initializer so reentrant starts are safe.
+    const providerResourceFeatureStarts = new Map();
+
+    function startProviderFeatureOnce(name, initialize) {
+        const key = String(name || "").trim();
+        if (!key || typeof initialize !== "function") {
+            return Promise.reject(new TypeError("Invalid provider feature initializer."));
+        }
+
+        const existing = providerResourceFeatureStarts.get(key);
+        if (existing) return existing;
+
+        let resolveStart;
+        let rejectStart;
+        const started = new Promise((resolve, reject) => {
+            resolveStart = resolve;
+            rejectStart = reject;
+        });
+        providerResourceFeatureStarts.set(key, started);
+
+        try {
+            // Invoked synchronously: do not postpone the existing startup
+            // order. A rejected/partial initialization stays owned; retrying
+            // it without teardown would duplicate subscriptions.
+            Promise.resolve(initialize()).then(resolveStart, rejectStart);
+        } catch (error) {
+            rejectStart(error);
+        }
+        return started;
+    }
+
+    // One owned polling loop per workload name within this provider document.
+    const providerResourceGovernorLoopHandles = new Map();
 
     function getProviderResourceGovernorMode({
         visible,
@@ -277,6 +317,12 @@
         let running = false;
         const key = String(name || "loop");
 
+        // SPA reinitialization may request an existing named loop. Stop its
+        // timer and governor listener before registering the replacement.
+        // An in-flight async callback cannot be interrupted, but its stopped
+        // handle will not reschedule work when it eventually settles.
+        providerResourceGovernorLoopHandles.get(key)?.stop();
+
         const workloadState = {
             name: key,
             kind: String(workload || "poll"),
@@ -363,19 +409,25 @@
 
         const handle = {
             stop() {
+                if (stopped) return;
                 stopped = true;
                 if (timer) {
                     clearTimeout(timer);
                     timer = null;
                 }
                 unsubscribe();
-                providerResourceGovernorWorkloads.delete(key);
+                // Stale handles must never delete a newer loop's state.
+                if (providerResourceGovernorLoopHandles.get(key) === handle) {
+                    providerResourceGovernorLoopHandles.delete(key);
+                    providerResourceGovernorWorkloads.delete(key);
+                }
             },
             wake() {
                 schedule(0);
             }
         };
 
+        providerResourceGovernorLoopHandles.set(key, handle);
         schedule(immediate ? 0 : undefined);
         return handle;
     }
@@ -383,12 +435,24 @@
     async function refreshProviderResourceWindowState(
         reason = "background"
     ) {
+        const requestSequence = ++providerResourceWindowRefreshSequence;
+        const pushRevision = providerResourceWindowPushRevision;
+
         try {
             const state = await chrome.runtime.sendMessage({
                 type: "provider-resource-state"
             });
 
-            if (state?.managed === true) {
+            // Visibility/focus and native window events can overlap. Only
+            // the newest outstanding request may commit, and a native push
+            // always takes precedence over a snapshot begun before it.
+            if (
+                state?.managed === true &&
+                requestSequence === providerResourceWindowRefreshSequence &&
+                pushRevision === providerResourceWindowPushRevision &&
+                (!state.provider ||
+                    state.provider === providerResourceGovernorWindowState.provider)
+            ) {
                 providerResourceGovernorWindowState = {
                     ...providerResourceGovernorWindowState,
                     ...state
@@ -420,6 +484,9 @@
                 return;
             }
 
+            // Invalidate any asynchronous state request that was started
+            // before this fresher native/background push arrived.
+            providerResourceWindowPushRevision += 1;
             providerResourceGovernorWindowState = {
                 ...providerResourceGovernorWindowState,
                 ...(message.state || {})

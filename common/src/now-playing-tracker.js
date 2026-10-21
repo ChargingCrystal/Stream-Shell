@@ -20,6 +20,8 @@
 
 
     function startNowPlayingTracking() {
+        if (!getCurrentProvider() || !getProviderAdapter(getCurrentProvider())) return;
+        return startProviderFeatureOnce(`now-playing-tracking:${getCurrentProvider()}`, () => {
         const provider =
             getCurrentProvider();
 
@@ -433,6 +435,7 @@
                 );
             }
         );
+        });
     }
 
 

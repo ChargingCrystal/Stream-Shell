@@ -60,3 +60,34 @@ Notes
 Crunchyroll no longer performs player-host discovery or retry polling: its CSS is scoped directly by the root windowed-player marker, so only SPA route changes need a watcher.
 
 Resume URL canonicalization and media identity are intentionally shared with the service worker through shared/resume-utils.js so Continue Watching cannot drift between write-side and open-side logic. The completion threshold is persisted in local storage and loaded before provider tracking starts. Stale-link reconstruction uses the dedicated adapter first; the shared resolver is only the service-worker fallback when a provider content script is not ready yet.
+
+Provider API v0.20.23
+---------------------
+Provider API core rebinds inherited capabilities against the resolved adapter
+after factory creation (without clobbering explicit overrides); provider adapters should not redeclare the generic getter. Disney,
+Netflix, Crunchyroll and Prime inherit the base media-snapshot method; YouTube
+retains its cache-specific override. The provider-owned URL resolver invoked by
+provider-api-start.js must respond to both thrown and rejected failures.
+Guarded by common/tests/provider-api-contract.test.js and
+common/tests/provider-media-resolver.test.js.
+
+Provider Resource Governor v0.20.24
+---------------------------------
+createProviderResourceLoop(name, ...) now owns a single active timer and
+resource-governor subscription for each stable name. A duplicate registration
+replaces the old loop; old async work may finish, but cannot re-arm. stop()
+is idempotent, and stopping an old handle never removes a replacement.
+Only provider-side polling loops are affected; explicit SPA/DOM observer
+teardown and Twitch/native scheduling are separate concerns.
+Covered by common/tests/provider-loop-lifecycle.test.js.
+
+Provider Governor window snapshot ordering (v0.20.26)
+-------------------------------------------------
+`provider-resource-state` reads may finish after a later focus/visibility request
+or a pushed `stream-shell-resource-window-state` update. Keep the request
+sequence and push revision together: older replies must not overwrite newer
+state. YouTube `onProviderResourceGovernorChange` rebinding requires a true
+DOM observation permission transition; ordinary focus/mode changes use existing
+root observers and SPA navigation has its own bounded settle schedule.
+Covered by common/tests/provider-window-state-ordering.test.js and
+common/tests/youtube-observer-wake-budget.test.js.

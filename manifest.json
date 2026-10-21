@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Stream Shell",
-  "version": "0.20.19",
+  "version": "0.20.39",
   "description": "Unified shell for Netflix, Prime Video, Crunchyroll, YouTube and Disney+, with Discord/Twitch utilities and remote control.",
   "author": "Sven Rieseler",
   "icons": {
@@ -199,10 +199,21 @@
         "*://*.twitch.tv/*"
       ],
       "js": [
-        "providers/player/twitch-utility.js",
-        "providers/player/twitch-workspace-v2.js"
+        "providers/player/twitch-utility.js"
       ],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "css": [
+        "providers/player/twitch-stream-cleanup.css"
+      ]
+    },
+    {
+      "matches": [
+        "*://*.twitch.tv/*"
+      ],
+      "js": [
+        "providers/player/twitch-hud-loader.js"
+      ],
+      "run_at": "document_idle"
     },
     {
       "matches": [

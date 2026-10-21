@@ -15,3 +15,17 @@ The separate **Stream Shell native Windows build** workflow compiles the real ti
 Both workflows are intentionally simple. A green check proves these automated contracts; it cannot prove Opera GX window integration or multi-hour stability. The C# compiler invocation in `native/tests/compile-titlebar-host.ps1` deliberately mirrors the one in `native/install-titlebar-helper.ps1` and must be kept in sync.
 
 The quality gate also rejects stray test files and unexpected repository-root entries; see [Project Structure](PROJECT-STRUCTURE.md).
+
+## Settings/storage contract (v0.20.21)
+
+`dashboard/tests/settings-storage-contract.test.js` guards scoped export fallbacks,
+malformed imports, legacy import ordering and failed/queued ordinary setting writes.
+The project quality gate requires this test by name, so deleting it fails CI.
+
+## IPC behavioral contract (v0.20.20)
+
+The main quality gate requires `background/tests/message-ipc-contract.test.js` and
+`background/tests/dashboard-ipc-regression.test.js`. These cover one-response
+semantics, both Promise rejection and synchronous exception, closed sender ports,
+legacy `get-state` output, and Dashboard sender authorization. They are mock tests;
+they do not replace real Opera GX message-port or Windows integration tests.

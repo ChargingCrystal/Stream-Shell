@@ -684,8 +684,67 @@ function isStreamShellRendererCold(kind, name) {
     return false;
 }
 
+/* IDs persisted in the focus cache are not proof that Chromium still owns
+ * those windows. In 0.20.26 four Twitch popups were created even though their
+ * old IDs made admission classify the launch as warm (3s instead of 5.5s).
+ * Verify actual window existence before choosing the shorter grace period. */
+async function isStreamShellRendererColdVerified(kind, name) {
+    if (isStreamShellRendererCold(kind, name)) return true;
+    if (!chrome.windows?.get) return false; // Offline mock without window API.
+    let windowIds;
+    if (kind === 'twitch') {
+        const record = shellWideFocusCache[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+        windowIds = ['a', 'b', 'c', 'd'].map(slot => record?.slots?.[slot]?.windowId);
+    } else if (kind === 'provider') {
+        windowIds = [shellWideFocusCache.providerWindows?.[name.slice('provider:'.length)]];
+    } else {
+        return false;
+    }
+    const live = await Promise.all(windowIds.map(async windowId => {
+        if (!Number.isInteger(windowId)) return false;
+        try { return Number.isInteger((await chrome.windows.get(windowId))?.id); }
+        catch { return false; }
+    }));
+    return !live.every(Boolean);
+}
+
 let streamShellLastRendererLaunchKind = null;
 let streamShellLastRendererLaunchFinishedAt = 0;
+let streamShellRendererLeaseSource = 'memory';
+const STREAM_SHELL_RENDERER_LEASE_KEY = 'streamShellRendererHandoffLease';
+
+/* A Chromium MV3 service worker may be evicted/restarted while the browser
+ * renderer it just launched is still busy. The window-transition FIFO and its
+ * last-launch timestamp are worker-local; keeping the short handoff lease in
+ * session storage lets the next worker honor provider -> Twitch (and reverse).
+ * This is a timestamp, never a durable task or an extra renderer timer. */
+async function hydrateStreamShellRendererHandoffLease() {
+    if (streamShellLastRendererLaunchKind) return;
+    try {
+        const stored = (await chrome.storage.session?.get(STREAM_SHELL_RENDERER_LEASE_KEY))
+            ?.[STREAM_SHELL_RENDERER_LEASE_KEY];
+        const at = Number(stored?.at);
+        const age = Date.now() - at;
+        if (!['provider', 'twitch'].includes(stored?.kind) ||
+            !Number.isFinite(at) || at <= 0 || age < 0 ||
+            age > STREAM_SHELL_RENDERER_WARM_AFTER_MS) return;
+        streamShellLastRendererLaunchKind = stored.kind;
+        streamShellLastRendererLaunchFinishedAt = at;
+        streamShellRendererLeaseSource = 'session';
+    } catch { /* Session storage can be unavailable in an old test host. */ }
+}
+
+async function rememberStreamShellRendererLaunch(kind) {
+    const at = Date.now();
+    streamShellLastRendererLaunchKind = kind;
+    streamShellLastRendererLaunchFinishedAt = at;
+    streamShellRendererLeaseSource = 'memory';
+    try {
+        await chrome.storage.session?.set({
+            [STREAM_SHELL_RENDERER_LEASE_KEY]: { kind, at }
+        });
+    } catch { /* Retain the same-worker protection if storage fails. */ }
+}
 
 function streamShellRendererLaunchKind(name) {
     if (name.startsWith('provider:')) return 'provider';
@@ -693,12 +752,14 @@ function streamShellRendererLaunchKind(name) {
     return null;
 }
 
-async function waitForStreamShellRendererHandoff(name) {
+async function waitForStreamShellRendererHandoff(name, verifiedCold = null) {
     const kind = streamShellRendererLaunchKind(name);
     if (!kind || !streamShellLastRendererLaunchKind ||
         streamShellLastRendererLaunchKind === kind) return 0;
     const cold = Date.now() < streamShellRendererColdUntil ||
-        isStreamShellRendererCold(kind, name);
+        (verifiedCold === null
+            ? await isStreamShellRendererColdVerified(kind, name)
+            : verifiedCold);
     const graceMs = cold
         ? STREAM_SHELL_RENDERER_HANDOFF_GRACE_MS
         : STREAM_SHELL_RENDERER_HANDOFF_WARM_MS;
@@ -708,7 +769,8 @@ async function waitForStreamShellRendererHandoff(name) {
     recordFlightEvent({
         category: 'window-transition', action: 'renderer-handoff-staggered',
         detail: { from: streamShellLastRendererLaunchKind, to: kind,
-            delayMs: remaining, graceMs, cold }
+            delayMs: remaining, graceMs, cold,
+            leaseSource: streamShellRendererLeaseSource }
     }).catch(() => {});
     return remaining;
 }
@@ -744,27 +806,37 @@ function runStreamShellWindowTransition(name, operation) {
         streamShellTransitionActive = name;
         const kind = streamShellRendererLaunchKind(name);
         const visualId = ++streamShellTransitionVisualSerial;
-        const showTwitchLoading = kind === 'twitch' &&
-            (isStreamShellRendererCold(kind, name) ||
-             (streamShellLastRendererLaunchKind === 'provider' &&
-              Date.now() - streamShellLastRendererLaunchFinishedAt < STREAM_SHELL_RENDERER_HANDOFF_GRACE_MS));
-        if (showTwitchLoading) notifyStreamShellTransitionVisual({
-            surface:'twitch', stage:'waiting', id:visualId
-        });
+        let showTwitchLoading = false;
         try {
+            // Read any outstanding lease before deciding that a freshly
+            // restarted worker can launch Twitch without a provider cooldown.
+            if (kind) await hydrateStreamShellRendererHandoffLease();
+            // Verify Twitch windows on first admission, or the target provider
+            // during a Twitch -> provider handoff. Ordinary provider changes
+            // and non-renderer FIFO commands need no cold/window API probes.
+            const shouldVerifyCold = kind === 'twitch' &&
+                streamShellLastRendererLaunchKind !== 'twitch' ||
+                kind === 'provider' && streamShellLastRendererLaunchKind === 'twitch';
+            const verifiedCold = shouldVerifyCold
+                ? await isStreamShellRendererColdVerified(kind, name)
+                : kind === 'twitch' ? isStreamShellRendererCold(kind, name) : false;
+            showTwitchLoading = kind === 'twitch' &&
+                (verifiedCold ||
+                 (streamShellLastRendererLaunchKind === 'provider' &&
+                  Date.now() - streamShellLastRendererLaunchFinishedAt < STREAM_SHELL_RENDERER_HANDOFF_GRACE_MS));
+            if (showTwitchLoading) notifyStreamShellTransitionVisual({
+                surface:'twitch', stage:'waiting', id:visualId
+            });
             // Explicit commands stay ordered, but renderer initialization
             // must also be given room to settle before crossing surfaces.
-            const delayMs = await waitForStreamShellRendererHandoff(name);
+            const delayMs = await waitForStreamShellRendererHandoff(name, verifiedCold);
             if (shuttingDown) throw new Error("Stream Shell is shutting down.");
             if (showTwitchLoading) notifyStreamShellTransitionVisual({
                 surface:'twitch', stage:'creating', id:visualId,
                 delayMs
             });
             const result = await operation();
-            if (kind) {
-                streamShellLastRendererLaunchKind = kind;
-                streamShellLastRendererLaunchFinishedAt = Date.now();
-            }
+            if (kind) await rememberStreamShellRendererLaunch(kind);
             if (showTwitchLoading) notifyStreamShellTransitionVisual({
                 surface:'twitch', stage:'done', id:visualId
             });
@@ -993,8 +1065,7 @@ async function _openShellWarmLastProvider() {
     // immediately after Shell launch must honor the same settling lease as a
     // deliberate provider click, even though startup-warm is not a provider:
     // command in the transition FIFO.
-    streamShellLastRendererLaunchKind = 'provider';
-    streamShellLastRendererLaunchFinishedAt = Date.now();
+    await rememberStreamShellRendererLaunch('provider');
 }
 
 
@@ -4542,58 +4613,24 @@ async function setTwitchRaidGuardMap(guards) {
     await chrome.storage.session.set({ [TWITCH_RAID_GUARD_SESSION_KEY]: Object.fromEntries(entries) });
 }
 
-async function armTwitchRaidGuard(tab, sourceUrl) {
-    if (!tab?.id || !Number.isInteger(tab.windowId)) return false;
-    if (!(await isManagedTwitchWindow(tab.windowId))) return false;
-
-    const sourceChannel = twitchChannelKey(sourceUrl);
-    if (!sourceChannel) return false;
-
-    const normalizedSource = `https://www.twitch.tv/${sourceChannel}`;
-    const guards = await getTwitchRaidGuardMap();
-    guards[String(tab.id)] = {
-        tabId: tab.id,
-        windowId: tab.windowId,
-        sourceUrl: normalizedSource,
-        sourceChannel,
-        expiresAt: Date.now() + 45000
-    };
-    await setTwitchRaidGuardMap(guards);
-    return true;
+/* v0.20.36: a browser-tab URL change does not reveal whether navigation
+ * was a raid or the user's deliberate channel choice. The old 45s session
+ * guard force-restored the previous stream and repeatedly trapped the user.
+ * Raid protection now cancels ONLY the visible raid UI on the Twitch page;
+ * never overwrite a destination URL in the background. Keep this API as a
+ * harmless compatibility endpoint for already-open content documents. */
+async function armTwitchRaidGuard(_tab, _sourceUrl) {
+    return false;
 }
 
 async function disarmTwitchRaidGuard(tab) {
-    if (!tab?.id || !Number.isInteger(tab.windowId)) return false;
-    if (!(await isManagedTwitchWindow(tab.windowId))) return false;
-
+    if (!Number.isInteger(tab?.id)) return false;
     const guards = await getTwitchRaidGuardMap();
     const key = String(tab.id);
     if (!guards[key]) return false;
     delete guards[key];
     await setTwitchRaidGuardMap(guards);
     return true;
-}
-
-async function enforceTwitchRaidGuard(tabId, url) {
-    if (!isTwitchUrl(url)) return;
-
-    const guards = await getTwitchRaidGuardMap();
-    const key = String(tabId);
-    const guard = guards[key];
-    if (!guard) return;
-
-    if (!Number.isFinite(guard.expiresAt) || guard.expiresAt < Date.now()) {
-        delete guards[key];
-        await setTwitchRaidGuardMap(guards);
-        return;
-    }
-
-    const nextChannel = twitchChannelKey(url);
-    if (!nextChannel || nextChannel === guard.sourceChannel) return;
-
-    delete guards[key];
-    await setTwitchRaidGuardMap(guards);
-    await chrome.tabs.update(tabId, { url: guard.sourceUrl }).catch(() => {});
 }
 
 
@@ -4630,7 +4667,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
      * workspace/storage lookups only for actual navigation, completed loads or
      * mute-policy changes. */
     if (urlChanged && url) {
-        enforceTwitchRaidGuard(tabId, url).catch(() => {});
         resolveTwitchSpawnCandidate(tabId, url, tab).catch(() => {});
     }
 
@@ -4726,6 +4762,56 @@ const TWITCH_WORKSPACE_V2_CAPTION_OVERLAP = 20;
 const TWITCH_WORKSPACE_V2_PANE_CAPTION_FALLBACK = 34;
 const twitchWorkspaceV2NativeCaptionHeights = new Map();
 
+/* v0.20.34: actual top-frame document navigation audit. A visually reflowing
+ * Twitch SPA is NOT necessarily a reload. Track browser commits separately
+ * from HUD initialization, and include only bounded counts in Diagnostics.
+ * MV3 worker restarts clear this in-memory history by design. */
+const twitchWorkspaceV2NavigationAudit = new Map();
+const TWITCH_WORKSPACE_V2_NAV_AUDIT_MAX_TABS = 64;
+const twitchWorkspaceV2NavAuditStartedAt = Date.now();
+
+function trackTwitchWorkspaceV2TopLevelCommit(details) {
+    if (!Number.isInteger(details?.tabId) || details.frameId !== 0 ||
+        !isTwitchUrl(details.url)) return false;
+    const previous = twitchWorkspaceV2NavigationAudit.get(details.tabId);
+    const transition = String(details.transitionType || "unknown");
+    const modifiers = Array.isArray(details.transitionQualifiers) ? details.transitionQualifiers : [];
+    const changedAt = Number.isFinite(details.timeStamp) ? details.timeStamp : Date.now();
+    const entry = {
+        observedCommits: (previous?.observedCommits || 0) + 1,
+        observedReloads: (previous?.observedReloads || 0) + (transition === "reload" ? 1 : 0),
+        clientRedirects: (previous?.clientRedirects || 0) + (modifiers.includes("client_redirect") ? 1 : 0),
+        lastTransitionType: transition,
+        lastCommittedAt: changedAt,
+        firstSeenAt: previous?.firstSeenAt || changedAt
+    };
+    // Move re-used tabs to the end so old tabs are the first to evict.
+    twitchWorkspaceV2NavigationAudit.delete(details.tabId);
+    twitchWorkspaceV2NavigationAudit.set(details.tabId, entry);
+    if (twitchWorkspaceV2NavigationAudit.size > TWITCH_WORKSPACE_V2_NAV_AUDIT_MAX_TABS) {
+        twitchWorkspaceV2NavigationAudit.delete(twitchWorkspaceV2NavigationAudit.keys().next().value);
+    }
+    if (transition === "reload") {
+        recordFlightEvent({source:"background", category:"twitch-workspace-v2",
+            action:"document-reloaded", provider:"twitch", detail:{tabId:details.tabId}}).catch(() => {});
+    }
+    return true;
+}
+
+function getTwitchWorkspaceV2NavigationAudit(tabId) {
+    return {
+        trackingSince: twitchWorkspaceV2NavAuditStartedAt,
+        tracked: Number.isInteger(tabId) && twitchWorkspaceV2NavigationAudit.has(tabId),
+        ...(Number.isInteger(tabId) ? twitchWorkspaceV2NavigationAudit.get(tabId) || {} : {})
+    };
+}
+
+if (chrome.webNavigation?.onCommitted) {
+    chrome.webNavigation.onCommitted.addListener(details => {
+        trackTwitchWorkspaceV2TopLevelCommit(details);
+    });
+}
+
 function rememberTwitchWorkspaceV2NativeCaption(message) {
     const member = String(message?.member || "").trim().toLowerCase();
     const height = Number(message?.titlebarHeight);
@@ -4800,7 +4886,10 @@ async function scheduleTwitchWorkspaceV2StreamRefresh(slotId, delayMinutes = nul
 
 async function syncTwitchWorkspaceV2StreamRefreshAlarms(record = null) {
     const current = record || await getTwitchWorkspaceV2Record();
-    for (const slotId of TWITCH_WORKSPACE_V2_SLOT_IDS) {
+    // The four independent per-slot alarms can be checked concurrently.
+    // Serial get() calls used to add measurable latency (567ms in v0.20.34)
+    // during the already expensive cold four-window Twitch handoff.
+    await Promise.all(TWITCH_WORKSPACE_V2_SLOT_IDS.map(async slotId => {
         const name = twitchWorkspaceV2StreamRefreshAlarmName(slotId);
         const slot = current?.slots?.[slotId];
         const shouldRefresh = slot?.kind === "stream" && isTwitchUrl(slot?.url);
@@ -4810,7 +4899,7 @@ async function syncTwitchWorkspaceV2StreamRefreshAlarms(record = null) {
         } else if (existing) {
             await chrome.alarms.clear(name).catch(() => {});
         }
-    }
+    }));
 }
 
 async function handleTwitchWorkspaceV2StreamRefreshAlarm(alarm) {
@@ -5622,6 +5711,15 @@ function scheduleTwitchWorkspaceV2SurfaceWake(record, preferredSlot, coldStart =
     }
 }
 
+async function isTwitchWorkspaceV2ColdStart(record) {
+    // Persisted IDs alone do not distinguish an existing workspace from A-D
+    // windows that Opera closed since the last session.
+    const slotWindows = await Promise.all(TWITCH_WORKSPACE_V2_SLOT_IDS.map(
+        id => getTwitchWorkspaceV2Window(record.slots?.[id]?.windowId)
+    ));
+    return !slotWindows.every(win => Number.isInteger(win?.id));
+}
+
 function showTwitchWorkspaceV2(target = "workspace") {
     return runStreamShellWindowTransition(
         `twitch:${target}`,
@@ -5659,9 +5757,10 @@ async function _showTwitchWorkspaceV2(target = "workspace") {
         preferredSlot = record.paneFullscreenSlot;
     }
 
-    const coldStart = !TWITCH_WORKSPACE_V2_SLOT_IDS.every(
-        id => Number.isInteger(record.slots?.[id]?.windowId)
-    );
+    // Stored slot IDs can outlive their Opera popup. Treat missing actual
+    // windows as a cold A-D start so the final surface-wake/cluster repair is
+    // scheduled even after a previous session left stale slot IDs behind.
+    const coldStart = await isTwitchWorkspaceV2ColdStart(record);
 
     record = {
         ...record,
@@ -5676,6 +5775,13 @@ async function _showTwitchWorkspaceV2(target = "workspace") {
         twitchTarget: target === "drops" ? "drops" : "resume"
     });
 
+    // Maintenance alarms depend on the persisted slot kinds/URLs, not popup
+    // HWND claims or UI paint. Overlap their browser-API reads with native sync
+    // and A-D window creation; still await completion before announcing success.
+    // Do not move CSS, compositor wake, or the already stable 1.25s stagger.
+    const refreshAlarmsTask = measureShellWindowStep("twitch:refresh-alarms", () =>
+        syncTwitchWorkspaceV2StreamRefreshAlarms(record).catch(() => {}));
+
     // The helper now refuses Twitch cluster raises while Dashboard is active.
     // Synchronize intent before trying to raise A-D on a deliberate transition.
     await measureShellWindowStep("twitch:sync-titlebar", () => syncConnectedTitlebarNative().catch(() => {}));
@@ -5683,7 +5789,7 @@ async function _showTwitchWorkspaceV2(target = "workspace") {
     record = await measureShellWindowStep("twitch:raise-workspace", () => raiseTwitchWorkspaceV2(record, preferredSlot));
     scheduleTwitchWorkspaceV2Claims(record);
     scheduleTwitchWorkspaceV2SurfaceWake(record, preferredSlot, coldStart);
-    await measureShellWindowStep("twitch:refresh-alarms", () => syncTwitchWorkspaceV2StreamRefreshAlarms(record).catch(() => {}));
+    await refreshAlarmsTask;
 
     await recordFlightEvent({
         source: "background",
@@ -6179,6 +6285,7 @@ async function getTwitchWorkspaceV2Diagnostics() {
             slot: id,
             twitchRuntimeStatus,
             twitchRuntime,
+            navigationAudit: getTwitchWorkspaceV2NavigationAudit(tab?.id),
             kind: slot?.kind || "empty",
             kindSource: slot?.kindSource || "auto",
             configuredUrl: slot?.url || null,
@@ -10190,6 +10297,48 @@ async function syncSubscriptions() {
 }
 
 
+// Shared response boundary for low-risk runtime messages. Keep sender checks in
+// the router BEFORE entering this helper; this never grants permissions.
+// Returning true holds the MV3 sendResponse channel open while work settles.
+function streamShellMessageErrorText(error, fallback = "Request failed.") {
+    const message = error?.message || (typeof error === "string" ? error : null);
+    return typeof message === "string" && message.trim() ? message : fallback;
+}
+
+function streamShellRespondAsync(sendResponse, operation, options = {}) {
+    const success = options.success || (result => result);
+    const failure = options.failure || (error => ({
+        ok: false,
+        error: streamShellMessageErrorText(error, options.fallback)
+    }));
+
+    // Exactly one reply on either success or failure. The operation is invoked
+    // INSIDE the try block: synchronously throwing APIs are handled as well as
+    // rejecting promises. Closed sender ports must not leak an unhandled error.
+    void (async () => {
+        let reply;
+        try {
+            reply = success(await operation());
+        } catch (error) {
+            if (options.logLabel) console.error(options.logLabel, error);
+            try {
+                reply = failure(error);
+            } catch (responseError) {
+                reply = {
+                    ok: false,
+                    error: streamShellMessageErrorText(responseError)
+                };
+            }
+        }
+        try {
+            sendResponse(reply);
+        } catch {
+            // The requesting page/port may have closed during asynchronous work.
+        }
+    })();
+    return true;
+}
+
 async function isManagedProviderWindow(
     windowId
 ) {
@@ -10649,44 +10798,16 @@ chrome.runtime.onMessage.addListener(
         }
 
 
-        if (
-            message.type ===
-                "dashboard-settings-visibility"
-        ) {
-            if (
-                !isDashboardSender(
-                    sender
-                )
-            ) {
-                sendResponse({
-                    ok:
-                        false
-                });
-
+        if (message.type === "dashboard-settings-visibility") {
+            if (!isDashboardSender(sender)) {
+                sendResponse({ ok: false });
                 return;
             }
-
-            setTitlebarSettingsOpen(
-                message.open === true
-            )
-                .then(
-                    () => {
-                        sendResponse({
-                            ok:
-                                true
-                        });
-                    }
-                )
-                .catch(
-                    () => {
-                        sendResponse({
-                            ok:
-                                false
-                        });
-                    }
-                );
-
-            return true;
+            return streamShellRespondAsync(
+                sendResponse,
+                () => setTitlebarSettingsOpen(message.open === true),
+                { success: () => ({ ok: true }), failure: () => ({ ok: false }) }
+            );
         }
 
 
@@ -10818,51 +10939,37 @@ chrome.runtime.onMessage.addListener(
         }
 
 
-        if (
-            message.type ===
-                "dashboard-flight-event"
-        ) {
+        if (message.type === "dashboard-flight-event") {
             if (!isDashboardSender(sender)) {
                 sendResponse({ ok: false });
                 return;
             }
-
             const event = message.event || {};
-            recordFlightEvent({
-                source: "dashboard",
-                category: event.category,
-                action: event.action,
-                level: event.level,
-                provider: event.provider,
-                detail: event.detail
-            })
-                .then(() => sendResponse({ ok: true }))
-                .catch(() => sendResponse({ ok: false }));
-
-            return true;
+            return streamShellRespondAsync(
+                sendResponse,
+                () => recordFlightEvent({
+                    source: "dashboard",
+                    category: event.category,
+                    action: event.action,
+                    level: event.level,
+                    provider: event.provider,
+                    detail: event.detail
+                }),
+                { success: () => ({ ok: true }), failure: () => ({ ok: false }) }
+            );
         }
 
 
-        if (
-            message.type ===
-                "dashboard-diagnostics-repair"
-        ) {
+        if (message.type === "dashboard-diagnostics-repair") {
             if (!isDashboardSender(sender)) {
                 sendResponse({ ok: false });
                 return;
             }
-
-            runStreamShellProviderRepair(
-                message.provider,
-                message.action
-            )
-                .then(sendResponse)
-                .catch(error => sendResponse({
-                    ok: false,
-                    error: String(error?.message || error || "Repair failed.")
-                }));
-
-            return true;
+            return streamShellRespondAsync(
+                sendResponse,
+                () => runStreamShellProviderRepair(message.provider, message.action),
+                { fallback: "Repair failed." }
+            );
         }
 
 
@@ -11718,6 +11825,74 @@ chrome.runtime.onMessage.addListener(
         }
 
 
+        // The heavy Twitch automation is optional; the early utility requests
+        // it only after slot-staggering. The injection is document- and frame-
+        // scoped, like the lazy HUD, to avoid stale work after navigation.
+        if (message.type === "twitch-workspace-v2-load-automation") {
+            const tab = sender.tab;
+            if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.windowId) ||
+                sender.frameId !== 0 || !sender.documentId || !isTwitchUrl(tab.url)) {
+                sendResponse({ ok: false, error: "Invalid Twitch automation sender." });
+                return;
+            }
+            getTwitchWorkspaceV2Context(tab.windowId).then(async context => {
+                if (!context?.managed || context?.role !== "slot" ||
+                    !["a", "b", "c", "d"].includes(context.slotId)) {
+                    sendResponse({ ok: false, error: "Not a managed Twitch V2 slot." });
+                    return;
+                }
+                // Fail closed if the Chromium document identifier is absent:
+                // never inject an old slot's deferred script into a new page.
+                const target = { tabId: tab.id, documentIds: [sender.documentId] };
+                try {
+                    await chrome.scripting.executeScript({
+                        target,
+                        files: ["providers/player/twitch-automation.js"]
+                    });
+                    sendResponse({ ok: true });
+                } catch (error) {
+                    sendResponse({ ok: false, error: String(error?.message || error) });
+                }
+            }).catch(error => sendResponse({ ok: false, error: String(error?.message || error) }));
+            return true;
+        }
+
+        // The large Twitch HUD is optional; inject only after a small
+        // document_idle admission script verifies its managed V2 slot.
+        if (message.type === "twitch-workspace-v2-load-hud") {
+            const tab = sender.tab;
+            if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.windowId) ||
+                sender.frameId !== 0 || !isTwitchUrl(tab.url)) {
+                sendResponse({ ok: false, error: "Invalid Twitch HUD sender." });
+                return;
+            }
+
+            getTwitchWorkspaceV2Context(tab.windowId).then(async context => {
+                if (!context?.managed || context?.role !== "slot" ||
+                    !["a", "b", "c", "d"].includes(context.slotId)) {
+                    sendResponse({ ok: false, error: "Not a managed Twitch V2 slot." });
+                    return;
+                }
+                // documentIds pins injection to the requesting document,
+                // preventing a quick navigation from receiving stale HUD work.
+                // Chromium/Opera GX MV3 exposes sender.documentId.
+                const target = sender.documentId
+                    ? { tabId: tab.id, documentIds: [sender.documentId] }
+                    : { tabId: tab.id, frameIds: [0] };
+                try {
+                    await chrome.scripting.executeScript({
+                        target,
+                        files: ["providers/player/twitch-workspace-v2.js"]
+                    });
+                    sendResponse({ ok: true });
+                } catch (error) {
+                    sendResponse({ ok: false, error: String(error?.message || error) });
+                }
+            }).catch(error => sendResponse({ ok: false, error: String(error?.message || error) }));
+            return true;
+        }
+
+
         if (
             message.type ===
             "get-stream-shell-twitch-workspace-context"
@@ -12507,64 +12682,31 @@ chrome.runtime.onMessage.addListener(
         }
 
 
-        if (
-            message.type ===
-            "get-state"
-        ) {
-            Promise.all([
-                chrome.storage.local.get([
-                    "activeProvider",
-                    "leftMode",
-                    "rightMode"
+        if (message.type === "get-state") {
+            return streamShellRespondAsync(
+                sendResponse,
+                () => Promise.all([
+                    chrome.storage.local.get(["activeProvider", "leftMode", "rightMode"]),
+                    isLandingExposed(),
+                    getStreamShellDisplayProfile(),
+                    getTwitchWorkspaceV2Summary()
                 ]),
-                isLandingExposed(),
-                getStreamShellDisplayProfile(),
-                getTwitchWorkspaceV2Summary()
-            ])
-                .then(
-                    ([
-                        state,
-                        landingExposed,
-                        displayProfile,
-                        twitchWorkspace
-                    ]) => {
-                        sendResponse({
-                            activeProvider:
-                                state.activeProvider ||
-                                "netflix",
-
-                            leftMode:
-                                state.leftMode ||
-                                "landing",
-
-                            rightMode:
-                                state.rightMode ||
-                                "dashboard",
-
-                            layoutProfile:
-                                displayProfile?.mode || "wide",
-
-                            displayProfileOverride:
-                                displayProfile?.override || "auto",
-
-                            displayTarget:
-                                displayProfile?.targetDisplay?.referenceTarget || null,
-
-                            twitchWorkspace,
-
-                            landingExposed
-                        });
-                    }
-                )
-                .catch(error => {
-                    sendResponse({
-                        ok: false,
-                        error: String(error?.message || "Unable to read shell state.")
-                    });
-                });
-
-            return true;
+                {
+                    success: ([state, landingExposed, displayProfile, twitchWorkspace]) => ({
+                        activeProvider: state.activeProvider || "netflix",
+                        leftMode: state.leftMode || "landing",
+                        rightMode: state.rightMode || "dashboard",
+                        layoutProfile: displayProfile?.mode || "wide",
+                        displayProfileOverride: displayProfile?.override || "auto",
+                        displayTarget: displayProfile?.targetDisplay?.referenceTarget || null,
+                        twitchWorkspace,
+                        landingExposed
+                    }),
+                    fallback: "Unable to read shell state."
+                }
+            );
         }
+
     }
 );
 

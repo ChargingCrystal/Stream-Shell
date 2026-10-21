@@ -151,44 +151,16 @@ chrome.runtime.onMessage.addListener(
         }
 
 
-        if (
-            message.type ===
-                "dashboard-settings-visibility"
-        ) {
-            if (
-                !isDashboardSender(
-                    sender
-                )
-            ) {
-                sendResponse({
-                    ok:
-                        false
-                });
-
+        if (message.type === "dashboard-settings-visibility") {
+            if (!isDashboardSender(sender)) {
+                sendResponse({ ok: false });
                 return;
             }
-
-            setTitlebarSettingsOpen(
-                message.open === true
-            )
-                .then(
-                    () => {
-                        sendResponse({
-                            ok:
-                                true
-                        });
-                    }
-                )
-                .catch(
-                    () => {
-                        sendResponse({
-                            ok:
-                                false
-                        });
-                    }
-                );
-
-            return true;
+            return streamShellRespondAsync(
+                sendResponse,
+                () => setTitlebarSettingsOpen(message.open === true),
+                { success: () => ({ ok: true }), failure: () => ({ ok: false }) }
+            );
         }
 
 
@@ -320,51 +292,37 @@ chrome.runtime.onMessage.addListener(
         }
 
 
-        if (
-            message.type ===
-                "dashboard-flight-event"
-        ) {
+        if (message.type === "dashboard-flight-event") {
             if (!isDashboardSender(sender)) {
                 sendResponse({ ok: false });
                 return;
             }
-
             const event = message.event || {};
-            recordFlightEvent({
-                source: "dashboard",
-                category: event.category,
-                action: event.action,
-                level: event.level,
-                provider: event.provider,
-                detail: event.detail
-            })
-                .then(() => sendResponse({ ok: true }))
-                .catch(() => sendResponse({ ok: false }));
-
-            return true;
+            return streamShellRespondAsync(
+                sendResponse,
+                () => recordFlightEvent({
+                    source: "dashboard",
+                    category: event.category,
+                    action: event.action,
+                    level: event.level,
+                    provider: event.provider,
+                    detail: event.detail
+                }),
+                { success: () => ({ ok: true }), failure: () => ({ ok: false }) }
+            );
         }
 
 
-        if (
-            message.type ===
-                "dashboard-diagnostics-repair"
-        ) {
+        if (message.type === "dashboard-diagnostics-repair") {
             if (!isDashboardSender(sender)) {
                 sendResponse({ ok: false });
                 return;
             }
-
-            runStreamShellProviderRepair(
-                message.provider,
-                message.action
-            )
-                .then(sendResponse)
-                .catch(error => sendResponse({
-                    ok: false,
-                    error: String(error?.message || error || "Repair failed.")
-                }));
-
-            return true;
+            return streamShellRespondAsync(
+                sendResponse,
+                () => runStreamShellProviderRepair(message.provider, message.action),
+                { fallback: "Repair failed." }
+            );
         }
 
 
@@ -1220,6 +1178,74 @@ chrome.runtime.onMessage.addListener(
         }
 
 
+        // The heavy Twitch automation is optional; the early utility requests
+        // it only after slot-staggering. The injection is document- and frame-
+        // scoped, like the lazy HUD, to avoid stale work after navigation.
+        if (message.type === "twitch-workspace-v2-load-automation") {
+            const tab = sender.tab;
+            if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.windowId) ||
+                sender.frameId !== 0 || !sender.documentId || !isTwitchUrl(tab.url)) {
+                sendResponse({ ok: false, error: "Invalid Twitch automation sender." });
+                return;
+            }
+            getTwitchWorkspaceV2Context(tab.windowId).then(async context => {
+                if (!context?.managed || context?.role !== "slot" ||
+                    !["a", "b", "c", "d"].includes(context.slotId)) {
+                    sendResponse({ ok: false, error: "Not a managed Twitch V2 slot." });
+                    return;
+                }
+                // Fail closed if the Chromium document identifier is absent:
+                // never inject an old slot's deferred script into a new page.
+                const target = { tabId: tab.id, documentIds: [sender.documentId] };
+                try {
+                    await chrome.scripting.executeScript({
+                        target,
+                        files: ["providers/player/twitch-automation.js"]
+                    });
+                    sendResponse({ ok: true });
+                } catch (error) {
+                    sendResponse({ ok: false, error: String(error?.message || error) });
+                }
+            }).catch(error => sendResponse({ ok: false, error: String(error?.message || error) }));
+            return true;
+        }
+
+        // The large Twitch HUD is optional; inject only after a small
+        // document_idle admission script verifies its managed V2 slot.
+        if (message.type === "twitch-workspace-v2-load-hud") {
+            const tab = sender.tab;
+            if (!Number.isInteger(tab?.id) || !Number.isInteger(tab?.windowId) ||
+                sender.frameId !== 0 || !isTwitchUrl(tab.url)) {
+                sendResponse({ ok: false, error: "Invalid Twitch HUD sender." });
+                return;
+            }
+
+            getTwitchWorkspaceV2Context(tab.windowId).then(async context => {
+                if (!context?.managed || context?.role !== "slot" ||
+                    !["a", "b", "c", "d"].includes(context.slotId)) {
+                    sendResponse({ ok: false, error: "Not a managed Twitch V2 slot." });
+                    return;
+                }
+                // documentIds pins injection to the requesting document,
+                // preventing a quick navigation from receiving stale HUD work.
+                // Chromium/Opera GX MV3 exposes sender.documentId.
+                const target = sender.documentId
+                    ? { tabId: tab.id, documentIds: [sender.documentId] }
+                    : { tabId: tab.id, frameIds: [0] };
+                try {
+                    await chrome.scripting.executeScript({
+                        target,
+                        files: ["providers/player/twitch-workspace-v2.js"]
+                    });
+                    sendResponse({ ok: true });
+                } catch (error) {
+                    sendResponse({ ok: false, error: String(error?.message || error) });
+                }
+            }).catch(error => sendResponse({ ok: false, error: String(error?.message || error) }));
+            return true;
+        }
+
+
         if (
             message.type ===
             "get-stream-shell-twitch-workspace-context"
@@ -2009,64 +2035,31 @@ chrome.runtime.onMessage.addListener(
         }
 
 
-        if (
-            message.type ===
-            "get-state"
-        ) {
-            Promise.all([
-                chrome.storage.local.get([
-                    "activeProvider",
-                    "leftMode",
-                    "rightMode"
+        if (message.type === "get-state") {
+            return streamShellRespondAsync(
+                sendResponse,
+                () => Promise.all([
+                    chrome.storage.local.get(["activeProvider", "leftMode", "rightMode"]),
+                    isLandingExposed(),
+                    getStreamShellDisplayProfile(),
+                    getTwitchWorkspaceV2Summary()
                 ]),
-                isLandingExposed(),
-                getStreamShellDisplayProfile(),
-                getTwitchWorkspaceV2Summary()
-            ])
-                .then(
-                    ([
-                        state,
-                        landingExposed,
-                        displayProfile,
-                        twitchWorkspace
-                    ]) => {
-                        sendResponse({
-                            activeProvider:
-                                state.activeProvider ||
-                                "netflix",
-
-                            leftMode:
-                                state.leftMode ||
-                                "landing",
-
-                            rightMode:
-                                state.rightMode ||
-                                "dashboard",
-
-                            layoutProfile:
-                                displayProfile?.mode || "wide",
-
-                            displayProfileOverride:
-                                displayProfile?.override || "auto",
-
-                            displayTarget:
-                                displayProfile?.targetDisplay?.referenceTarget || null,
-
-                            twitchWorkspace,
-
-                            landingExposed
-                        });
-                    }
-                )
-                .catch(error => {
-                    sendResponse({
-                        ok: false,
-                        error: String(error?.message || "Unable to read shell state.")
-                    });
-                });
-
-            return true;
+                {
+                    success: ([state, landingExposed, displayProfile, twitchWorkspace]) => ({
+                        activeProvider: state.activeProvider || "netflix",
+                        leftMode: state.leftMode || "landing",
+                        rightMode: state.rightMode || "dashboard",
+                        layoutProfile: displayProfile?.mode || "wide",
+                        displayProfileOverride: displayProfile?.override || "auto",
+                        displayTarget: displayProfile?.targetDisplay?.referenceTarget || null,
+                        twitchWorkspace,
+                        landingExposed
+                    }),
+                    fallback: "Unable to read shell state."
+                }
+            );
         }
+
     }
 );
 
