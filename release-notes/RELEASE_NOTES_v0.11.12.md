@@ -7,7 +7,7 @@
 - Recorded provider open/close/activate, adapter/API start, SPA navigation, watch-context changes, video appear/disappear and the full resume chain.
 - Recorded Prime resume control, Netflix MAIN-world bridge command/result/error, provider skip events, Settings changes and self-test transitions.
 - Kept titles and URLs out of the recorder.
-- Updated `TODO_RULED_OUT.txt` and Settings export version.
+- Updated `docs/TODO_RULED_OUT.txt` and Settings export version.
 
 **Recovered SHA-256:** `1ae47a0e5358395843233e74ae8f74b9b7568cdcafa1d5eca490f1b9aafca465`
 

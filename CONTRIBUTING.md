@@ -23,6 +23,8 @@ Keep the five local artwork conventions documented in the [README](README.md). C
 
 ## Editing and builds
 
+Follow the [repository layout contract](docs/PROJECT-STRUCTURE.md): keep runtime entrypoints at their existing manifest-resolved paths, place tests under their owning `tests/` folders, and store development notes under `docs/`.
+
 Canonical JavaScript source is usually under `*/src/` or `shared/`; generated runtime bundles (`background.js`, `dashboard/dashboard.js`, `dashboard/compact-home.js`, etc.) are loaded by Opera GX. See the relevant `SOURCE-README.txt` and local `build-*.ps1` before changing generated output.
 
 When implementing a change:

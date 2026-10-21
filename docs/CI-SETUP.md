@@ -1,25 +1,31 @@
-# Stream Shell CI setup
+# Stream Shell CI – setup and operation
 
-This is an additive CI-only patch. It does not modify the extension runtime or existing build scripts.
+GitHub Actions workflows are in `.github/workflows/`:
 
-## Install
-1. Extract this archive at the root of the GitHub working copy (the folder containing `manifest.json`).
-2. Commit and push the two files `.github/workflows/project-quality.yml` and `tools/ci-bootstrap.mjs`.
-3. Go to **GitHub > ChargingCrystal/Stream-Shell > Actions > Stream Shell quality** and inspect the run.
+- `project-quality.yml`: push / pull request / manual, Ubuntu, Node 22 and Python 3. Runs `node tools/check-project.mjs` for JS syntax, bundle parity, Manifest/HTML references, critical behavior tests, native **source** parity, and repository layout.
+- `native-windows.yml`: push / pull request when Native C# or its build tooling changes, plus manual runs. Uses Windows to compile the C# Titlebar Host **without installing or launching** it.
 
-Command-line alternative, from the repository root:
+## Setup
+
+Both workflows are committed alongside source; no setup script or npm dependencies needed. Push your local tree to GitHub and inspect the [Actions tab](https://github.com/ChargingCrystal/Stream-Shell/actions). Workflow permissions are read-only. No tokens or secrets need to be configured.
+
+## Local test
+
+From extension/repository root:
 
 ```sh
-git add .github/workflows/project-quality.yml tools/ci-bootstrap.mjs
-git commit -m "ci: add Stream Shell automated quality checks"
-git push
+node tools/check-project.mjs
 ```
 
-## What it checks
+Requires Node 22+ and Python 3. On Windows use the PowerShell builds adjacent to the four source trees when changing source fragments; CI validates outputs but does not rewrite bundles.
 
-* On the current GitHub v0.20.0: Manifest V3, five generated bundles, JS syntax, seven available regression tests, and referenced manifest files.
-* v0.20.0 has a known shipped mismatch: landing/build-landing.ps1 lists finance.js, but shipped landing.js excludes it. This is an explicit GitHub Actions warning on this historical version only, not a silent pass.
-* On v0.20.17+ (once pushed): `tools/check-project.mjs` is the authoritative gate, including complete manifest/HTML, native C# source contract and the current regression suite (25 tests in v0.20.18).
-* Native C# Windows compilation and Opera integration are NOT covered yet.
+On native changes you can also invoke `native/tests/compile-titlebar-host.ps1` on Windows. It does not install the helper.
 
-No npm dependencies or secrets are required. Pushes and pull requests run automatically; the Actions tab also offers Run workflow. If GitHub Actions is disabled in repository settings, enable it there.
+## Interpreting failures
+
+- **Bundle parity**: generated file did not match its ordered source fragments; use the adjacent `build-*.ps1` and commit both source and bundle.
+- **Regression missing/failed**: a behavior contract disappeared or changed; do not just delete tests to get green.
+- **Project layout**: docs and tests should live in their designated area; consult [PROJECT-STRUCTURE.md](PROJECT-STRUCTURE.md).
+- **Windows Native compile**: compile failure; installing the running helper should wait until the source is corrected.
+
+These checks cannot establish Opera GX or background renderer long-session stability by themselves.

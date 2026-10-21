@@ -865,7 +865,7 @@
 - Automatically removes completed Continue entries at the recovered default 95% threshold.
 - Added a Provider Capability Matrix and launch self-test to Diagnostics.
 - Updated Settings/Watchlist export/import to v3.
-- Added `TODO_RULED_OUT.txt` to record intentionally rejected feature directions.
+- Added `docs/TODO_RULED_OUT.txt` to record intentionally rejected feature directions.
 
 **Recovered SHA-256:** `5b6c147c6c151813d449c461d4e4f09ab43fc3b2659b9f1c1e43fab92d9fb26e`
 
@@ -962,7 +962,7 @@
 - Recorded provider open/close/activate, adapter/API start, SPA navigation, watch-context changes, video appear/disappear and the full resume chain.
 - Recorded Prime resume control, Netflix MAIN-world bridge command/result/error, provider skip events, Settings changes and self-test transitions.
 - Kept titles and URLs out of the recorder.
-- Updated `TODO_RULED_OUT.txt` and Settings export version.
+- Updated `docs/TODO_RULED_OUT.txt` and Settings export version.
 
 **Recovered SHA-256:** `1ae47a0e5358395843233e74ae8f74b9b7568cdcafa1d5eca490f1b9aafca465`
 

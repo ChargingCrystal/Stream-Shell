@@ -53,6 +53,9 @@ console.log('Stream Shell project quality gate');
 const manifest = JSON.parse(read('manifest.json').toString('utf8'));
 check(manifest.manifest_version === 3, 'Manifest V3 contract changed');
 check(typeof manifest.version === 'string', 'Manifest version missing');
+const readme = read('README.md').toString('utf8');
+check(readme.includes(`**Current version: ${manifest.version}**`), 'README current version does not match manifest');
+check(exists(`release-notes/RELEASE_NOTES_v${manifest.version}.md`), 'release note missing for manifest version');
 
 const background = jsSource('background/build-background.ps1', 'background', '$Chunks = @(');
 bundle('background.js', 'background.js', background);
@@ -82,6 +85,28 @@ for (const entry of manifest.web_accessible_resources || []) {
 }
 
 const all = walk();
+// Repository layout contract: root stays small and browser-resolvable paths stable.
+// When adding a new top-level runtime surface, document its responsibility first.
+const rootDirectories = new Set([
+    '.github', 'assets', 'background', 'common', 'dashboard', 'docs',
+    'integrations', 'landing', 'media', 'native', 'offscreen', 'popup',
+    'providers', 'release-notes', 'shared', 'subscriptions', 'tools', 'twitch-workspace'
+]);
+const rootFiles = new Set([
+    '.gitattributes', '.gitignore', 'CHANGELOG.md', 'CONTRIBUTING.md',
+    'LICENSE.md', 'NOTICE', 'README.md', 'SECURITY.md',
+    'background.js', 'manifest.json'
+]);
+for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (ignore.has(entry.name)) continue;
+    const allowed = entry.isDirectory() ? rootDirectories.has(entry.name) : rootFiles.has(entry.name);
+    check(allowed, `project layout: unexpected root ${entry.isDirectory() ? 'directory' : 'file'} ${entry.name} (see docs/PROJECT-STRUCTURE.md)`);
+}
+const strandedTests = all.filter(file => file.endsWith('.test.js') && !file.includes('/tests/'));
+for (const file of strandedTests) check(false, `project layout: move test into its area's tests/ folder: ${file}`);
+check(!exists('tools/ci-bootstrap.mjs'), 'project layout: deprecated CI bootstrap still present');
+console.log(`  project layout: known runtime roots and tests/ locations (${strandedTests.length} stray tests)`);
+
 for (const file of all.filter(file => file.endsWith('.html'))) {
     const html = read(file).toString('utf8');
     const values = [...html.matchAll(/\b(?:src|href)\s*=\s*["']([^"']+)["']/g)];
@@ -112,8 +137,8 @@ console.log(`  JavaScript syntax: ${syntaxOk}/${jsFiles.length}`);
 const tests = all.filter(file => file.endsWith('.test.js')).sort();
 const requiredBehaviorTests = [
     'landing/tests/finance-entry.test.js',
-    'landing/provider-background.test.js',
-    'offscreen/titlebar-svg.test.js',
+    'landing/tests/provider-background.test.js',
+    'offscreen/tests/titlebar-svg.test.js',
     'background/tests/renderer-startup-admission.test.js',
     'background/tests/native-idle-reconcile.test.js',
     'background/tests/native-resilience-regression.test.js',

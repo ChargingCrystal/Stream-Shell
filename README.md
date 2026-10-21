@@ -6,7 +6,7 @@
 
 **Stream Shell** is a personal, Windows-focused desktop streaming shell built as an unpacked **Opera GX / Chromium Manifest V3 extension** with optional native Windows helpers. It manages streaming-provider windows, combines library/navigation tools, and adds provider-specific playback utilities.
 
-**Current version: 0.20.3** · [Changelog](CHANGELOG.md) · [Release notes](release-notes/RELEASE_NOTES_v0.20.3.md)
+**Current version: 0.20.19** · [Changelog](CHANGELOG.md) · [Release notes](release-notes/RELEASE_NOTES_v0.20.19.md)
 
 > Built primarily for one Windows / Opera GX setup. Other configurations are best-effort; this is not a hosted streaming service, a provider client, or an official integration with any streaming platform.
 
@@ -98,6 +98,8 @@ Built-in backgrounds follow the existing `<provider>_wide.png` / `<provider>_com
 
 ## Developer layout
 
+For the complete ownership map, exceptions, test placement and root policy, see **[Project Structure](docs/PROJECT-STRUCTURE.md)**.
+
 | Location | Purpose |
 | --- | --- |
 | `shared/provider-registry-core.js` | Common validated Provider Registry used by Dashboard and background runtime |
@@ -108,7 +110,7 @@ Built-in backgrounds follow the existing `<provider>_wide.png` / `<provider>_com
 | `native/` | C# Native Messaging helpers and Windows installer scripts |
 | `release-notes/` | Version notes and [Provider Registry design history](release-notes/PROVIDER_REGISTRY_ROADMAP.md) |
 
-Edit the canonical `src/` files and rebuild generated JavaScript bundles using their adjacent `build-*.ps1` scripts. Before committing or packaging, run `node tools/check-project.mjs` (Node 22+ and Python 3). It verifies all generated bundles, Manifest/HTML asset paths, JavaScript syntax, regression tests and the native C# **source** contract without modifying installed helpers. GitHub Actions runs the same check on pushes and pull requests. See [`CODE_AUDIT_v0.20.17.md`](CODE_AUDIT_v0.20.17.md) for code-care findings and deferred risks. Consult the `SOURCE-README.txt` files before editing compiled bundles directly.
+Edit the canonical `src/` files and rebuild generated JavaScript bundles using their adjacent `build-*.ps1` scripts. Before committing or packaging, run `node tools/check-project.mjs` (Node 22+ and Python 3). It verifies all generated bundles, Manifest/HTML asset paths, JavaScript syntax, regression tests and the native C# **source** contract without modifying installed helpers. GitHub Actions runs the same check on pushes and pull requests. See [`docs/CODE_AUDIT_v0.20.17.md`](docs/CODE_AUDIT_v0.20.17.md) for code-care findings and deferred risks. Consult the `SOURCE-README.txt` files before editing compiled bundles directly.
 
 ## Privacy, diagnostics and support
 

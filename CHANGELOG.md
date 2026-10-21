@@ -1,3 +1,11 @@
+## v0.20.19 – File Structure & Repository Layout (2026-10-21)
+
+- Document the explicit responsibilities of runtime, source, Native, integrations, shared utilities, tools, documentation and release-notes without reorganizing Opera-resolved asset paths.
+- Move stray Landing/Offscreen regression tests into their owners' `tests/` folders and repair relative source lookups and required CI test references.
+- Move historical code-audit and ruled-out design document into `docs/` and refresh outdated CI instructions; remove deprecated `tools/ci-bootstrap.mjs`.
+- Add a lightweight repository-layout guard to the project quality gate so future accidental root-level files and misplaced tests fail CI.
+- No runtime JS/CSS/C# behavioral changes, no build order changes, no HWND/Twitch/renderer timing changes and no custom wallpaper overwrites.
+
 ## v0.20.18 – Restore COBOL Financial Operations (2026-10-21)
 
 - Restore `landing/src/finance.js` to the generated Wide Landing bundle, fixing the five-click Subscriptions secret entry that silently stopped working in v0.19.35.
@@ -7,7 +15,7 @@
 
 ## v0.20.17 – Repository Quality Gate & Safe IPC Boundaries (2026-10-21)
 
-- Run comprehensive static, bundle-parity and regression audit across Stream Shell; findings in `CODE_AUDIT_v0.20.17.md`.
+- Run comprehensive static, bundle-parity and regression audit across Stream Shell; findings in `docs/CODE_AUDIT_v0.20.17.md`.
 - Add cross-platform `node tools/check-project.mjs` and CI workflow for source/build/asset integrity and all existing JS tests plus C# source contract.
 - Prevent a latent Landing bundle mismatch from enabling archived finance code on rebuild.
 - Guard malformed background message envelopes and make the async `get-state` response reject-safe.
@@ -255,7 +263,7 @@
 - Adds **General -> Providers** to show/hide and reorder the five existing providers on the Dashboard (minimum one shown); persists settings in local storage with import/export support. Hidden Dashboard providers remain available in the unmodified native titlebar.
 - Compact keeps a vertical provider list; fewer providers are centered and six/seven rows have reserved-area sizing rules for a later generic-provider release.
 - Preserves built-in provider navigation, Now Playing indicators, availability decoration and v0.19.26 left-focus/right-pane separation. Neither C# helper nor Twitch recovery were modified.
-- **Phase boundary:** custom URLs, additional providers and live native Titlebar reconfiguration are NOT implemented yet. Detailed continuation: `TODO_RULED_OUT.txt` and `release-notes/PROVIDER_REGISTRY_ROADMAP.md`.
+- **Phase boundary:** custom URLs, additional providers and live native Titlebar reconfiguration are NOT implemented yet. Detailed continuation: `docs/TODO_RULED_OUT.txt` and `release-notes/PROVIDER_REGISTRY_ROADMAP.md`.
 
 **Installation:** overwrite extension files and reload in Opera GX; no native-helper reinstall required for this phase.
 

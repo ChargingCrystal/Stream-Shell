@@ -7,7 +7,7 @@
 - Automatically removes completed Continue entries at the recovered default 95% threshold.
 - Added a Provider Capability Matrix and launch self-test to Diagnostics.
 - Updated Settings/Watchlist export/import to v3.
-- Added `TODO_RULED_OUT.txt` to record intentionally rejected feature directions.
+- Added `docs/TODO_RULED_OUT.txt` to record intentionally rejected feature directions.
 
 **Recovered SHA-256:** `5b6c147c6c151813d449c461d4e4f09ab43fc3b2659b9f1c1e43fab92d9fb26e`
 

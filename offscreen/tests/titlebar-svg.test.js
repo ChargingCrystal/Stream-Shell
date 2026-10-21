@@ -22,7 +22,7 @@ const ctx=vm.createContext({
  fetch:async url=>({ok:!String(url).includes('missing'),blob:async()=>({size:150})}),
  chrome:{runtime:{id:'self',getURL:f=>'ext://'+f,onMessage:{addListener:cb=>listeners.push(cb)}}}
 });
-vm.runInContext(fs.readFileSync(path.join(__dirname,'titlebar-svg.js'),'utf8'),ctx);
+vm.runInContext(fs.readFileSync(path.join(__dirname,'..','titlebar-svg.js'),'utf8'),ctx);
 const render = path=>new Promise(resolve=>listeners[0]({target:'stream-shell-titlebar-svg-offscreen',type:'titlebar-render-icon',path},{id:'self'},resolve));
 (async()=>{
  const ok=await render('native/titlebar-icons/custom/custom_paramount.png');
