@@ -258,7 +258,176 @@ let titlebarLastNativeStatus =
     null;
 
 
-async function openShellHome() {
+/*
+ * Opera window creation/focus is expensive at startup, especially when a left
+ * provider is activated while the four Twitch surfaces are coming online.
+ * Only explicit shell-wide transitions share this bounded FIFO. Playback,
+ * Twitch chat, MoS autojoin, and provider polling NEVER wait on it.
+ */
+const STREAM_SHELL_TRANSITION_MAX_WAITERS = 2;
+let streamShellTransitionTail = Promise.resolve();
+let streamShellTransitionWaiters = 0;
+let streamShellTransitionActive = null;
+
+/*
+ * v0.20.9 – Renderer-startup admission control.
+ * The FIFO only serializes extension calls; chrome.windows.create() returns
+ * while the new YouTube/Twitch renderer is still loading. On Opera GX,
+ * starting a different high-cost surface immediately afterwards can saturate
+ * the browser process (including unrelated Opera windows). A ~5 second gap
+ * between launches was independently reproducible as the stable path.
+ *
+ * This lease is held only for a CROSS-SURFACE handoff, and the wait itself
+ * occurs inside the existing bounded FIFO. Background chat, MoS autojoin,
+ * video playback, and all renderer timers never participate in this queue.
+ */
+const STREAM_SHELL_RENDERER_HANDOFF_GRACE_MS = 5500;
+const STREAM_SHELL_RENDERER_HANDOFF_WARM_MS = 3000;
+const STREAM_SHELL_RENDERER_WARM_AFTER_MS = 30000;
+let streamShellRendererColdUntil = Date.now() + STREAM_SHELL_RENDERER_WARM_AFTER_MS;
+let streamShellTransitionVisualSerial = 0;
+
+// UI-only notification; never await renderer acknowledgements while starting windows.
+function notifyStreamShellTransitionVisual(event) {
+    if (shuttingDown) return;
+    try {
+        const sent = chrome.runtime.sendMessage({type:'stream-shell-transition-visual', ...event});
+        if (sent?.catch) sent.catch(() => {});
+    } catch { /* Dashboard may not be ready yet. */ }
+}
+
+function isStreamShellRendererCold(kind, name) {
+    // A worker wake may briefly have no cache. Prefer the safe startup gap.
+    if (!shellWideFocusCacheReady) return true;
+    if (kind === 'twitch') {
+        const record = shellWideFocusCache[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+        return !['a','b','c','d'].every(slot =>
+            Number.isInteger(record?.slots?.[slot]?.windowId));
+    }
+    if (kind === 'provider') {
+        const provider = name.slice('provider:'.length);
+        return !Number.isInteger(shellWideFocusCache.providerWindows?.[provider]);
+    }
+    return false;
+}
+
+let streamShellLastRendererLaunchKind = null;
+let streamShellLastRendererLaunchFinishedAt = 0;
+
+function streamShellRendererLaunchKind(name) {
+    if (name.startsWith('provider:')) return 'provider';
+    if (name.startsWith('twitch:')) return 'twitch';
+    return null;
+}
+
+async function waitForStreamShellRendererHandoff(name) {
+    const kind = streamShellRendererLaunchKind(name);
+    if (!kind || !streamShellLastRendererLaunchKind ||
+        streamShellLastRendererLaunchKind === kind) return 0;
+    const cold = Date.now() < streamShellRendererColdUntil ||
+        isStreamShellRendererCold(kind, name);
+    const graceMs = cold
+        ? STREAM_SHELL_RENDERER_HANDOFF_GRACE_MS
+        : STREAM_SHELL_RENDERER_HANDOFF_WARM_MS;
+    const remaining = graceMs - (Date.now() - streamShellLastRendererLaunchFinishedAt);
+    if (remaining <= 0) return 0;
+    await new Promise(resolve => setTimeout(resolve, remaining));
+    recordFlightEvent({
+        category: 'window-transition', action: 'renderer-handoff-staggered',
+        detail: { from: streamShellLastRendererLaunchKind, to: kind,
+            delayMs: remaining, graceMs, cold }
+    }).catch(() => {});
+    return remaining;
+}
+
+/* Diagnostics only: timestamp expensive steps without changing their order. */
+async function measureShellWindowStep(name, task) {
+    const startedAt = Date.now();
+    try {
+        return await task();
+    } finally {
+        const durationMs = Date.now() - startedAt;
+        if (durationMs >= 350) {
+            recordFlightEvent({
+                category: "window-transition", action: "step-timing",
+                level: durationMs > 1500 ? "warn" : "info",
+                detail: { name, durationMs }
+            }).catch(() => {});
+        }
+    }
+}
+
+function runStreamShellWindowTransition(name, operation) {
+    if (shuttingDown) return Promise.reject(new Error("Stream Shell is shutting down."));
+    if (streamShellTransitionWaiters >= STREAM_SHELL_TRANSITION_MAX_WAITERS) {
+        return Promise.reject(new Error("Stream Shell is busy switching windows; try again shortly."));
+    }
+    const queuedAt = Date.now();
+    streamShellTransitionWaiters += 1;
+    const execute = async () => {
+        streamShellTransitionWaiters -= 1;
+        if (shuttingDown) throw new Error("Stream Shell is shutting down.");
+        const startedAt = Date.now();
+        streamShellTransitionActive = name;
+        const kind = streamShellRendererLaunchKind(name);
+        const visualId = ++streamShellTransitionVisualSerial;
+        const showTwitchLoading = kind === 'twitch' &&
+            (isStreamShellRendererCold(kind, name) ||
+             (streamShellLastRendererLaunchKind === 'provider' &&
+              Date.now() - streamShellLastRendererLaunchFinishedAt < STREAM_SHELL_RENDERER_HANDOFF_GRACE_MS));
+        if (showTwitchLoading) notifyStreamShellTransitionVisual({
+            surface:'twitch', stage:'waiting', id:visualId
+        });
+        try {
+            // Explicit commands stay ordered, but renderer initialization
+            // must also be given room to settle before crossing surfaces.
+            const delayMs = await waitForStreamShellRendererHandoff(name);
+            if (shuttingDown) throw new Error("Stream Shell is shutting down.");
+            if (showTwitchLoading) notifyStreamShellTransitionVisual({
+                surface:'twitch', stage:'creating', id:visualId,
+                delayMs
+            });
+            const result = await operation();
+            if (kind) {
+                streamShellLastRendererLaunchKind = kind;
+                streamShellLastRendererLaunchFinishedAt = Date.now();
+            }
+            if (showTwitchLoading) notifyStreamShellTransitionVisual({
+                surface:'twitch', stage:'done', id:visualId
+            });
+            return result;
+        } catch (error) {
+            if (showTwitchLoading) notifyStreamShellTransitionVisual({
+                surface:'twitch', stage:'failed', id:visualId
+            });
+            recordFlightEvent({
+                category: "window-transition", action: "failed", level: "error",
+                detail: { name, message: String(error?.message || error).slice(0, 160) }
+            }).catch(() => {});
+            throw error;
+        } finally {
+            streamShellTransitionActive = null;
+            const durationMs = Date.now() - startedAt;
+            if (durationMs > 1500 || startedAt - queuedAt > 200) {
+                recordFlightEvent({
+                    category: "window-transition", action: "timing",
+                    level: durationMs > 5000 ? "warn" : "info",
+                    detail: { name, durationMs, waitMs: startedAt - queuedAt }
+                }).catch(() => {});
+            }
+        }
+    };
+    const result = streamShellTransitionTail.then(execute, execute);
+    // A failed operation must never poison or indefinitely grow the queue.
+    streamShellTransitionTail = result.then(() => undefined, () => undefined);
+    return result;
+}
+
+function openShellHome() {
+    return runStreamShellWindowTransition("open-home", _openShellHome);
+}
+
+async function _openShellHome() {
     if (
         shuttingDown
     ) {
@@ -370,7 +539,11 @@ async function openShellHome() {
     await broadcastState();
 }
 
-async function openShellWarmLastProvider() {
+function openShellWarmLastProvider() {
+    return runStreamShellWindowTransition("startup-warm", _openShellWarmLastProvider);
+}
+
+async function _openShellWarmLastProvider() {
     await refreshStreamShellProviderTargets();
     const stored =
         await chrome.storage.local.get(
@@ -386,7 +559,7 @@ async function openShellWarmLastProvider() {
      * which service should be warm in the background; leftMode remains the
      * source of truth for what is actually visible.
      */
-    await openShellHome();
+    await _openShellHome();
 
     if (
         shuttingDown ||
@@ -443,6 +616,12 @@ async function openShellWarmLastProvider() {
     });
 
     await broadcastState();
+    // A parked warm provider still starts a Chromium renderer. Twitch opened
+    // immediately after Shell launch must honor the same settling lease as a
+    // deliberate provider click, even though startup-warm is not a provider:
+    // command in the transition FIFO.
+    streamShellLastRendererLaunchKind = 'provider';
+    streamShellLastRendererLaunchFinishedAt = Date.now();
 }
 
 

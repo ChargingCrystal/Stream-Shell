@@ -7,6 +7,7 @@ $Target = Join-Path $LandingRoot "landing.js"
 $Order = @(
     "state.js",
     "subscriptions.js",
+    # Wide-only COBOL report. Must ship with Landing even though Compact excludes it.
     "finance.js",
     "media-ui.js",
     "token.js",

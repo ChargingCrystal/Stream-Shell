@@ -7,12 +7,20 @@
  */
 const STREAM_SHELL_FLIGHT_RECORDER_KEY = "streamShellFlightRecorder";
 const STREAM_SHELL_FLIGHT_RECORDER_VERSION = 1;
-const STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS = 200;
+const STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS = 80;
 
 let flightRecorderHydrated = false;
+let flightRecorderHydration = null;
 let flightRecorderEvents = [];
 let flightRecorderSequence = 0;
-let flightRecorderWriteQueue = Promise.resolve();
+// Bound storage pressure even when Opera/Chromium is busy. Events remain in
+// memory immediately; persistence is a coalesced best-effort session snapshot.
+const STREAM_SHELL_FLIGHT_RECORDER_FLUSH_MS = 5000;
+let flightRecorderFlushTimer = null;
+let flightRecorderFlushInFlight = null;
+let flightRecorderDirty = false;
+let flightRecorderStorageFailures = 0;
+let flightRecorderLastFlushAt = null;
 
 function sanitizeFlightRecorderValue(value, depth = 0) {
     if (value === null || value === undefined) return null;
@@ -41,22 +49,76 @@ function sanitizeFlightRecorderValue(value, depth = 0) {
     return String(value).slice(0, 240);
 }
 
-async function hydrateFlightRecorder() {
-    if (flightRecorderHydrated) return;
-    flightRecorderHydrated = true;
+function hydrateFlightRecorder() {
+    if (flightRecorderHydrated) return Promise.resolve();
+    if (flightRecorderHydration) return flightRecorderHydration;
 
-    try {
-        const stored = await chrome.storage.session.get(
-            STREAM_SHELL_FLIGHT_RECORDER_KEY
-        );
-        const snapshot = stored[STREAM_SHELL_FLIGHT_RECORDER_KEY];
-        if (Array.isArray(snapshot?.events)) {
-            flightRecorderEvents = snapshot.events
-                .slice(-STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS);
+    flightRecorderHydration = (async () => {
+        try {
+            const stored = await chrome.storage.session.get(
+                STREAM_SHELL_FLIGHT_RECORDER_KEY
+            );
+            const snapshot = stored[STREAM_SHELL_FLIGHT_RECORDER_KEY];
+            if (Array.isArray(snapshot?.events)) {
+                flightRecorderEvents = snapshot.events
+                    .slice(-STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS);
+            }
+        } catch (error) {
+            // Storage can be temporarily unavailable during startup. Do not
+            // turn diagnostics into a fatal dependency of user interactions.
+            console.warn("Stream Shell flight recorder hydration failed:", error);
+        } finally {
+            flightRecorderHydrated = true;
         }
-    } catch {
-        flightRecorderEvents = [];
-    }
+    })();
+    return flightRecorderHydration;
+}
+
+function scheduleFlightRecorderFlush() {
+    if (flightRecorderFlushTimer !== null || flightRecorderFlushInFlight) return;
+    flightRecorderFlushTimer = setTimeout(() => {
+        flightRecorderFlushTimer = null;
+        void flushFlightRecorder().catch(error => {
+            console.warn("Stream Shell flight recorder flush failed:", error);
+        });
+    }, STREAM_SHELL_FLIGHT_RECORDER_FLUSH_MS);
+}
+
+function flushFlightRecorder() {
+    if (flightRecorderFlushInFlight) return flightRecorderFlushInFlight;
+    if (!flightRecorderDirty) return Promise.resolve();
+
+    flightRecorderDirty = false;
+    const updatedAt = flightRecorderEvents.at(-1)?.at || null;
+    const payload = {
+        format: "stream-shell-flight-recorder",
+        version: STREAM_SHELL_FLIGHT_RECORDER_VERSION,
+        maxEvents: STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS,
+        updatedAt,
+        events: flightRecorderEvents.slice()
+    };
+
+    flightRecorderFlushInFlight = Promise.resolve()
+        .then(() => chrome.storage.session.set({
+            [STREAM_SHELL_FLIGHT_RECORDER_KEY]: payload
+        }))
+        .then(() => {
+            flightRecorderStorageFailures = 0;
+            flightRecorderLastFlushAt = Date.now();
+        })
+        .catch(error => {
+            flightRecorderStorageFailures += 1;
+            flightRecorderDirty = true;
+            if (flightRecorderStorageFailures <= 2 ||
+                (flightRecorderStorageFailures & (flightRecorderStorageFailures - 1)) === 0) {
+                console.warn("Stream Shell flight recorder storage write failed:", error);
+            }
+        })
+        .finally(() => {
+            flightRecorderFlushInFlight = null;
+            if (flightRecorderDirty) scheduleFlightRecorderFlush();
+        });
+    return flightRecorderFlushInFlight;
 }
 
 function normalizeFlightRecorderEvent(input = {}) {
@@ -82,38 +144,21 @@ function normalizeFlightRecorderEvent(input = {}) {
     };
 }
 
-function recordFlightEvent(input = {}) {
+async function recordFlightEvent(input = {}) {
     const event = normalizeFlightRecorderEvent(input);
-
-    flightRecorderWriteQueue = flightRecorderWriteQueue
-        .then(async () => {
-            await hydrateFlightRecorder();
-            flightRecorderEvents.push(event);
-            flightRecorderEvents = flightRecorderEvents
-                .slice(-STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS);
-
-            try {
-                await chrome.storage.session.set({
-                    [STREAM_SHELL_FLIGHT_RECORDER_KEY]: {
-                        format: "stream-shell-flight-recorder",
-                        version: STREAM_SHELL_FLIGHT_RECORDER_VERSION,
-                        maxEvents: STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS,
-                        updatedAt: event.at,
-                        events: flightRecorderEvents
-                    }
-                });
-            } catch {
-            }
-        })
-        .catch(() => {});
-
-    return flightRecorderWriteQueue.then(() => event);
+    await hydrateFlightRecorder();
+    flightRecorderEvents.push(event);
+    if (flightRecorderEvents.length > STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS) {
+        flightRecorderEvents.splice(0, flightRecorderEvents.length - STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS);
+    }
+    flightRecorderDirty = true;
+    scheduleFlightRecorderFlush();
+    // Do not make a UI/window transition wait for chrome.storage.session.set().
+    return event;
 }
 
 async function getFlightRecorderSnapshot(limit = null) {
-    await flightRecorderWriteQueue;
     await hydrateFlightRecorder();
-
     const numericLimit = Number(limit);
     const events = Number.isFinite(numericLimit) && numericLimit > 0
         ? flightRecorderEvents.slice(-Math.floor(numericLimit))
@@ -125,6 +170,12 @@ async function getFlightRecorderSnapshot(limit = null) {
         maxEvents: STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS,
         count: flightRecorderEvents.length,
         updatedAt: flightRecorderEvents.at(-1)?.at || null,
+        persistence: {
+            dirty: flightRecorderDirty,
+            writePending: Boolean(flightRecorderFlushInFlight),
+            lastFlushAt: flightRecorderLastFlushAt,
+            storageFailures: flightRecorderStorageFailures
+        },
         events
     };
 }

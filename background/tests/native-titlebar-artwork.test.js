@@ -52,7 +52,7 @@ const run=js=>vm.runInContext(js,ctx);
  assert.equal(run('streamShellTitlebarArtworkStatus.get("custom-bbbbbbbb").primaryFailure'),'file-missing');
  assert.equal(run('streamShellTitlebarArtworkStatus.get("custom-bbbbbbbb").source'),'provider-svg');
  assert.equal(run('streamShellTitlebarArtworkStatus.get("custom-cccccccc").source'),'text');
- const native=fs.readFileSync(path.join(root,'native/StreamShellTitlebarHost.cs'),'utf8');
+ const native=require('./native-titlebar-source')();
  assert.match(native,/TITLEBAR_PROTOCOL_VERSION = 9/);
  assert.match(native,/TryDecodeTitlebarIcon/);
  assert.match(native,/CustomChromeTheme/);

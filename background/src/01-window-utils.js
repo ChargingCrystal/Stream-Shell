@@ -34,6 +34,17 @@ async function restoreWindow(
     }
 
     try {
+        /* A warm provider that is already normal and exactly on its target
+         * pane needs only focus. The legacy restore path performed 3-5 Opera
+         * window API mutations/checks even for this no-op geometry case. Keep
+         * the full verification/retry path for minimized or displaced windows. */
+        const current = await chrome.windows.get(windowId).catch(() => null);
+        if (current?.state === "normal" && streamShellWindowBoundsMatch(current, bounds, 2)) {
+            if (focused && !current.focused && !shuttingDown) {
+                await chrome.windows.update(windowId, { focused: true });
+            }
+            return;
+        }
         /*
          * A remembered warm provider can be minimized with a browser-owned
          * restore rectangle. Opera may briefly restore that rectangle before a

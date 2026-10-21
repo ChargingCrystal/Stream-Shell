@@ -6,7 +6,7 @@
 
 **Stream Shell** is a personal, Windows-focused desktop streaming shell built as an unpacked **Opera GX / Chromium Manifest V3 extension** with optional native Windows helpers. It manages streaming-provider windows, combines library/navigation tools, and adds provider-specific playback utilities.
 
-**Current version: 0.20.0** · [Changelog](CHANGELOG.md) · [Release notes](release-notes/RELEASE_NOTES_v0.20.0.md)
+**Current version: 0.20.3** · [Changelog](CHANGELOG.md) · [Release notes](release-notes/RELEASE_NOTES_v0.20.3.md)
 
 > Built primarily for one Windows / Opera GX setup. Other configurations are best-effort; this is not a hosted streaming service, a provider client, or an official integration with any streaming platform.
 
@@ -40,6 +40,18 @@ You can also create **custom providers** under **General → Providers** using a
 - Twitch: **four managed Wide slots (A–D)**, window recovery, Drops/channel-points options, raid controls and optional Marbles on Stream autojoin. Diagnostics include per-slot visibility, timer drift and join-attempt data.
 - Discord desktop integration on the Wide right side via its **separate** native helper.
 - Optional tab-capture volume booster, settings search, settings export/import, Diagnostics/Flight Recorder and self-tests.
+
+### Twitch/Opera startup decongestion (0.20.3)
+
+Twitch launch sends a lightweight Dashboard/Landing state notification instead of awaiting a full window-enumerating state broadcast in the explicit transition FIFO. An already-normal provider window in the correct pane now uses a focus-only restore fast path. New `window-transition` / `step-timing` Flight Recorder events identify individual slow phases (>350 ms) in Twitch/provider activation. Full Diagnostics export still collects live Twitch renderer data on demand. No native helper changes; see [v0.20.3 notes](release-notes/RELEASE_NOTES_v0.20.3.md).
+
+### Twitch cold-start latency (0.20.2)
+
+Opening the Twitch workspace now returns a lightweight status rather than synchronously probing all four Twitch renderers through the full Diagnostics collector. This prevents those expensive per-slot checks from occupying the global window-transition queue after the workspace is already visible. The detailed Twitch Diagnostics export is unchanged. No native helper update is required. See [v0.20.2 notes](release-notes/RELEASE_NOTES_v0.20.2.md).
+
+### Runtime stability (0.20.1)
+
+The Flight Recorder now batches Diagnostics persistence instead of serializing a full storage write after each event. Home/provider/Twitch workspace window transitions have bounded backpressure, and failing provider-side periodic work is automatically slowed down. Video playback, Twitch chat and automation are not part of this transition queue. The native helper remains on protocol v9 and does not need reinstalling. See the [v0.20.1 release notes](release-notes/RELEASE_NOTES_v0.20.1.md). Long-running Opera GX/WuWa stress testing remains pending.
 
 ## Install
 
@@ -96,7 +108,7 @@ Built-in backgrounds follow the existing `<provider>_wide.png` / `<provider>_com
 | `native/` | C# Native Messaging helpers and Windows installer scripts |
 | `release-notes/` | Version notes and [Provider Registry design history](release-notes/PROVIDER_REGISTRY_ROADMAP.md) |
 
-Edit the canonical `src/` files and rebuild generated JavaScript bundles using their adjacent `build-*.ps1` scripts. Consult the `SOURCE-README.txt` files before editing compiled bundles directly.
+Edit the canonical `src/` files and rebuild generated JavaScript bundles using their adjacent `build-*.ps1` scripts. Before committing or packaging, run `node tools/check-project.mjs` (Node 22+ and Python 3). It verifies all generated bundles, Manifest/HTML asset paths, JavaScript syntax, regression tests and the native C# **source** contract without modifying installed helpers. GitHub Actions runs the same check on pushes and pull requests. See [`CODE_AUDIT_v0.20.17.md`](CODE_AUDIT_v0.20.17.md) for code-care findings and deferred risks. Consult the `SOURCE-README.txt` files before editing compiled bundles directly.
 
 ## Privacy, diagnostics and support
 

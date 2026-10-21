@@ -8,6 +8,8 @@ $ExtensionRoot = Split-Path $PSScriptRoot -Parent
 $InstallRoot = Join-Path $env:LOCALAPPDATA "StreamShell\TitlebarHost"
 $SourcePath = Join-Path $PSScriptRoot "StreamShellTitlebarHost.cs"
 $ExePath = Join-Path $InstallRoot "StreamShellTitlebarHost.exe"
+$NextExePath = Join-Path $InstallRoot "StreamShellTitlebarHost.next.exe"
+$BackupExePath = Join-Path $InstallRoot "StreamShellTitlebarHost.backup.exe"
 $ManifestPath = Join-Path $InstallRoot "$HostName.json"
 $InstallLogPath = Join-Path $InstallRoot "install.log"
 $DiscordManifestPath = Join-Path $env:LOCALAPPDATA "StreamShell\NativeHost\com.streamshell.discord.json"
@@ -222,13 +224,9 @@ try {
         exit 0
     }
 
-    Get-Process -Name "StreamShellTitlebarHost" -ErrorAction SilentlyContinue |
-        Stop-Process -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Milliseconds 150
-
-    if (Test-Path -LiteralPath $ExePath) {
-        Remove-Item -LiteralPath $ExePath -Force
-    }
+    # Never kill/delete the known-good helper before the new C# compiles.
+    # The helper remains usable if a compiler error occurs on this machine.
+    Remove-Item -LiteralPath $NextExePath -Force -ErrorAction SilentlyContinue
 
     if (-not (Test-Path -LiteralPath $IconSourceRoot)) {
         throw "Titlebar icon source directory is missing: $IconSourceRoot"
@@ -272,14 +270,52 @@ try {
     }
 
     Write-InstallLog "compiling native host"
+    # Compile all partial source units in a single Add-Type invocation. Each
+    # source file is independently valid C#, but PowerShell's -TypeDefinition
+    # accepts one text string; strip repeated file-local using directives by
+    # starting each fragment at its partial-class declaration. This preserves
+    # the exact same compiler/reference/output settings as v0.20.12.
+    $sourceDir = Join-Path $PSScriptRoot "titlebar-src"
+    $parts = @(Get-ChildItem -LiteralPath $sourceDir -Filter "*.cs" -File | Sort-Object Name)
+    if ($parts.Count -ne 19) {
+        throw "Expected 19 native C# modules, found $($parts.Count). Installation aborted."
+    }
     $source = Get-Content -LiteralPath $SourcePath -Raw
-    Add-Type -TypeDefinition $source -Language CSharp -ReferencedAssemblies @("System.dll", "System.Core.dll", "System.Drawing.dll") -OutputAssembly $ExePath -OutputType ConsoleApplication
+    $marker = "internal static partial class StreamShellTitlebarHost"
+    foreach ($part in $parts) {
+        $fragment = Get-Content -LiteralPath $part.FullName -Raw
+        $offset = $fragment.IndexOf($marker, [StringComparison]::Ordinal)
+        if ($offset -lt 0) {
+            throw "Titlebar source module missing partial class: $($part.Name)"
+        }
+        $source += "`r`n" + $fragment.Substring($offset)
+    }
+    Write-InstallLog ("compiling 1 core + " + $parts.Count + " titlebar C# modules")
+    Add-Type -TypeDefinition $source -Language CSharp -ReferencedAssemblies @("System.dll", "System.Core.dll", "System.Drawing.dll") -OutputAssembly $NextExePath -OutputType ConsoleApplication
 
-    if (-not (Test-Path -LiteralPath $ExePath)) {
-        throw "Native host executable was not created."
+    if (-not (Test-Path -LiteralPath $NextExePath)) {
+        throw "Native host executable was not created. The previous helper is untouched."
     }
 
-    Write-InstallLog "native host compiled"
+    Write-InstallLog "native host compiled; performing guarded binary swap"
+    Get-Process -Name "StreamShellTitlebarHost" -ErrorAction SilentlyContinue |
+        Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 150
+
+    $hadPreviousExecutable = Test-Path -LiteralPath $ExePath
+    if ($hadPreviousExecutable) {
+        Remove-Item -LiteralPath $BackupExePath -Force -ErrorAction SilentlyContinue
+        Move-Item -LiteralPath $ExePath -Destination $BackupExePath -Force
+    }
+    try {
+        Move-Item -LiteralPath $NextExePath -Destination $ExePath -Force
+    } catch {
+        if ($hadPreviousExecutable -and (Test-Path -LiteralPath $BackupExePath)) {
+            Move-Item -LiteralPath $BackupExePath -Destination $ExePath -Force
+        }
+        throw
+    }
+    Write-InstallLog "native host binary swap complete; previous binary backed up when available"
 
     $manifest = [ordered]@{
         name = $HostName

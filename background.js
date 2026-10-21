@@ -631,7 +631,176 @@ let titlebarLastNativeStatus =
     null;
 
 
-async function openShellHome() {
+/*
+ * Opera window creation/focus is expensive at startup, especially when a left
+ * provider is activated while the four Twitch surfaces are coming online.
+ * Only explicit shell-wide transitions share this bounded FIFO. Playback,
+ * Twitch chat, MoS autojoin, and provider polling NEVER wait on it.
+ */
+const STREAM_SHELL_TRANSITION_MAX_WAITERS = 2;
+let streamShellTransitionTail = Promise.resolve();
+let streamShellTransitionWaiters = 0;
+let streamShellTransitionActive = null;
+
+/*
+ * v0.20.9 – Renderer-startup admission control.
+ * The FIFO only serializes extension calls; chrome.windows.create() returns
+ * while the new YouTube/Twitch renderer is still loading. On Opera GX,
+ * starting a different high-cost surface immediately afterwards can saturate
+ * the browser process (including unrelated Opera windows). A ~5 second gap
+ * between launches was independently reproducible as the stable path.
+ *
+ * This lease is held only for a CROSS-SURFACE handoff, and the wait itself
+ * occurs inside the existing bounded FIFO. Background chat, MoS autojoin,
+ * video playback, and all renderer timers never participate in this queue.
+ */
+const STREAM_SHELL_RENDERER_HANDOFF_GRACE_MS = 5500;
+const STREAM_SHELL_RENDERER_HANDOFF_WARM_MS = 3000;
+const STREAM_SHELL_RENDERER_WARM_AFTER_MS = 30000;
+let streamShellRendererColdUntil = Date.now() + STREAM_SHELL_RENDERER_WARM_AFTER_MS;
+let streamShellTransitionVisualSerial = 0;
+
+// UI-only notification; never await renderer acknowledgements while starting windows.
+function notifyStreamShellTransitionVisual(event) {
+    if (shuttingDown) return;
+    try {
+        const sent = chrome.runtime.sendMessage({type:'stream-shell-transition-visual', ...event});
+        if (sent?.catch) sent.catch(() => {});
+    } catch { /* Dashboard may not be ready yet. */ }
+}
+
+function isStreamShellRendererCold(kind, name) {
+    // A worker wake may briefly have no cache. Prefer the safe startup gap.
+    if (!shellWideFocusCacheReady) return true;
+    if (kind === 'twitch') {
+        const record = shellWideFocusCache[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+        return !['a','b','c','d'].every(slot =>
+            Number.isInteger(record?.slots?.[slot]?.windowId));
+    }
+    if (kind === 'provider') {
+        const provider = name.slice('provider:'.length);
+        return !Number.isInteger(shellWideFocusCache.providerWindows?.[provider]);
+    }
+    return false;
+}
+
+let streamShellLastRendererLaunchKind = null;
+let streamShellLastRendererLaunchFinishedAt = 0;
+
+function streamShellRendererLaunchKind(name) {
+    if (name.startsWith('provider:')) return 'provider';
+    if (name.startsWith('twitch:')) return 'twitch';
+    return null;
+}
+
+async function waitForStreamShellRendererHandoff(name) {
+    const kind = streamShellRendererLaunchKind(name);
+    if (!kind || !streamShellLastRendererLaunchKind ||
+        streamShellLastRendererLaunchKind === kind) return 0;
+    const cold = Date.now() < streamShellRendererColdUntil ||
+        isStreamShellRendererCold(kind, name);
+    const graceMs = cold
+        ? STREAM_SHELL_RENDERER_HANDOFF_GRACE_MS
+        : STREAM_SHELL_RENDERER_HANDOFF_WARM_MS;
+    const remaining = graceMs - (Date.now() - streamShellLastRendererLaunchFinishedAt);
+    if (remaining <= 0) return 0;
+    await new Promise(resolve => setTimeout(resolve, remaining));
+    recordFlightEvent({
+        category: 'window-transition', action: 'renderer-handoff-staggered',
+        detail: { from: streamShellLastRendererLaunchKind, to: kind,
+            delayMs: remaining, graceMs, cold }
+    }).catch(() => {});
+    return remaining;
+}
+
+/* Diagnostics only: timestamp expensive steps without changing their order. */
+async function measureShellWindowStep(name, task) {
+    const startedAt = Date.now();
+    try {
+        return await task();
+    } finally {
+        const durationMs = Date.now() - startedAt;
+        if (durationMs >= 350) {
+            recordFlightEvent({
+                category: "window-transition", action: "step-timing",
+                level: durationMs > 1500 ? "warn" : "info",
+                detail: { name, durationMs }
+            }).catch(() => {});
+        }
+    }
+}
+
+function runStreamShellWindowTransition(name, operation) {
+    if (shuttingDown) return Promise.reject(new Error("Stream Shell is shutting down."));
+    if (streamShellTransitionWaiters >= STREAM_SHELL_TRANSITION_MAX_WAITERS) {
+        return Promise.reject(new Error("Stream Shell is busy switching windows; try again shortly."));
+    }
+    const queuedAt = Date.now();
+    streamShellTransitionWaiters += 1;
+    const execute = async () => {
+        streamShellTransitionWaiters -= 1;
+        if (shuttingDown) throw new Error("Stream Shell is shutting down.");
+        const startedAt = Date.now();
+        streamShellTransitionActive = name;
+        const kind = streamShellRendererLaunchKind(name);
+        const visualId = ++streamShellTransitionVisualSerial;
+        const showTwitchLoading = kind === 'twitch' &&
+            (isStreamShellRendererCold(kind, name) ||
+             (streamShellLastRendererLaunchKind === 'provider' &&
+              Date.now() - streamShellLastRendererLaunchFinishedAt < STREAM_SHELL_RENDERER_HANDOFF_GRACE_MS));
+        if (showTwitchLoading) notifyStreamShellTransitionVisual({
+            surface:'twitch', stage:'waiting', id:visualId
+        });
+        try {
+            // Explicit commands stay ordered, but renderer initialization
+            // must also be given room to settle before crossing surfaces.
+            const delayMs = await waitForStreamShellRendererHandoff(name);
+            if (shuttingDown) throw new Error("Stream Shell is shutting down.");
+            if (showTwitchLoading) notifyStreamShellTransitionVisual({
+                surface:'twitch', stage:'creating', id:visualId,
+                delayMs
+            });
+            const result = await operation();
+            if (kind) {
+                streamShellLastRendererLaunchKind = kind;
+                streamShellLastRendererLaunchFinishedAt = Date.now();
+            }
+            if (showTwitchLoading) notifyStreamShellTransitionVisual({
+                surface:'twitch', stage:'done', id:visualId
+            });
+            return result;
+        } catch (error) {
+            if (showTwitchLoading) notifyStreamShellTransitionVisual({
+                surface:'twitch', stage:'failed', id:visualId
+            });
+            recordFlightEvent({
+                category: "window-transition", action: "failed", level: "error",
+                detail: { name, message: String(error?.message || error).slice(0, 160) }
+            }).catch(() => {});
+            throw error;
+        } finally {
+            streamShellTransitionActive = null;
+            const durationMs = Date.now() - startedAt;
+            if (durationMs > 1500 || startedAt - queuedAt > 200) {
+                recordFlightEvent({
+                    category: "window-transition", action: "timing",
+                    level: durationMs > 5000 ? "warn" : "info",
+                    detail: { name, durationMs, waitMs: startedAt - queuedAt }
+                }).catch(() => {});
+            }
+        }
+    };
+    const result = streamShellTransitionTail.then(execute, execute);
+    // A failed operation must never poison or indefinitely grow the queue.
+    streamShellTransitionTail = result.then(() => undefined, () => undefined);
+    return result;
+}
+
+function openShellHome() {
+    return runStreamShellWindowTransition("open-home", _openShellHome);
+}
+
+async function _openShellHome() {
     if (
         shuttingDown
     ) {
@@ -743,7 +912,11 @@ async function openShellHome() {
     await broadcastState();
 }
 
-async function openShellWarmLastProvider() {
+function openShellWarmLastProvider() {
+    return runStreamShellWindowTransition("startup-warm", _openShellWarmLastProvider);
+}
+
+async function _openShellWarmLastProvider() {
     await refreshStreamShellProviderTargets();
     const stored =
         await chrome.storage.local.get(
@@ -759,7 +932,7 @@ async function openShellWarmLastProvider() {
      * which service should be warm in the background; leftMode remains the
      * source of truth for what is actually visible.
      */
-    await openShellHome();
+    await _openShellHome();
 
     if (
         shuttingDown ||
@@ -816,6 +989,12 @@ async function openShellWarmLastProvider() {
     });
 
     await broadcastState();
+    // A parked warm provider still starts a Chromium renderer. Twitch opened
+    // immediately after Shell launch must honor the same settling lease as a
+    // deliberate provider click, even though startup-warm is not a provider:
+    // command in the transition FIFO.
+    streamShellLastRendererLaunchKind = 'provider';
+    streamShellLastRendererLaunchFinishedAt = Date.now();
 }
 
 
@@ -829,12 +1008,20 @@ async function openShellWarmLastProvider() {
  */
 const STREAM_SHELL_FLIGHT_RECORDER_KEY = "streamShellFlightRecorder";
 const STREAM_SHELL_FLIGHT_RECORDER_VERSION = 1;
-const STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS = 200;
+const STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS = 80;
 
 let flightRecorderHydrated = false;
+let flightRecorderHydration = null;
 let flightRecorderEvents = [];
 let flightRecorderSequence = 0;
-let flightRecorderWriteQueue = Promise.resolve();
+// Bound storage pressure even when Opera/Chromium is busy. Events remain in
+// memory immediately; persistence is a coalesced best-effort session snapshot.
+const STREAM_SHELL_FLIGHT_RECORDER_FLUSH_MS = 5000;
+let flightRecorderFlushTimer = null;
+let flightRecorderFlushInFlight = null;
+let flightRecorderDirty = false;
+let flightRecorderStorageFailures = 0;
+let flightRecorderLastFlushAt = null;
 
 function sanitizeFlightRecorderValue(value, depth = 0) {
     if (value === null || value === undefined) return null;
@@ -863,22 +1050,76 @@ function sanitizeFlightRecorderValue(value, depth = 0) {
     return String(value).slice(0, 240);
 }
 
-async function hydrateFlightRecorder() {
-    if (flightRecorderHydrated) return;
-    flightRecorderHydrated = true;
+function hydrateFlightRecorder() {
+    if (flightRecorderHydrated) return Promise.resolve();
+    if (flightRecorderHydration) return flightRecorderHydration;
 
-    try {
-        const stored = await chrome.storage.session.get(
-            STREAM_SHELL_FLIGHT_RECORDER_KEY
-        );
-        const snapshot = stored[STREAM_SHELL_FLIGHT_RECORDER_KEY];
-        if (Array.isArray(snapshot?.events)) {
-            flightRecorderEvents = snapshot.events
-                .slice(-STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS);
+    flightRecorderHydration = (async () => {
+        try {
+            const stored = await chrome.storage.session.get(
+                STREAM_SHELL_FLIGHT_RECORDER_KEY
+            );
+            const snapshot = stored[STREAM_SHELL_FLIGHT_RECORDER_KEY];
+            if (Array.isArray(snapshot?.events)) {
+                flightRecorderEvents = snapshot.events
+                    .slice(-STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS);
+            }
+        } catch (error) {
+            // Storage can be temporarily unavailable during startup. Do not
+            // turn diagnostics into a fatal dependency of user interactions.
+            console.warn("Stream Shell flight recorder hydration failed:", error);
+        } finally {
+            flightRecorderHydrated = true;
         }
-    } catch {
-        flightRecorderEvents = [];
-    }
+    })();
+    return flightRecorderHydration;
+}
+
+function scheduleFlightRecorderFlush() {
+    if (flightRecorderFlushTimer !== null || flightRecorderFlushInFlight) return;
+    flightRecorderFlushTimer = setTimeout(() => {
+        flightRecorderFlushTimer = null;
+        void flushFlightRecorder().catch(error => {
+            console.warn("Stream Shell flight recorder flush failed:", error);
+        });
+    }, STREAM_SHELL_FLIGHT_RECORDER_FLUSH_MS);
+}
+
+function flushFlightRecorder() {
+    if (flightRecorderFlushInFlight) return flightRecorderFlushInFlight;
+    if (!flightRecorderDirty) return Promise.resolve();
+
+    flightRecorderDirty = false;
+    const updatedAt = flightRecorderEvents.at(-1)?.at || null;
+    const payload = {
+        format: "stream-shell-flight-recorder",
+        version: STREAM_SHELL_FLIGHT_RECORDER_VERSION,
+        maxEvents: STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS,
+        updatedAt,
+        events: flightRecorderEvents.slice()
+    };
+
+    flightRecorderFlushInFlight = Promise.resolve()
+        .then(() => chrome.storage.session.set({
+            [STREAM_SHELL_FLIGHT_RECORDER_KEY]: payload
+        }))
+        .then(() => {
+            flightRecorderStorageFailures = 0;
+            flightRecorderLastFlushAt = Date.now();
+        })
+        .catch(error => {
+            flightRecorderStorageFailures += 1;
+            flightRecorderDirty = true;
+            if (flightRecorderStorageFailures <= 2 ||
+                (flightRecorderStorageFailures & (flightRecorderStorageFailures - 1)) === 0) {
+                console.warn("Stream Shell flight recorder storage write failed:", error);
+            }
+        })
+        .finally(() => {
+            flightRecorderFlushInFlight = null;
+            if (flightRecorderDirty) scheduleFlightRecorderFlush();
+        });
+    return flightRecorderFlushInFlight;
 }
 
 function normalizeFlightRecorderEvent(input = {}) {
@@ -904,38 +1145,21 @@ function normalizeFlightRecorderEvent(input = {}) {
     };
 }
 
-function recordFlightEvent(input = {}) {
+async function recordFlightEvent(input = {}) {
     const event = normalizeFlightRecorderEvent(input);
-
-    flightRecorderWriteQueue = flightRecorderWriteQueue
-        .then(async () => {
-            await hydrateFlightRecorder();
-            flightRecorderEvents.push(event);
-            flightRecorderEvents = flightRecorderEvents
-                .slice(-STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS);
-
-            try {
-                await chrome.storage.session.set({
-                    [STREAM_SHELL_FLIGHT_RECORDER_KEY]: {
-                        format: "stream-shell-flight-recorder",
-                        version: STREAM_SHELL_FLIGHT_RECORDER_VERSION,
-                        maxEvents: STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS,
-                        updatedAt: event.at,
-                        events: flightRecorderEvents
-                    }
-                });
-            } catch {
-            }
-        })
-        .catch(() => {});
-
-    return flightRecorderWriteQueue.then(() => event);
+    await hydrateFlightRecorder();
+    flightRecorderEvents.push(event);
+    if (flightRecorderEvents.length > STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS) {
+        flightRecorderEvents.splice(0, flightRecorderEvents.length - STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS);
+    }
+    flightRecorderDirty = true;
+    scheduleFlightRecorderFlush();
+    // Do not make a UI/window transition wait for chrome.storage.session.set().
+    return event;
 }
 
 async function getFlightRecorderSnapshot(limit = null) {
-    await flightRecorderWriteQueue;
     await hydrateFlightRecorder();
-
     const numericLimit = Number(limit);
     const events = Number.isFinite(numericLimit) && numericLimit > 0
         ? flightRecorderEvents.slice(-Math.floor(numericLimit))
@@ -947,6 +1171,12 @@ async function getFlightRecorderSnapshot(limit = null) {
         maxEvents: STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS,
         count: flightRecorderEvents.length,
         updatedAt: flightRecorderEvents.at(-1)?.at || null,
+        persistence: {
+            dirty: flightRecorderDirty,
+            writePending: Boolean(flightRecorderFlushInFlight),
+            lastFlushAt: flightRecorderLastFlushAt,
+            storageFailures: flightRecorderStorageFailures
+        },
         events
     };
 }
@@ -1518,6 +1748,17 @@ async function restoreWindow(
     }
 
     try {
+        /* A warm provider that is already normal and exactly on its target
+         * pane needs only focus. The legacy restore path performed 3-5 Opera
+         * window API mutations/checks even for this no-op geometry case. Keep
+         * the full verification/retry path for minimized or displaced windows. */
+        const current = await chrome.windows.get(windowId).catch(() => null);
+        if (current?.state === "normal" && streamShellWindowBoundsMatch(current, bounds, 2)) {
+            if (focused && !current.focused && !shuttingDown) {
+                await chrome.windows.update(windowId, { focused: true });
+            }
+            return;
+        }
         /*
          * A remembered warm provider can be minimized with a browser-owned
          * restore rectangle. Opera may briefly restore that rectangle before a
@@ -1847,7 +2088,9 @@ async function ensureProviderWindow(
         );
     }
 
-    await refreshStreamShellProviderTargets();
+    /* _switchProvider already refreshed this registry under the transition
+     * lock. Avoid a second chrome.storage round-trip during the cold return. */
+    if (options?.registryFresh !== true) await refreshStreamShellProviderTargets();
 
     if (
         providerCreationLocks.has(
@@ -2104,7 +2347,14 @@ async function _ensureProviderWindow(
 }
 
 
-async function switchProvider(
+function switchProvider(providerName) {
+    return runStreamShellWindowTransition(
+        `provider:${providerName}`,
+        () => _switchProvider(providerName)
+    );
+}
+
+async function _switchProvider(
     providerName
 ) {
     if (
@@ -2113,7 +2363,7 @@ async function switchProvider(
         return;
     }
 
-    await refreshStreamShellProviderTargets();
+    await measureShellWindowStep("provider:refresh-targets", () => refreshStreamShellProviderTargets());
     if (!PROVIDERS[providerName]) {
         throw new Error(`Unknown or disabled provider: ${providerName}`);
     }
@@ -2121,14 +2371,10 @@ async function switchProvider(
     titlebarFullscreenActive = false;
     titlebarFullscreenWindowId = null;
 
-    await stopVolumeCaptureForProviderChange(
-        providerName
-    );
+    await measureShellWindowStep("provider:stop-volume", () => stopVolumeCaptureForProviderChange(providerName));
 
     const targetWindowId =
-        await ensureProviderWindow(
-            providerName
-        );
+        await measureShellWindowStep("provider:ensure-window", () => ensureProviderWindow(providerName, { registryFresh: true }));
 
     if (
         shuttingDown
@@ -2225,15 +2471,9 @@ async function switchProvider(
         }
     }
 
-    await restoreWindow(
-        targetWindowId,
-        LEFT,
-        true
-    );
+    await measureShellWindowStep("provider:restore-window", () => restoreWindow(targetWindowId, LEFT, true));
 
-    await claimFocusedTitlebarSurface(
-        targetWindowId
-    );
+    await measureShellWindowStep("provider:claim-titlebar", () => claimFocusedTitlebarSurface(targetWindowId));
     scheduleTitlebarClaimRetries(
         targetWindowId
     );
@@ -2274,7 +2514,7 @@ async function switchProvider(
         detail: { windowId: targetWindowId }
     }).catch(() => {});
 
-    await broadcastState();
+    await measureShellWindowStep("provider:broadcast-state", () => broadcastState());
 }
 
 
@@ -4942,6 +5182,11 @@ async function ensureTwitchWorkspaceV2Slot(record, slotId, focused = false) {
         await chrome.tabs.update(tab.id, tabPatch).catch(() => {});
     }
 
+    // The old browser window may have closed while its HWND was still alive
+    // in the native mapping. A new chrome.windows ID must NOT receive a blind
+    // native claim renewal for that previous HWND.
+    resetTwitchWorkspaceV2ClaimCache(slot.windowId);
+    twitchWorkspaceV2ForceRebindIds.add(win.id);
     const next = {
         ...record,
         slots: {
@@ -4964,6 +5209,8 @@ async function ensureTwitchWorkspaceV2Slot(record, slotId, focused = false) {
  * underneath Opera for the lifetime of the service worker. */
 const twitchWorkspaceV2ClaimStates = new Map();
 const twitchWorkspaceV2ClaimRequests = new Map();
+// Window creation is a change of identity, not an ordinary idempotent renewal.
+const twitchWorkspaceV2ForceRebindIds = new Set();
 const TWITCH_WORKSPACE_V2_CLAIM_RETRY_MS = 9000;
 let twitchWorkspaceV2ClaimGeneration = 0;
 let twitchWorkspaceV2ClaimAuditRunning = false;
@@ -4982,6 +5229,12 @@ function acknowledgeTwitchWorkspaceV2Claim(message) {
     if (!TWITCH_WORKSPACE_V2_SLOT_IDS.includes(member)) return;
     for (const [windowId, state] of twitchWorkspaceV2ClaimStates) {
         if (state.member !== member || state.phase !== "pending") continue;
+        // Old helper versions can acknowledge a live but obsolete HWND as a
+        // renewal. Do not mark a new popup claimed until native confirms rebind.
+        if (Number.isInteger(message.browserWindowId) && message.browserWindowId !== windowId) continue;
+        if (twitchWorkspaceV2ForceRebindIds.has(windowId) &&
+            (message.rebound !== true || message.browserWindowId !== windowId)) continue;
+        twitchWorkspaceV2ForceRebindIds.delete(windowId);
         twitchWorkspaceV2ClaimStates.set(windowId, { ...state, phase: "confirmed", acknowledgedAt: Date.now() });
         return;
     }
@@ -5022,7 +5275,8 @@ async function claimTwitchWorkspaceV2Window(windowId, member, rect) {
 
 async function postTwitchWorkspaceV2WindowClaim(windowId, member, rect) {
     const prior = twitchWorkspaceV2ClaimStates.get(windowId);
-    if (prior?.member === member && prior.phase === "confirmed") return true;
+    const forceRebind = twitchWorkspaceV2ForceRebindIds.has(windowId);
+    if (!forceRebind && prior?.member === member && prior.phase === "confirmed") return true;
     if (!titlebarPort) await ensureTitlebarNative();
     if (!titlebarPort || !titlebarProtocolReady) return false;
 
@@ -5050,6 +5304,8 @@ async function postTwitchWorkspaceV2WindowClaim(windowId, member, rect) {
             mode: "twitch",
             member,
             titleHint,
+            forceRebind,
+            browserWindowId: windowId,
             left: rect.left,
             top: rect.top,
             width: rect.width,
@@ -5256,17 +5512,39 @@ async function restoreTwitchWorkspaceV2GridGeometry(record, slotId, focused = tr
     return true;
 }
 
+const TWITCH_WORKSPACE_V2_COLD_SLOT_SPACING_MS = 1250;
+
 async function raiseTwitchWorkspaceV2(record, preferredSlot = null) {
     let next = record;
     const live = [];
+    let newPopups = 0;
 
     /* Ensure each cell exists, but do not focus A -> B -> C -> D. The old
      * focus carousel was visible to Windows/Opera and was the main source of
      * compositor/titlebar thrash in 0.19.1. */
     for (const id of TWITCH_WORKSPACE_V2_SLOT_IDS) {
+        if (shuttingDown) break;
+        const previousWindowId = next.slots?.[id]?.windowId;
         const ensured = await ensureTwitchWorkspaceV2Slot(next, id, false);
         next = ensured.record;
         if (Number.isInteger(ensured.window?.id)) live.push({ id, windowId: ensured.window.id });
+        if (Number.isInteger(ensured.window?.id) &&
+            ensured.window.id !== previousWindowId) {
+            newPopups += 1;
+            // Chromium is still constructing the Twitch renderer after the
+            // window API has resolved. A-D must not all begin decoding,
+            // injecting scripts, and loading chat in the same instant.
+            if (id !== TWITCH_WORKSPACE_V2_SLOT_IDS.at(-1)) {
+                await new Promise(resolve => setTimeout(resolve, TWITCH_WORKSPACE_V2_COLD_SLOT_SPACING_MS));
+            }
+        }
+    }
+    if (newPopups > 0) {
+        streamShellRendererColdUntil = Date.now() + STREAM_SHELL_RENDERER_WARM_AFTER_MS;
+        recordFlightEvent({
+            category: 'twitch-workspace-v2', action: 'staggered-popup-startup',
+            detail: { newPopups, spacingMs: TWITCH_WORKSPACE_V2_COLD_SLOT_SPACING_MS }
+        }).catch(() => {});
     }
 
     const fullscreenId = TWITCH_WORKSPACE_V2_SLOT_IDS.includes(next.paneFullscreenSlot)
@@ -5344,20 +5622,27 @@ function scheduleTwitchWorkspaceV2SurfaceWake(record, preferredSlot, coldStart =
     }
 }
 
-async function showTwitchWorkspaceV2(target = "workspace") {
+function showTwitchWorkspaceV2(target = "workspace") {
+    return runStreamShellWindowTransition(
+        `twitch:${target}`,
+        () => _showTwitchWorkspaceV2(target)
+    );
+}
+
+async function _showTwitchWorkspaceV2(target = "workspace") {
     if (shuttingDown) return null;
     const profile = await getStreamShellDisplayProfile().catch(() => null);
     if (profile?.mode === "compact") {
         throw new Error("Twitch Workspace is available from the Wide Landing layout.");
     }
 
-    await ensureDashboardWindow();
+    await measureShellWindowStep("twitch:ensure-dashboard", () => ensureDashboardWindow());
     const surfaceBeforeShow = await chrome.storage.local.get("rightMode").catch(() => ({}));
     if (surfaceBeforeShow.rightMode === "discord") {
         await hideDiscordForDashboard();
     }
 
-    let record = await migrateIntoTwitchWorkspaceV2();
+    let record = await measureShellWindowStep("twitch:load-workspace", () => migrateIntoTwitchWorkspaceV2());
     let preferredSlot = record.selectedSlot || "a";
 
     if (target === "drops") {
@@ -5393,12 +5678,12 @@ async function showTwitchWorkspaceV2(target = "workspace") {
 
     // The helper now refuses Twitch cluster raises while Dashboard is active.
     // Synchronize intent before trying to raise A-D on a deliberate transition.
-    await syncConnectedTitlebarNative().catch(() => {});
+    await measureShellWindowStep("twitch:sync-titlebar", () => syncConnectedTitlebarNative().catch(() => {}));
 
-    record = await raiseTwitchWorkspaceV2(record, preferredSlot);
+    record = await measureShellWindowStep("twitch:raise-workspace", () => raiseTwitchWorkspaceV2(record, preferredSlot));
     scheduleTwitchWorkspaceV2Claims(record);
     scheduleTwitchWorkspaceV2SurfaceWake(record, preferredSlot, coldStart);
-    await syncTwitchWorkspaceV2StreamRefreshAlarms(record).catch(() => {});
+    await measureShellWindowStep("twitch:refresh-alarms", () => syncTwitchWorkspaceV2StreamRefreshAlarms(record).catch(() => {}));
 
     await recordFlightEvent({
         source: "background",
@@ -5414,8 +5699,14 @@ async function showTwitchWorkspaceV2(target = "workspace") {
         }
     }).catch(() => {});
 
-    await broadcastState();
-    return getTwitchWorkspaceV2Diagnostics();
+    /* v0.20.3: Cold-start telemetry measured a 3.4s full broadcast. That
+     * enumerates all browser windows and awaits renderer-facing messages while
+     * the global transition queue is locked. State was ALREADY persisted and
+     * the native titlebar synchronized above. Send a lightweight UI event only;
+     * leave full broadcastState() for regular state reconciliation and explicit
+     * updates, never for the critical Twitch launch path. */
+    await measureShellWindowStep("twitch:notify-ui", () => broadcastTwitchWorkspaceV2LaunchState(record));
+    return twitchWorkspaceV2SummaryFromRecord(record);
 }
 
 async function assignTwitchWorkspaceV2Slot(slotId, input, preferredKind = null, makeVisible = true) {
@@ -5735,11 +6026,20 @@ async function syncTwitchWorkspaceV2Location(tab) {
 async function reconcileClosedTwitchWorkspaceV2Window(windowId) {
     if (!Number.isInteger(windowId)) return;
     resetTwitchWorkspaceV2ClaimCache(windowId);
+    twitchWorkspaceV2ForceRebindIds.delete(windowId);
     let record = await getTwitchWorkspaceV2Record();
     if (!record) return;
 
     const slotId = getTwitchWorkspaceV2SlotByWindowId(record, windowId);
     if (!slotId) return;
+    // Distinguish native claim loss from Opera actually closing a popup.
+    // A closed slot is rebuilt on the next deliberate Twitch activation;
+    // never launch a new browser window as a side effect of onRemoved.
+    void recordFlightEvent({
+        source: 'background', category: 'twitch-workspace-v2',
+        action: 'slot-window-removed', level: 'warn',
+        detail: { slotId, windowId, previousTabId: record.slots?.[slotId]?.tabId ?? null }
+    }).catch(() => {});
     record = {
         ...record,
         paneFullscreenSlot: record.paneFullscreenSlot === slotId ? null : record.paneFullscreenSlot,
@@ -5795,12 +6095,14 @@ async function closeTwitchWorkspaceV2Windows(preserveDefinition = true) {
         await chrome.storage.local.set({ [TWITCH_WORKSPACE_V2_STORAGE_KEY]: record });
     }
 
-    for (const windowId of windowIds) resetTwitchWorkspaceV2ClaimCache(windowId);
+    for (const windowId of windowIds) {
+        resetTwitchWorkspaceV2ClaimCache(windowId);
+        twitchWorkspaceV2ForceRebindIds.delete(windowId);
+    }
     await Promise.allSettled(windowIds.map(windowId => safelyRemoveWindow(windowId)));
 }
 
-async function getTwitchWorkspaceV2Summary() {
-    const record = await getTwitchWorkspaceV2Record();
+function twitchWorkspaceV2SummaryFromRecord(record) {
     if (!record) return { active: false, version: TWITCH_WORKSPACE_V2_VERSION, slots: [] };
     return {
         active: true,
@@ -5821,6 +6123,10 @@ async function getTwitchWorkspaceV2Summary() {
             raidProtectionEnabled: record.slots?.[id]?.raidProtectionEnabled === true
         }))
     };
+}
+
+async function getTwitchWorkspaceV2Summary() {
+    return twitchWorkspaceV2SummaryFromRecord(await getTwitchWorkspaceV2Record());
 }
 
 async function getTwitchWorkspaceV2Diagnostics() {
@@ -5891,6 +6197,7 @@ async function getTwitchWorkspaceV2Diagnostics() {
                         member: claim.member,
                         sentAgoMs: Math.max(0, Date.now() - claim.sentAt),
                         attempts: claim.attempts,
+                        forceRebindPending: twitchWorkspaceV2ForceRebindIds.has(slot.windowId),
                         acknowledgedAgoMs: claim.acknowledgedAt
                             ? Math.max(0, Date.now() - claim.acknowledgedAt)
                             : null
@@ -7065,6 +7372,36 @@ function stopTitlebarReconcileLoop() {
 }
 
 
+let titlebarSlowReconcileInFlight = false;
+// A normal native heartbeat is cheap and mandatory. Browser-wide recovery
+// queries are not: do not poke Opera's parked renderer windows every 10s
+// while an unrelated application (e.g. a fullscreen game) owns focus.
+// The focus fast-path updates this memory-only visibility hint without IPC.
+let titlebarSlowReconcileSkippedUnmanaged = 0;
+let titlebarSlowReconcileLastRanAt = null;
+function shouldDeferTitlebarSlowReconcile() {
+    return streamShellDisplayProfileCache?.mode === 'wide' &&
+        shellWideFocusCacheReady === true && shellWideFocusVisibility === 'none';
+}
+
+async function titlebarReconcileSlowPass() {
+    if (titlebarSlowReconcileInFlight || shuttingDown || !titlebarProtocolReady) return;
+    if (shouldDeferTitlebarSlowReconcile()) {
+        titlebarSlowReconcileSkippedUnmanaged++;
+        return;
+    }
+    titlebarSlowReconcileInFlight = true;
+    titlebarSlowReconcileLastRanAt = Date.now();
+    try {
+        await claimFocusedTitlebarSurface();
+        await reconcileTwitchWorkspaceV2Claims();
+    } catch (error) {
+        console.warn("Stream Shell native surface reconciliation failed:", error);
+    } finally {
+        titlebarSlowReconcileInFlight = false;
+    }
+}
+
 function startTitlebarReconcileLoop() {
     stopTitlebarReconcileLoop();
 
@@ -7115,8 +7452,9 @@ function startTitlebarReconcileLoop() {
 
                 titlebarReconcileTick += 1;
                 if (titlebarReconcileTick % 4 === 0) {
-                    claimFocusedTitlebarSurface().catch(() => {});
-                    reconcileTwitchWorkspaceV2Claims().catch(() => {});
+                    // Never pile up overlapping browser/window queries when Opera
+                    // is under GPU or UI-thread pressure.
+                    void titlebarReconcileSlowPass();
                 }
             },
             TITLEBAR_RECONCILE_INTERVAL_MS
@@ -10164,6 +10502,12 @@ chrome.runtime.onMessage.addListener(
         sender,
         sendResponse
     ) => {
+        // Unexpected or malformed extension messages must not throw from the
+        // background listener. Unknown message types are left to other listeners.
+        if (!message || typeof message !== "object" || typeof message.type !== "string") {
+            return false;
+        }
+
         if (
             message.type ===
                 "kill-stream-shell" ||
@@ -10522,6 +10866,139 @@ chrome.runtime.onMessage.addListener(
         }
 
 
+        // v0.20.10: rich, synchronous panel diagnostics. This intentionally
+        // observes *existing* caches only. It does not enumerate windows,
+        // query storage, invoke the native helper or probe provider renderers.
+        if (message.type === "dashboard-diagnostics-lite") {
+            if (!isDashboardSender(sender)) {
+                sendResponse({ ok: false });
+                return;
+            }
+            const cached = shellWideFocusCache;
+            const workspace = cached[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+            const selfTest = cached[STREAM_SHELL_SELF_TEST_KEY] || null;
+            const registeredProviderWindows = cached.providerWindows || {};
+            const providerDiagnostics = Object.fromEntries(
+                Object.keys(PROVIDERS).map(provider => {
+                    const windowId = registeredProviderWindows[provider];
+                    const known = Number.isInteger(windowId);
+                    const reportEntry = selfTest?.providers?.[provider];
+                    // Window liveness must not be inferred from an ID: only a
+                    // cached test is available, not a current live probe.
+                    return [provider, {
+                        known,
+                        alive: known && reportEntry?.windowAlive === true ? true : null,
+                        windowId: known ? windowId : null,
+                        cached: true,
+                        page: null
+                    }];
+                })
+            );
+            const workspaceWindows = TWITCH_WORKSPACE_V2_SLOT_IDS.map(id => {
+                const slot = workspace?.slots?.[id];
+                const windowId = slot?.windowId;
+                const claim = Number.isInteger(windowId)
+                    ? twitchWorkspaceV2ClaimStates.get(windowId)
+                    : null;
+                return {
+                    slot: id,
+                    id: Number.isInteger(windowId) ? windowId : null,
+                    kind: slot?.kind || 'empty',
+                    configuredUrl: slot?.url || null,
+                    configuredMuted: slot?.audioMuted !== false,
+                    state: Number.isInteger(windowId) ? 'registered' : null,
+                    twitchRuntimeStatus: Number.isInteger(windowId) ? 'not-probed' : 'not-opened',
+                    cached: true,
+                    nativeClaim: claim ? {
+                        phase: claim.phase,
+                        member: claim.member,
+                        attempts: claim.attempts,
+                        sentAgoMs: Math.max(0, Date.now() - claim.sentAt),
+                        acknowledgedAgoMs: claim.acknowledgedAt
+                            ? Math.max(0, Date.now() - claim.acknowledgedAt) : null,
+                        forceRebindPending: twitchWorkspaceV2ForceRebindIds.has(windowId)
+                    } : null
+                };
+            });
+            const providerIds = Object.values(registeredProviderWindows).filter(Number.isInteger);
+            const knownShellWindows = [cached.landingWindowId, cached.dashboardWindowId, ...providerIds,
+                ...workspaceWindows.map(item => item.id)].filter(Number.isInteger);
+            sendResponse({
+                ok: true,
+                diagnosticsMode: 'runtime-cached',
+                cacheReady: shellWideFocusCacheReady,
+                activeProvider: cached.activeProvider || null,
+                leftMode: cached.leftMode || 'landing',
+                rightMode: cached.rightMode || 'dashboard',
+                // This is managed-window count, not Opera's browser-wide total.
+                managedWindowsRegistered: new Set(knownShellWindows).size,
+                browserWindowsTotal: null,
+                providerWindowsKnown: providerIds.length,
+                providerWindowsAlive: null,
+                providerWindows: providerDiagnostics,
+                landingWindowRegistered: Number.isInteger(cached.landingWindowId),
+                dashboardWindowRegistered: Number.isInteger(cached.dashboardWindowId),
+                launchSelfTest: selfTest,
+                displayProfile: streamShellDisplayProfileCache || null,
+                twitchWorkspaceV2: {
+                    active: !!workspace,
+                    version: workspace?.version || TWITCH_WORKSPACE_V2_VERSION,
+                    visible: cached.rightMode === 'twitch',
+                    covered: cached.rightMode !== 'twitch',
+                    selectedSlot: workspace?.selectedSlot || null,
+                    activationCount: workspace?.activationCount || 0,
+                    nativeClusterMembers: titlebarLastNativeStatus?.twitchClusterMembers ?? null,
+                    nativeClusterMap: titlebarLastNativeStatus?.twitchClusterMap || null,
+                    updatedAt: workspace?.updatedAt || null,
+                    windows: workspaceWindows
+                },
+                titlebarConnected: Boolean(titlebarPort),
+                titlebarProtocolReady: titlebarProtocolReady === true,
+                titlebarProtocolVersion: TITLEBAR_PROTOCOL_VERSION,
+                titlebarReconcileIntervalMs: TITLEBAR_RECONCILE_INTERVAL_MS,
+                titlebarNativeStatus: titlebarLastNativeStatus,
+                titlebarVisibilityMode: shellWideFocusVisibility || 'unknown',
+                titlebarSettingsOpen: titlebarSettingsOpen === true,
+                titlebarVolumeActive: titlebarVolumeActive === true,
+                titlebarArtwork: Object.fromEntries(streamShellTitlebarArtworkStatus),
+                titlebarProviderSync: {
+                    phase: titlebarProviderSyncPhase,
+                    generation: titlebarProviderGeneration,
+                    acknowledgedGeneration: titlebarProviderAckGeneration,
+                    lastSentAt: titlebarProviderLastSentAt,
+                    lastAcknowledgedAt: titlebarProviderLastAckAt,
+                    skippedIcons: titlebarProviderLastRejectedIconCount,
+                    lastError: titlebarProviderLastError
+                },
+                // Absence of an IPC probe does NOT mean Discord has failed.
+                discord: null,
+                offscreenDocumentAlive: null,
+                audio: null,
+                flightRecorder: {
+                    format: 'stream-shell-flight-recorder', version: 1,
+                    count: flightRecorderEvents.length,
+                    maxEvents: STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS,
+                    updatedAt: flightRecorderEvents.at(-1)?.at || null,
+                    events: flightRecorderEvents.slice(-60)
+                },
+                runtimeCounters: {
+                    focusEvents: shellWideFocusEventCount,
+                    lastFocusId: shellWideFocusLastId,
+                    focusCacheReady: shellWideFocusCacheReady,
+                    eventQueuePending: shellWindowEventPendingCount,
+                    eventQueueRunning: shellWindowEventRunning,
+                    transitionActive: streamShellTransitionActive,
+                    transitionWaiters: streamShellTransitionWaiters,
+                    rendererLaunchKind: streamShellLastRendererLaunchKind,
+                    rendererLastLaunchAt: streamShellLastRendererLaunchFinishedAt,
+                    nativeSlowAuditSkippedUnmanaged: titlebarSlowReconcileSkippedUnmanaged,
+                    nativeSlowAuditLastRunAt: titlebarSlowReconcileLastRanAt,
+                    nativeSlowAuditDeferred: shouldDeferTitlebarSlowReconcile()
+                }
+            });
+            return;
+        }
+
         if (
             message.type ===
                 "dashboard-diagnostics"
@@ -10657,6 +11134,21 @@ chrome.runtime.onMessage.addListener(
                             displayProfile,
                             twitchSplitLab,
                             twitchWorkspaceV2,
+                            cacheReady: shellWideFocusCacheReady,
+                            runtimeCounters: {
+                                focusEvents: shellWideFocusEventCount,
+                                lastFocusId: shellWideFocusLastId,
+                                focusCacheReady: shellWideFocusCacheReady,
+                                eventQueuePending: shellWindowEventPendingCount,
+                                eventQueueRunning: shellWindowEventRunning,
+                                transitionActive: streamShellTransitionActive,
+                                transitionWaiters: streamShellTransitionWaiters,
+                                rendererLaunchKind: streamShellLastRendererLaunchKind,
+                                rendererLastLaunchAt: streamShellLastRendererLaunchFinishedAt,
+                                nativeSlowAuditSkippedUnmanaged: titlebarSlowReconcileSkippedUnmanaged,
+                                nativeSlowAuditLastRunAt: titlebarSlowReconcileLastRanAt,
+                                nativeSlowAuditDeferred: shouldDeferTitlebarSlowReconcile()
+                            },
                             audio:
                                 volumeSession
                                     ? {
@@ -12063,7 +12555,13 @@ chrome.runtime.onMessage.addListener(
                             landingExposed
                         });
                     }
-                );
+                )
+                .catch(error => {
+                    sendResponse({
+                        ok: false,
+                        error: String(error?.message || "Unable to read shell state.")
+                    });
+                });
 
             return true;
         }
@@ -12701,176 +13199,527 @@ async function broadcastState() {
 }
 
 
-chrome.tabs.onUpdated.addListener(
-    (tabId, changeInfo, tab) => {
-        if (
-            shuttingDown ||
-            tab?.active !== true ||
-            !Number.isInteger(
-                tab?.windowId
-            ) ||
-            !(
-                typeof changeInfo?.title === "string" ||
-                changeInfo?.status === "complete"
-            )
-        ) {
-            return;
+/* v0.20.3: The A-D windows are already launched and native chrome is
+ * synchronized before this runs. Use one cheap storage snapshot to update
+ * Landing/Dashboard, without repeating browser-wide window enumeration or
+ * awaiting UI message delivery under the global window-transition lock.
+ * The full broadcastState() remains the authoritative reconciliation path. */
+async function broadcastTwitchWorkspaceV2LaunchState(record) {
+    if (shuttingDown) return;
+    const startedAt = Date.now();
+    const state = await chrome.storage.local.get([
+        "activeProvider", "leftMode", "rightMode", "twitchTarget"
+    ]);
+    if (shuttingDown) return;
+    try {
+        const notification = chrome.runtime.sendMessage({
+            type: "state-changed",
+            activeProvider: state.activeProvider || "netflix",
+            leftMode: state.leftMode || "landing",
+            rightMode: state.rightMode || "dashboard",
+            twitchTarget: state.twitchTarget || "resume",
+            twitchWorkspace: twitchWorkspaceV2SummaryFromRecord(record),
+            /* The left landing pane is normally exposed only in landing mode.
+             * Accurate window-occlusion checks remain in the normal broadcast. */
+            landingExposed: (state.leftMode || "landing") === "landing"
+        });
+        if (notification && typeof notification.catch === "function") {
+            notification.catch(() => {});
         }
-
-        /* Workspace slots are already explicitly claimed as A-D. Re-running the
-         * generic focused-surface claimant on Twitch title/status changes only
-         * creates duplicate native work while the user navigates inside a slot. */
-        isTwitchWorkspaceV2WindowId(tab.windowId)
-            .then(isWorkspaceWindow => {
-                if (isWorkspaceWindow) {
-                    /* A-D HWND identity is stable across Twitch SPA navigation. Queue
-                     * exactly one member claim as soon as the first real title/status
-                     * arrives instead of relying on fixed startup timing. */
-                    return claimTwitchWorkspaceV2WindowById(tab.windowId);
-                }
-                return claimFocusedTitlebarSurface(tab.windowId);
-            })
-            .catch(() => {});
+    } catch (error) {
+        recordFlightEvent({
+            category: "twitch-workspace-v2", action: "launch-notify-failed", level: "warn",
+            detail: { error: String(error?.message || error).slice(0, 160) }
+        }).catch(() => {});
     }
-);
-
-
-chrome.windows.onFocusChanged.addListener(
-    focusedWindowId => {
-        if (
-            shuttingDown
-        ) {
-            return;
-        }
-
-        let twitchWorkspaceFastPath = false;
-
-        /*
-         * Focus loss is not a fullscreen-exit signal. Chromium can keep a
-         * managed provider in true fullscreen while another application owns
-         * the foreground. The provider fullscreen event, provider/window
-         * teardown and explicit surface changes remain authoritative.
-         */
-
-        Promise.resolve()
-            .then(
-                async () => {
-                    const state =
-                        await chrome.storage.local.get([
-                            "providerWindows",
-                            "landingWindowId",
-                            "dashboardWindowId",
-                            TWITCH_WINDOW_STORAGE_KEY,
-                            TWITCH_WORKSPACE_V2_STORAGE_KEY
-                        ]);
-
-                    const workspaceRecord = state[TWITCH_WORKSPACE_V2_STORAGE_KEY];
-                    const workspaceWindowIds = [
-                        workspaceRecord?.slots?.a?.windowId,
-                        workspaceRecord?.slots?.b?.windowId,
-                        workspaceRecord?.slots?.c?.windowId,
-                        workspaceRecord?.slots?.d?.windowId,
-                        workspaceRecord?.chat?.windowId
-                    ];
-
-                    const managedWindowIds =
-                        new Set([
-                            state.landingWindowId,
-                            state.dashboardWindowId,
-                            state[TWITCH_WINDOW_STORAGE_KEY],
-                            ...workspaceWindowIds,
-                            ...Object.values(
-                                state.providerWindows || {}
-                            )
-                        ].filter(Number.isInteger));
-
-                    const workspaceSlotId =
-                        getTwitchWorkspaceV2SlotByWindowId(workspaceRecord, focusedWindowId);
-                    const workspaceChatFocused =
-                        workspaceRecord?.chat?.windowId === focusedWindowId;
-
-                    if (workspaceSlotId || workspaceChatFocused) {
-                        /* A -> C -> B focus changes are ordinary interaction inside
-                         * one Twitch surface, not provider transitions. Keep them off
-                         * the global reconcile/broadcast path. Record the focused slot
-                         * with one lightweight storage write so only that slot renders
-                         * the shared floating workspace bar. */
-                        twitchWorkspaceFastPath = true;
-                        if (workspaceSlotId && workspaceRecord?.selectedSlot !== workspaceSlotId) {
-                            await chrome.storage.local.set({
-                                [TWITCH_WORKSPACE_V2_STORAGE_KEY]: {
-                                    ...workspaceRecord,
-                                    selectedSlot: workspaceSlotId,
-                                    updatedAt: Date.now()
-                                }
-                            }).catch(() => {});
-                        }
-                        raiseTwitchWorkspaceV2NativeCluster(
-                            workspaceSlotId || workspaceRecord?.selectedSlot || "a"
-                        );
-                        return null;
-                    }
-
-                    if (
-                        !managedWindowIds.has(
-                            focusedWindowId
-                        )
-                    ) {
-                        cancelTitlebarClaimRetries(
-                            true
-                        );
-                    }
-
-                    return reconcileCompactFocusedSurface(
-                        focusedWindowId
-                    );
-                }
-            )
-            .then(
-                () => {
-                    if (twitchWorkspaceFastPath) return null;
-                    return Promise.allSettled([
-                        syncDiscordVisibilityState(),
-                        reconcileProviderPlaybackWindows(),
-                        claimFocusedTitlebarSurface(
-                            focusedWindowId
-                        )
-                    ]);
-                }
-            )
-            .finally(
-                () => {
-                    if (twitchWorkspaceFastPath) return;
-                    broadcastState()
-                        .catch(
-                            () => {}
-                        );
-                }
-            );
+    const durationMs = Date.now() - startedAt;
+    if (durationMs > 500) {
+        recordFlightEvent({
+            category: "twitch-workspace-v2", action: "slow-launch-notify",
+            level: "warn", detail: { durationMs }
+        }).catch(() => {});
     }
-);
+}
+
+/* Twitch changes tab titles frequently (unread chat counters). Those title
+ * updates must NOT trigger storage reads and native HWND reclaims. */
+const shellTitlebarClaimedTabs = new Map();
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (shuttingDown || tab?.active !== true ||
+        !Number.isInteger(tab?.windowId) || changeInfo?.status !== 'complete') return;
+    const windowId = tab.windowId;
+    if (shellTitlebarClaimedTabs.get(windowId) === tabId) return;
+    shellTitlebarClaimedTabs.set(windowId, tabId);
+    // A new window/tab is a real identity change. This branch is intentionally
+    // independent of hot focus/bounds listeners.
+    isTwitchWorkspaceV2WindowId(windowId)
+        .then(isWorkspaceWindow => isWorkspaceWindow
+            ? claimTwitchWorkspaceV2WindowById(windowId)
+            : claimFocusedTitlebarSurface(windowId))
+        .catch(() => { shellTitlebarClaimedTabs.delete(windowId); });
+});
 
 
-chrome.windows.onBoundsChanged.addListener(
-    changedWindow => {
-        if (
-            shuttingDown
-        ) {
-            return;
+/* v0.20.8 EMERGENCY: Focus/Bounds must never await storage/renderer/native
+ * probes in Wide mode. Maintain a tiny in-memory mirror from storage events.
+ * It may be temporarily stale after a cold worker wake: that's safer than
+ * blocking all browser UI for 15-40 seconds on a single focus callback.
+ * Explicit navigation and the native helper still perform real reconciliation. */
+const shellWideFocusCacheKeys = [
+    'providerWindows', 'landingWindowId', 'dashboardWindowId',
+    TWITCH_WINDOW_STORAGE_KEY, TWITCH_WORKSPACE_V2_STORAGE_KEY,
+    'leftMode', 'rightMode', 'activeProvider', 'twitchTarget',
+    'streamShellLaunchSelfTest'
+];
+const shellWideFocusCache = Object.create(null);
+let shellWideFocusCacheReady = false;
+let shellWideFocusVisibility = null;
+let shellWideFocusEventCount = 0;
+let shellWideFocusLastId = null;
+chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    for (const key of shellWideFocusCacheKeys) {
+        if (Object.prototype.hasOwnProperty.call(changes, key)) {
+            shellWideFocusCache[key] = changes[key].newValue;
         }
+    }
+});
+void chrome.storage.local.get(shellWideFocusCacheKeys).then(initial => {
+    // Do not overwrite more recent onChanged updates with an old read response.
+    for (const key of shellWideFocusCacheKeys) {
+        if (!Object.prototype.hasOwnProperty.call(shellWideFocusCache, key)) {
+            shellWideFocusCache[key] = initial[key];
+        }
+    }
+    shellWideFocusCacheReady = true;
+}).catch(() => { /* Initial cache is best-effort; explicit navigation still works. */ });
 
-        isTwitchWorkspaceV2WindowId(changedWindow?.id)
-            .then(isWorkspaceWindow => {
-                if (isWorkspaceWindow) return null;
-                return reconcileProviderPlaybackWindows()
-                    .catch(() => {})
-                    .finally(() => {
-                        broadcastState().catch(() => {});
+/* In Wide mode, restore the tiny but important functional side effects that
+ * v0.20.8 removed from focus reconciliation: selected Twitch slot and provider
+ * focus flags. Both are driven by browser event IDs already in memory. */
+let shellWideLastSelectedSlot = null;
+let shellWideSlotPersisting = false;
+let shellWideSlotPending = null;
+function rememberShellWideSelectedSlot(record, slotId) {
+    if (!record || record.selectedSlot === slotId) return;
+    shellWideFocusCache[TWITCH_WORKSPACE_V2_STORAGE_KEY] = {
+        ...record, selectedSlot: slotId, updatedAt: Date.now()
+    };
+    shellWideSlotPending = slotId;
+    if (shellWideSlotPersisting) return;
+    shellWideSlotPersisting = true;
+    void (async () => {
+        while (shellWideSlotPending && !shuttingDown) {
+            const selected = shellWideSlotPending;
+            shellWideSlotPending = null;
+            const current = shellWideFocusCache[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+            if (!current) break;
+            try {
+                await chrome.storage.local.set({
+                    [TWITCH_WORKSPACE_V2_STORAGE_KEY]: {
+                        ...current, selectedSlot:selected, updatedAt:Date.now()
+                    }
+                });
+            } catch { /* Explicit slot navigation still provides recovery. */ }
+        }
+        shellWideSlotPersisting = false;
+    })();
+}
+
+const shellWideObservedTabs = new Map(); // windowId -> last observed active tabId
+let shellWideResourceNotifyPending = null;
+let shellWideResourceNotifyInFlight = false;
+let shellWideResourceLastFocused = null;
+chrome.tabs.onUpdated.addListener((tabId, _change, tab) => {
+    if (tab?.active === true && Number.isInteger(tab.windowId)) {
+        shellWideObservedTabs.set(tab.windowId, tabId);
+    }
+});
+chrome.tabs.onActivated.addListener(({tabId,windowId}) => {
+    if (Number.isInteger(windowId) && Number.isInteger(tabId)) {
+        shellWideObservedTabs.set(windowId,tabId);
+    }
+});
+chrome.windows.onRemoved.addListener(windowId => shellWideObservedTabs.delete(windowId));
+
+function notifyShellWideProviderFocus(state, focusedWindowId) {
+    const previous = shellWideResourceLastFocused;
+    shellWideResourceLastFocused = focusedWindowId;
+    shellWideResourceNotifyPending = {state, focusedWindowId, previous};
+    if (shellWideResourceNotifyInFlight) return;
+    shellWideResourceNotifyInFlight = true;
+    void (async () => {
+        try {
+            while (shellWideResourceNotifyPending && !shuttingDown) {
+                const next = shellWideResourceNotifyPending;
+                shellWideResourceNotifyPending = null;
+                const windows = next.state.providerWindows || {};
+                const messages = [];
+                for (const [provider,windowId] of Object.entries(windows)) {
+                    if (windowId !== next.focusedWindowId && windowId !== next.previous) continue;
+                    const tabId = shellWideObservedTabs.get(windowId);
+                    if (!Number.isInteger(tabId)) continue;
+                    messages.push(chrome.tabs.sendMessage(tabId, {
+                        type:'stream-shell-resource-window-state',
+                        state:{managed:true,provider,windowId,
+                            focused:windowId === next.focusedWindowId,
+                            shellActive:next.state.leftMode === provider,
+                            activeProvider:next.state.activeProvider || null,
+                            leftMode:next.state.leftMode || 'landing'}
+                    }).catch(() => {}));
+                }
+                // Bounded: at most one provider-focus batch outstanding.
+                if (messages.length) await Promise.allSettled(messages);
+            }
+        } finally { shellWideResourceNotifyInFlight = false; }
+    })();
+}
+
+function reconcileShellWideFocusFast(focusedWindowId) {
+    shellWideFocusEventCount += 1;
+    shellWideFocusLastId = focusedWindowId;
+    if (shuttingDown || !shellWideFocusCacheReady) return;
+    const state = shellWideFocusCache;
+    const record = state[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+    const managed = new Set([
+        state.landingWindowId, state.dashboardWindowId, state[TWITCH_WINDOW_STORAGE_KEY],
+        ...Object.values(state.providerWindows || {}),
+        ...['a','b','c','d'].map(slot => record?.slots?.[slot]?.windowId),
+        record?.chat?.windowId
+    ].filter(Number.isInteger));
+    const visibility = managed.has(focusedWindowId) ? 'shell' :
+        (focusedWindowId === chrome.windows.WINDOW_ID_NONE && state.rightMode === 'discord' ? 'discord' : 'none');
+    const slot = ['a','b','c','d'].find(id => record?.slots?.[id]?.windowId === focusedWindowId);
+    if (slot) {
+        if (record?.selectedSlot !== slot) rememberShellWideSelectedSlot(record, slot);
+        if (shellWideLastSelectedSlot !== slot) {
+            shellWideLastSelectedSlot = slot;
+            raiseTwitchWorkspaceV2NativeCluster(slot);
+        }
+    } else {
+        shellWideLastSelectedSlot = null;
+    }
+    notifyShellWideProviderFocus(state, focusedWindowId);
+    // Only notify native when the visibility actually changes. The full
+    // state sender also deduplicates identical payloads.
+    if (visibility !== shellWideFocusVisibility) {
+        shellWideFocusVisibility = visibility;
+        sendTitlebarState(state.leftMode || 'landing', state.rightMode || 'dashboard',
+            visibility, state.twitchTarget || 'resume');
+    }
+}
+
+/* v0.20.5: Chromium may emit a cluster of focus + geometry events for a
+ * single Stream Shell transition. Before this change EVERY event launched a
+ * separate, unbounded async chain (provider enumeration, Discord native status,
+ * titlebar claim, and a full broadcast with browser-wide window enumeration).
+ * During Twitch cold start / heavy rendering these overlapped and amplified
+ * browser-process contention. Keep only latest focus and distinct changed HWNDs;
+ * run at most ONE reconciliation batch at a time. All purposeful navigation
+ * and Twitch chat/automation remain on their original independent paths. */
+const STREAM_SHELL_WINDOW_EVENT_SETTLE_MS = 110;
+let shellWindowEventFocusId = null;
+const shellWindowEventBounds = new Set();
+let shellWindowEventTimer = null;
+let shellWindowEventRunning = false;
+let shellWindowEventPendingCount = 0;
+let shellUnmanagedResourceSyncPromise = null;
+
+function scheduleShellUnmanagedResourceSync() {
+    /* Focus storms must not create unbounded fire-and-forget provider messages. */
+    if (shuttingDown || shellUnmanagedResourceSyncPromise) return;
+    shellUnmanagedResourceSyncPromise = Promise.resolve()
+        .then(() => broadcastProviderResourceWindowStates())
+        .catch(error => {
+            recordFlightEvent({ category:'window-events',action:'resource-sync-failed',
+                level:'warn',detail:{message:String(error?.message || error).slice(0,180)}
+            }).catch(() => {});
+        })
+        .finally(() => { shellUnmanagedResourceSyncPromise = null; });
+}
+
+/* v0.20.7: Focus is NOT a reason to run the expensive authoritative
+ * broadcastState(): it performs multiple storage reads, browser-wide window
+ * enumeration, optional native foreground checks and waits for UI responses.
+ * Under Opera load even a single focus notification blocked for 22.8 seconds.
+ * Use the record already read for focus to notify the UI; keep one outstanding
+ * response and replace pending notifications with the newest snapshot. */
+let shellWindowUiNotifyRunning = false;
+let shellWindowUiNotifyLatest = null;
+function notifyShellWindowEventFromSnapshot(state, focusedWindowId) {
+    if (shuttingDown || !state) return;
+    const leftMode = state.leftMode || 'landing';
+    const rightMode = state.rightMode || 'dashboard';
+    const landingExposed = leftMode === 'landing' && (
+        focusedWindowId === state.landingWindowId ||
+        focusedWindowId === state.dashboardWindowId ||
+        (rightMode === 'twitch' && getTwitchWorkspaceV2SlotByWindowId(
+            state[TWITCH_WORKSPACE_V2_STORAGE_KEY], focusedWindowId))
+    );
+    shellWindowUiNotifyLatest = {
+        message: {
+        type: 'state-changed',
+        activeProvider: state.activeProvider || 'netflix',
+        leftMode, rightMode,
+        twitchTarget: state.twitchTarget || 'resume',
+        twitchWorkspace: twitchWorkspaceV2SummaryFromRecord(state[TWITCH_WORKSPACE_V2_STORAGE_KEY]),
+        landingExposed: !!landingExposed
+        }, queuedAt: Date.now()
+    };
+    if (shellWindowUiNotifyRunning) return;
+    shellWindowUiNotifyRunning = true;
+    void (async () => {
+        while (shellWindowUiNotifyLatest && !shuttingDown) {
+            const queued = shellWindowUiNotifyLatest;
+            shellWindowUiNotifyLatest = null;
+            // A delayed old focus reply must not overwrite an explicit provider
+            // transition that happened while Opera's UI responder was stalled.
+            if (Date.now() - queued.queuedAt > 1800) continue;
+            try { await chrome.runtime.sendMessage(queued.message); }
+            catch { /* Other pages may not yet have registered a listener. */ }
+        }
+    })().finally(() => { shellWindowUiNotifyRunning = false; });
+}
+
+let shellProviderPlaybackReconcileRunning = false;
+function scheduleShellProviderPlaybackReconcile() {
+    if (shuttingDown || shellProviderPlaybackReconcileRunning) return;
+    shellProviderPlaybackReconcileRunning = true;
+    void reconcileProviderPlaybackWindows()
+        .catch(error => recordFlightEvent({category:'window-events',action:'playback-scan-failed',
+            level:'warn',detail:{message:String(error?.message || error).slice(0,160)}}).catch(()=>{}))
+        .finally(() => { shellProviderPlaybackReconcileRunning = false; });
+}
+
+function scheduleShellWindowEventReconcile(focusedWindowId = null, boundsWindowId = null) {
+    if (shuttingDown) return;
+    if (Number.isInteger(focusedWindowId)) shellWindowEventFocusId = focusedWindowId;
+    if (Number.isInteger(boundsWindowId)) shellWindowEventBounds.add(boundsWindowId);
+    shellWindowEventPendingCount += 1;
+    if (shellWindowEventRunning || shellWindowEventTimer !== null) return;
+    shellWindowEventTimer = setTimeout(() => {
+        shellWindowEventTimer = null;
+        drainShellWindowEventReconcile().catch(error => {
+            recordFlightEvent({
+                category: 'window-events', action: 'drain-failed', level: 'error',
+                detail: { message: String(error?.message || error).slice(0, 180) }
+            }).catch(() => {});
+        });
+    }, STREAM_SHELL_WINDOW_EVENT_SETTLE_MS);
+}
+
+async function reconcileShellFocusedWindow(focusedWindowId) {
+    const startedAt = Date.now();
+    const state = await chrome.storage.local.get([
+        'providerWindows', 'landingWindowId', 'dashboardWindowId',
+        TWITCH_WINDOW_STORAGE_KEY, TWITCH_WORKSPACE_V2_STORAGE_KEY,
+        'leftMode', 'rightMode', 'activeProvider', 'twitchTarget'
+    ]);
+    const storageMs = Date.now() - startedAt;
+    const workspaceRecord = state[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+    const workspaceWindowIds = [
+        workspaceRecord?.slots?.a?.windowId,
+        workspaceRecord?.slots?.b?.windowId,
+        workspaceRecord?.slots?.c?.windowId,
+        workspaceRecord?.slots?.d?.windowId,
+        workspaceRecord?.chat?.windowId
+    ];
+    const workspaceSlotId = getTwitchWorkspaceV2SlotByWindowId(workspaceRecord, focusedWindowId);
+    const workspaceChatFocused = workspaceRecord?.chat?.windowId === focusedWindowId;
+    if (workspaceSlotId || workspaceChatFocused) {
+        if (workspaceSlotId && workspaceRecord?.selectedSlot !== workspaceSlotId) {
+            await chrome.storage.local.set({
+                [TWITCH_WORKSPACE_V2_STORAGE_KEY]: {
+                    ...workspaceRecord, selectedSlot: workspaceSlotId, updatedAt: Date.now()
+                }
+            }).catch(() => {});
+        }
+        /* A normal Opera window may have set native visibility to 'none'.
+         * Re-entering directly through a Twitch pane must restore it. */
+        sendTitlebarState(state.leftMode || 'landing', state.rightMode || 'dashboard',
+            'shell', state.twitchTarget || 'resume');
+        raiseTwitchWorkspaceV2NativeCluster(workspaceSlotId || workspaceRecord?.selectedSlot || 'a');
+        notifyShellWindowEventFromSnapshot(state, focusedWindowId);
+        scheduleShellUnmanagedResourceSync();
+        return false; // A-D focus is not a global provider state transition
+    }
+
+    const managedWindowIds = new Set([
+        state.landingWindowId, state.dashboardWindowId, state[TWITCH_WINDOW_STORAGE_KEY],
+        ...workspaceWindowIds, ...Object.values(state.providerWindows || {})
+    ].filter(Number.isInteger));
+    const isManaged = managedWindowIds.has(focusedWindowId);
+    if (!isManaged) {
+        /* Ordinary Opera windows and WINDOW_ID_NONE (when WuWa or another
+         * desktop app has focus) are NOT Shell navigation. They previously
+         * triggered full provider scans, native tab-title claims and two
+         * browser-wide enumeration passes through broadcastState(). Avoid
+         * that work, but still hide managed titlebar chrome and update the
+         * provider governor's focused-state asynchronously. */
+        // Cancel only generic provider claim retries. Native claim-cancel is global
+        // and would also discard pending Twitch A-D HWND claims while Opera/WuWa
+        // receives focus. The helper's own state message hides the chrome.
+        cancelTitlebarClaimRetries(false);
+        const nativeVisibility = focusedWindowId === chrome.windows.WINDOW_ID_NONE &&
+            state.rightMode === 'discord' ? 'discord' : 'none';
+        sendTitlebarState(
+            state.leftMode || 'landing', state.rightMode || 'dashboard',
+            nativeVisibility, state.twitchTarget || 'resume'
+        );
+        scheduleShellUnmanagedResourceSync();
+        notifyShellWindowEventFromSnapshot(state, focusedWindowId);
+        if (storageMs >= 500) recordFlightEvent({
+            category:'window-events',action:'focus-phase',level:'warn',
+            detail:{kind:'unmanaged',storageMs,fullReconcileSkipped:true}
+        }).catch(()=>{});
+        return false;
+    }
+
+    const compactStarted = Date.now();
+    await reconcileCompactFocusedSurface(focusedWindowId);
+    const compactMs = Date.now() - compactStarted;
+    /* Some managed windows may have been closed while an event was queued;
+     * original browser-backed operations must continue to validate identity. */
+    const operationsStarted = Date.now();
+    // The provider playback scan is a window-lifecycle concern. Scanning all
+    // provider windows on every focus click amplifies Opera's API backlog.
+    const operations = [claimFocusedTitlebarSurface(focusedWindowId)];
+    if (state.rightMode === 'discord') operations.push(syncDiscordVisibilityState());
+    const results = await Promise.allSettled(operations);
+    const operationsMs = Date.now() - operationsStarted;
+    for (const result of results) {
+        if (result.status === 'rejected') {
+            recordFlightEvent({
+                category: 'window-events', action: 'focus-reconcile-failed', level: 'warn',
+                detail: { message: String(result.reason?.message || result.reason).slice(0, 180) }
+            }).catch(() => {});
+        }
+    }
+    if (streamShellDisplayProfileCache?.mode !== 'compact') {
+        // Switching back from ordinary Opera/WuWa must restore native visibility.
+        sendTitlebarState(state.leftMode || 'landing', state.rightMode || 'dashboard',
+            'shell', state.twitchTarget || 'resume');
+        notifyShellWindowEventFromSnapshot(state, focusedWindowId);
+        scheduleShellUnmanagedResourceSync();
+    }
+    if (Date.now() - startedAt >= 400) recordFlightEvent({
+        category:'window-events',action:'focus-phase',
+        level: Date.now()-startedAt > 2000 ? 'warn' : 'info',
+        detail:{kind:'managed',storageMs,compactMs,operationsMs,
+            totalMs:Date.now()-startedAt,discordQueried:state.rightMode==='discord'}
+    }).catch(()=>{});
+    // Compact can change its active provider on focus and still requires an
+    // authoritative pane update; Wide focus has already sent a cheap snapshot.
+    return streamShellDisplayProfileCache?.mode === 'compact';
+}
+
+async function drainShellWindowEventReconcile() {
+    if (shellWindowEventRunning || shuttingDown) return;
+    shellWindowEventRunning = true;
+    const focusedWindowId = shellWindowEventFocusId;
+    const boundsIds = [...shellWindowEventBounds];
+    const eventCount = shellWindowEventPendingCount;
+    shellWindowEventFocusId = null;
+    shellWindowEventBounds.clear();
+    shellWindowEventPendingCount = 0;
+    const startedAt = Date.now();
+    let focusMs = 0;
+    let boundsMs = 0;
+    let broadcastMs = 0;
+    try {
+        let shouldBroadcast = false;
+        if (Number.isInteger(focusedWindowId)) {
+            const focusStarted = Date.now();
+            try {
+                shouldBroadcast = await reconcileShellFocusedWindow(focusedWindowId);
+            } catch (error) {
+                shouldBroadcast = streamShellDisplayProfileCache?.mode === 'compact';
+                recordFlightEvent({
+                    category: 'window-events', action: 'focus-failed', level: 'warn',
+                    detail: { message: String(error?.message || error).slice(0, 180) }
+                }).catch(() => {});
+            } finally {
+                focusMs = Date.now() - focusStarted;
+            }
+        }
+        if (boundsIds.length) {
+            const boundsStarted = Date.now();
+            // A single snapshot replaces N storage reads for N changed windows.
+            // Ignore unrelated Opera windows; moving or resizing them is not a
+            // Stream Shell navigation event. Native geometry has its own loop.
+            const stored = await chrome.storage.local.get([
+                'providerWindows', 'landingWindowId', 'dashboardWindowId',
+                TWITCH_WINDOW_STORAGE_KEY, TWITCH_WORKSPACE_V2_STORAGE_KEY,
+                'leftMode', 'rightMode', 'activeProvider', 'twitchTarget'
+            ]);
+            const managedNonTwitch = new Set([
+                stored.landingWindowId, stored.dashboardWindowId,
+                stored[TWITCH_WINDOW_STORAGE_KEY],
+                ...Object.values(stored.providerWindows || {})
+            ].filter(Number.isInteger));
+            const relevantBounds = boundsIds.some(id => managedNonTwitch.has(id));
+            if (relevantBounds) {
+                scheduleShellProviderPlaybackReconcile();
+                if (streamShellDisplayProfileCache?.mode === 'compact') {
+                    shouldBroadcast = true;
+                } else if (!Number.isInteger(focusedWindowId)) {
+                    // Only the newest event snapshot is delivered; no expensive
+                    // landing occlusion scan or awaited runtime delivery.
+                    notifyShellWindowEventFromSnapshot(stored, null);
+                }
+                scheduleShellUnmanagedResourceSync();
+            }
+            boundsMs = Date.now() - boundsStarted;
+        }
+        if (shouldBroadcast && !shuttingDown) {
+            const broadcastStarted = Date.now();
+            await broadcastState();
+            broadcastMs = Date.now() - broadcastStarted;
+        }
+    } finally {
+        const durationMs = Date.now() - startedAt;
+        if (eventCount >= 5 || durationMs >= 1400) {
+            recordFlightEvent({
+                category: 'window-events', action: 'reconciled',
+                level: durationMs > 2500 ? 'warn' : 'info',
+                detail: { received: eventCount, boundsWindows: boundsIds.length,
+                    hadFocus: Number.isInteger(focusedWindowId), durationMs,
+                    focusMs, boundsMs, broadcastMs }
+            }).catch(() => {});
+        }
+        shellWindowEventRunning = false;
+        if (!shuttingDown && shellWindowEventPendingCount) {
+            /* Changes that arrived while the previous batch was in flight
+             * are settled once more. Never accumulate one Promise per event. */
+            if (shellWindowEventTimer === null) {
+                shellWindowEventTimer = setTimeout(() => {
+                    shellWindowEventTimer = null;
+                    drainShellWindowEventReconcile().catch(error => {
+                        recordFlightEvent({
+                            category: 'window-events', action: 'drain-failed', level: 'error',
+                            detail: { message: String(error?.message || error).slice(0, 180) }
+                        }).catch(() => {});
                     });
-            })
-            .catch(() => {});
+                }, STREAM_SHELL_WINDOW_EVENT_SETTLE_MS);
+            }
+        }
     }
-);
+}
+
+chrome.windows.onFocusChanged.addListener(focusedWindowId => {
+    if (streamShellDisplayProfileCache?.mode !== 'compact') {
+        reconcileShellWideFocusFast(focusedWindowId);
+        return;
+    }
+    scheduleShellWindowEventReconcile(focusedWindowId, null);
+});
+
+chrome.windows.onBoundsChanged.addListener(changedWindow => {
+    // Native HWND synchronization and explicit provider transitions already
+    // handle Wide geometry. Don't turn Opera's resize event storm into API IPC.
+    if (streamShellDisplayProfileCache?.mode !== 'compact') return;
+    scheduleShellWindowEventReconcile(null, changedWindow?.id);
+});
 
 
 chrome.windows.onRemoved.addListener(

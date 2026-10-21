@@ -569,8 +569,11 @@
     function observeMarblesChat(records) {
         if (!settings.streamShellTwitchMarblesAutoJoin) return;
         if (records?.length) twitchRuntimeMetrics.lastChatMutationAt = Date.now();
+        const inspected = new Set();
         for (const mutation of records || []) {
             for (const node of mutation.addedNodes || []) {
+                if (!(node instanceof Element) || inspected.has(node)) continue;
+                inspected.add(node);
                 for (const line of collectMarblesChatLines(node)) recordMarblesPlay(line);
             }
         }
@@ -922,8 +925,15 @@
             }
         });
 
+        // A single interaction keeps the background's 3s adoption window alive.
+        // Pointer-heavy Twitch controls used to send one browser IPC per click/tap.
+        // Keep reporting fresh user activity, but no more than once per second.
+        let lastInteractionNoticeAt = 0;
         document.addEventListener("pointerdown", event => {
             if (!event.isTrusted) return;
+            const now = Date.now();
+            if (now - lastInteractionNoticeAt < 1000) return;
+            lastInteractionNoticeAt = now;
             chrome.runtime.sendMessage({ type: "twitch-user-interaction" }).catch(() => {});
         }, true);
 

@@ -69,7 +69,9 @@ async function ensureProviderWindow(
         );
     }
 
-    await refreshStreamShellProviderTargets();
+    /* _switchProvider already refreshed this registry under the transition
+     * lock. Avoid a second chrome.storage round-trip during the cold return. */
+    if (options?.registryFresh !== true) await refreshStreamShellProviderTargets();
 
     if (
         providerCreationLocks.has(
@@ -326,7 +328,14 @@ async function _ensureProviderWindow(
 }
 
 
-async function switchProvider(
+function switchProvider(providerName) {
+    return runStreamShellWindowTransition(
+        `provider:${providerName}`,
+        () => _switchProvider(providerName)
+    );
+}
+
+async function _switchProvider(
     providerName
 ) {
     if (
@@ -335,7 +344,7 @@ async function switchProvider(
         return;
     }
 
-    await refreshStreamShellProviderTargets();
+    await measureShellWindowStep("provider:refresh-targets", () => refreshStreamShellProviderTargets());
     if (!PROVIDERS[providerName]) {
         throw new Error(`Unknown or disabled provider: ${providerName}`);
     }
@@ -343,14 +352,10 @@ async function switchProvider(
     titlebarFullscreenActive = false;
     titlebarFullscreenWindowId = null;
 
-    await stopVolumeCaptureForProviderChange(
-        providerName
-    );
+    await measureShellWindowStep("provider:stop-volume", () => stopVolumeCaptureForProviderChange(providerName));
 
     const targetWindowId =
-        await ensureProviderWindow(
-            providerName
-        );
+        await measureShellWindowStep("provider:ensure-window", () => ensureProviderWindow(providerName, { registryFresh: true }));
 
     if (
         shuttingDown
@@ -447,15 +452,9 @@ async function switchProvider(
         }
     }
 
-    await restoreWindow(
-        targetWindowId,
-        LEFT,
-        true
-    );
+    await measureShellWindowStep("provider:restore-window", () => restoreWindow(targetWindowId, LEFT, true));
 
-    await claimFocusedTitlebarSurface(
-        targetWindowId
-    );
+    await measureShellWindowStep("provider:claim-titlebar", () => claimFocusedTitlebarSurface(targetWindowId));
     scheduleTitlebarClaimRetries(
         targetWindowId
     );
@@ -496,7 +495,7 @@ async function switchProvider(
         detail: { windowId: targetWindowId }
     }).catch(() => {});
 
-    await broadcastState();
+    await measureShellWindowStep("provider:broadcast-state", () => broadcastState());
 }
 
 

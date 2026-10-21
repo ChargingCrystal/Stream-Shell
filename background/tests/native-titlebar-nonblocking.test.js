@@ -34,7 +34,7 @@ const evalIn=expr=>vm.runInContext(expr,ctx);
  assert.equal(evalIn('titlebarProviderSyncPhase'),'artwork-ready');
  assert.equal(evalIn('streamShellTitlebarArtworkStatus.get("custom-1234abcd").source'),'text');
  assert.equal(evalIn('streamShellTitlebarArtworkStatus.get("custom-1234abcd").primaryFailure'),'png-fetch-timeout');
- const native=fs.readFileSync(path.join(root,'native/StreamShellTitlebarHost.cs'),'utf8');
+ const native=require('./native-titlebar-source')();
  assert.match(native,/bytes\.Length < 24 \|\| bytes\.Length > 16384/);
  assert.match(native,/if \(!TryDecodeTitlebarIcon\(parts\[4\], out icon\)\)/);
  assert.match(native,/skippedIcons\+\+/);

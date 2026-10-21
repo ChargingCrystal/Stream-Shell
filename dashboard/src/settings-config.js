@@ -424,6 +424,7 @@ function paintAnarchySettings() {
 
 function startAnarchySettingsColors() {
     if (anarchySettingsColorTimer) return;
+    if (document.visibilityState === "hidden" || !settingsCenter || settingsCenter.hidden) return;
     paintAnarchySettings();
     anarchySettingsColorTimer = setInterval(paintAnarchySettings, 200);
 }
@@ -437,7 +438,14 @@ function stopAnarchySettingsColors() {
 function syncAnarchySettingsVisuals() {
     const active = settingsSection === "anarchy";
     settingsContent?.classList.toggle("settings-content-anarchy", active);
-    if (active) startAnarchySettingsColors();
-    else stopAnarchySettingsColors();
+    if (active && document.visibilityState !== "hidden" && settingsCenter && !settingsCenter.hidden) {
+        startAnarchySettingsColors();
+    } else {
+        stopAnarchySettingsColors();
+    }
 }
+
+// Stop animated decoration the moment Dashboard goes into the background.
+// No new timer is needed: reopening/revealing Settings reactivates it.
+document.addEventListener("visibilitychange", syncAnarchySettingsVisuals);
 

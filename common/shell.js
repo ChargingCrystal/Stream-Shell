@@ -3104,7 +3104,12 @@ function resolveProviderMediaLink(
             kind: String(workload || "poll"),
             baseMs: Math.max(25, Number(baseMs) || 25),
             delayMs: null,
-            lastRunAt: null
+            lastRunAt: null,
+            lastDurationMs: null,
+            consecutiveFailures: 0,
+            totalFailures: 0,
+            lastFailureAt: null,
+            lastError: null
         };
 
         providerResourceGovernorWorkloads.set(key, workloadState);
@@ -3113,12 +3118,19 @@ function resolveProviderMediaLink(
             if (stopped) return;
             if (timer) clearTimeout(timer);
 
-            const delayMs = Number.isFinite(delayOverride)
+            const regularDelay = Number.isFinite(delayOverride)
                 ? Math.max(0, delayOverride)
                 : getProviderResourceDelay(
                     workloadState.baseMs,
                     workloadState.kind
                 );
+            // An error must not restart the same broken DOM task at full speed.
+            // Clamp the maximum backoff; recovery remains automatic.
+            const backoff = workloadState.consecutiveFailures > 0
+                ? Math.min(60000, Math.max(1000, workloadState.baseMs) *
+                    Math.pow(2, Math.min(6, workloadState.consecutiveFailures)))
+                : 0;
+            const delayMs = Math.max(regularDelay, backoff);
 
             workloadState.delayMs = delayMs;
             timer = setTimeout(tick, delayMs);
@@ -3132,18 +3144,43 @@ function resolveProviderMediaLink(
             }
 
             running = true;
-            workloadState.lastRunAt = Date.now();
+            const startedAt = Date.now();
+            workloadState.lastRunAt = startedAt;
             try {
                 await callback();
-            } catch {
+                workloadState.consecutiveFailures = 0;
+                workloadState.lastError = null;
+            } catch (error) {
+                workloadState.consecutiveFailures += 1;
+                workloadState.totalFailures += 1;
+                workloadState.lastFailureAt = Date.now();
+                workloadState.lastError = String(error?.message || error).slice(0, 180);
+                // Log first error and powers of two only; no console flood.
+                const failures = workloadState.consecutiveFailures;
+                if (failures === 1 || (failures & (failures - 1)) === 0) {
+                    console.warn(`Stream Shell workload ${key} failed (${failures}x):`, error);
+                }
             } finally {
+                workloadState.lastDurationMs = Date.now() - startedAt;
                 running = false;
                 schedule();
             }
         };
 
         const unsubscribe = onProviderResourceGovernorChange(
-            () => schedule(0)
+            (next, previous) => {
+                // Focus alone affects metadata, not the workload pace.
+                // Avoid restarting all provider DOM/poll timers on every
+                // ordinary Opera/WuWa focus switch.
+                if (!previous ||
+                    next.mode !== previous.mode ||
+                    next.visible !== previous.visible ||
+                    next.watchContext !== previous.watchContext ||
+                    next.playing !== previous.playing ||
+                    next.videoPresent !== previous.videoPresent) {
+                    schedule(0);
+                }
+            }
         );
 
         const handle = {

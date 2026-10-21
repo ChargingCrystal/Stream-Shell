@@ -361,30 +361,25 @@ let nowPlayingProgressTimer = null;
 function scheduleNowPlayingProgressRefresh(
     immediate = false
 ) {
-    if (nowPlayingProgressTimer) {
+    if (nowPlayingProgressTimer !== null) {
         clearTimeout(nowPlayingProgressTimer);
+        nowPlayingProgressTimer = null;
     }
 
-    const hidden =
-        document.visibilityState ===
-            "hidden";
+    // Native windows cover this Dashboard for hours while the Twitch scripts
+    // remain independent. Do not wake this renderer just to reschedule itself.
+    // visibilitychange below re-arms progress immediately when it reappears.
+    if (document.visibilityState === "hidden") return;
 
     nowPlayingProgressTimer = setTimeout(
         () => {
             nowPlayingProgressTimer = null;
-
-            if (
-                document.visibilityState !==
-                    "hidden"
-            ) {
+            if (document.visibilityState !== "hidden") {
                 refreshNowPlayingProgress();
+                scheduleNowPlayingProgressRefresh();
             }
-
-            scheduleNowPlayingProgressRefresh();
         },
-        immediate
-            ? 0
-            : (hidden ? 5000 : 1000)
+        immediate ? 0 : 1000
     );
 }
 

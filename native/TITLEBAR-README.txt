@@ -1,5 +1,15 @@
-Stream Shell - Native Windows Titlebar Host (current: v0.20.0)
+Stream Shell - Native Windows Titlebar Host (current: v0.20.14)
 ================================================================
+
+Source modules (v0.20.14)
+-------------------------
+- native/StreamShellTitlebarHost.cs holds all constants, state, models and Win32/COM interop, preserving the original static initializer ordering.
+- native/titlebar-src/01-*.cs through 19-*.cs hold the native host methods in their original order as members of the same static partial class, plus the new guard module.
+- native/install-titlebar-helper.ps1 merges these partial-class source units and uses the original Add-Type compiler path; run install-titlebar-helper.cmd after this refactor.
+- Validate structural integrity with python native/tests/titlebar-source-parity.py; behavior has changed, so byte-for-byte equivalence with v0.20.12 no longer applies.
+- Native message/Win32 exception containment, bounded Opera window messages, foreign-fullscreen idle gating; protocol remains v9.
+- The installer now compiles a new helper before shutting down/replacing the old binary and preserves a backup.
+- Native health counters appear in the protocol v9 status payload: callbackFailures, commandFailures, fullscreenIdleSkips, slowOverlaySyncs.
 
 Purpose
 -------

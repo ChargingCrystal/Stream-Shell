@@ -36,19 +36,20 @@ function updateClock() {
 }
 
 function scheduleClockUpdate() {
-    if (clockUpdateTimer) {
+    if (clockUpdateTimer !== null) {
         clearTimeout(clockUpdateTimer);
+        clockUpdateTimer = null;
     }
+
+    // The clock is presentation-only. Repaint immediately on reveal rather
+    // than keeping a minute timer alive behind four Twitch windows or WuWa.
+    if (document.visibilityState === "hidden") return;
 
     updateClock();
 
     const now = Date.now();
     const delay = 60000 - (now % 60000) + 50;
-
-    clockUpdateTimer = setTimeout(
-        scheduleClockUpdate,
-        delay
-    );
+    clockUpdateTimer = setTimeout(scheduleClockUpdate, delay);
 }
 
 scheduleClockUpdate();
@@ -56,8 +57,6 @@ scheduleClockUpdate();
 document.addEventListener(
     "visibilitychange",
     () => {
-        if (document.visibilityState !== "hidden") {
-            scheduleClockUpdate();
-        }
+        scheduleClockUpdate();
     }
 );

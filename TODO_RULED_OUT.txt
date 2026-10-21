@@ -10,6 +10,12 @@ Version-by-version implementation history belongs in release-notes/ and must not
 
 TODO
 ----
+- Runtime v0.20.1 stress validation: reproduce launch-time provider + Twitch contention,
+  long WuWa foreground sessions, and multi-minute Opera shutdown. Verify that the
+  bounded transition queue/storage coalescing reduce delayed browser API traffic.
+  If the freeze persists, profile native HWND/COM calls and Chromium browser/GPU
+  processes rather than stripping error handling indiscriminately.
+
 - Dynamic provider registry + Dashboard/Titlebar configuration (IN PROGRESS since 0.19.27):
   Full specification, exact file locations and ordered next stages: release-notes/PROVIDER_REGISTRY_ROADMAP.md.
   Approved by user: arbitrary custom provider URLs (with normal managed window, not auto-custom player

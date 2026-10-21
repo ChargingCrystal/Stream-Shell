@@ -67,6 +67,64 @@ function renderTwitchWorkspaceBackdrop(state, rightMode) {
  * ============================================================
  */
 
+/* Twitch cold-launch placeholder. This listens only to explicit transitions;
+ * there is no timer-driven polling and no browser/window/native diagnostics. */
+let streamShellTwitchSkeletonId = 0;
+let streamShellTwitchSkeletonTimer = null;
+function ensureStreamShellTwitchSkeleton() {
+    let surface = document.getElementById('stream-shell-twitch-skeleton');
+    if (surface) return surface;
+    surface = document.createElement('section');
+    surface.id = 'stream-shell-twitch-skeleton';
+    surface.className = 'stream-shell-twitch-skeleton';
+    surface.hidden = true;
+    surface.setAttribute('role','status');
+    surface.setAttribute('aria-live','polite');
+    /* Each placeholder owns its own header. The dashboard lives *behind*
+     * four separate native Opera windows, so one shared header/grid gap gets
+     * cut in half as A and B appear. Keep all visuals within their respective
+     * 50% x 50% viewport cells instead. No window/Storage/native probes. */
+    surface.innerHTML = `<span class="ss-ts-accessible-status ss-ts-stage">Preparing browser windows…</span>
+    <div class="ss-ts-grid" aria-hidden="true">${['A','B','C','D'].map(letter => `<div class="ss-ts-card ss-ts-card-${letter.toLowerCase()}" data-slot="${letter.toLowerCase()}">
+      <div class="ss-ts-head"><span class="ss-ts-dot"></span><div><strong>Twitch ${letter}</strong><p>Preparing workspace window…</p></div></div>
+      <div class="ss-ts-shimmer ss-ts-video"></div>
+      <div class="ss-ts-footer"><span class="ss-ts-shimmer ss-ts-avatar"></span><div class="ss-ts-lines"><span class="ss-ts-shimmer"></span><span class="ss-ts-shimmer"></span></div><span class="ss-ts-label">${letter}</span></div>
+    </div>`).join('')}</div>`;
+    document.querySelector('.dashboard')?.appendChild(surface);
+    return surface;
+}
+function renderStreamShellTwitchSkeleton(message) {
+    if (message?.surface !== 'twitch') return;
+    const stage = message.stage;
+    const id = Number(message.id) || 0;
+    if (stage === 'done' || stage === 'failed') {
+        if (id !== streamShellTwitchSkeletonId) return;
+        clearTimeout(streamShellTwitchSkeletonTimer);
+        const surface = document.getElementById('stream-shell-twitch-skeleton');
+        if (surface) surface.hidden = true;
+        return;
+    }
+    if (id < streamShellTwitchSkeletonId) return;
+    streamShellTwitchSkeletonId = id;
+    const surface = ensureStreamShellTwitchSkeleton();
+    const text = surface.querySelector('.ss-ts-stage');
+    if (text) text.textContent = stage === 'creating'
+        ? 'Starting Twitch A–D, one window at a time…'
+        : 'Waiting for the previous provider to settle…';
+    clearTimeout(streamShellTwitchSkeletonTimer);
+    // Skip a flash for warm sub-200ms transitions; cold launches always show.
+    if (stage === 'waiting') {
+        streamShellTwitchSkeletonTimer = setTimeout(() => {
+            if (streamShellTwitchSkeletonId === id) surface.hidden = false;
+        }, 180);
+    } else surface.hidden = false;
+}
+chrome.runtime.onMessage.addListener(message => {
+    if (message?.type === 'stream-shell-transition-visual') {
+        renderStreamShellTwitchSkeleton(message);
+    }
+});
+
 chrome.runtime.sendMessage({
     type:
         "get-state"

@@ -2422,30 +2422,25 @@ let nowPlayingProgressTimer = null;
 function scheduleNowPlayingProgressRefresh(
     immediate = false
 ) {
-    if (nowPlayingProgressTimer) {
+    if (nowPlayingProgressTimer !== null) {
         clearTimeout(nowPlayingProgressTimer);
+        nowPlayingProgressTimer = null;
     }
 
-    const hidden =
-        document.visibilityState ===
-            "hidden";
+    // Native windows cover this Dashboard for hours while the Twitch scripts
+    // remain independent. Do not wake this renderer just to reschedule itself.
+    // visibilitychange below re-arms progress immediately when it reappears.
+    if (document.visibilityState === "hidden") return;
 
     nowPlayingProgressTimer = setTimeout(
         () => {
             nowPlayingProgressTimer = null;
-
-            if (
-                document.visibilityState !==
-                    "hidden"
-            ) {
+            if (document.visibilityState !== "hidden") {
                 refreshNowPlayingProgress();
+                scheduleNowPlayingProgressRefresh();
             }
-
-            scheduleNowPlayingProgressRefresh();
         },
-        immediate
-            ? 0
-            : (hidden ? 5000 : 1000)
+        immediate ? 0 : 1000
     );
 }
 
@@ -2500,19 +2495,20 @@ function updateClock() {
 }
 
 function scheduleClockUpdate() {
-    if (clockUpdateTimer) {
+    if (clockUpdateTimer !== null) {
         clearTimeout(clockUpdateTimer);
+        clockUpdateTimer = null;
     }
+
+    // The clock is presentation-only. Repaint immediately on reveal rather
+    // than keeping a minute timer alive behind four Twitch windows or WuWa.
+    if (document.visibilityState === "hidden") return;
 
     updateClock();
 
     const now = Date.now();
     const delay = 60000 - (now % 60000) + 50;
-
-    clockUpdateTimer = setTimeout(
-        scheduleClockUpdate,
-        delay
-    );
+    clockUpdateTimer = setTimeout(scheduleClockUpdate, delay);
 }
 
 scheduleClockUpdate();
@@ -2520,9 +2516,7 @@ scheduleClockUpdate();
 document.addEventListener(
     "visibilitychange",
     () => {
-        if (document.visibilityState !== "hidden") {
-            scheduleClockUpdate();
-        }
+        scheduleClockUpdate();
     }
 );
 /*
@@ -3734,6 +3728,7 @@ function paintAnarchySettings() {
 
 function startAnarchySettingsColors() {
     if (anarchySettingsColorTimer) return;
+    if (document.visibilityState === "hidden" || !settingsCenter || settingsCenter.hidden) return;
     paintAnarchySettings();
     anarchySettingsColorTimer = setInterval(paintAnarchySettings, 200);
 }
@@ -3747,9 +3742,16 @@ function stopAnarchySettingsColors() {
 function syncAnarchySettingsVisuals() {
     const active = settingsSection === "anarchy";
     settingsContent?.classList.toggle("settings-content-anarchy", active);
-    if (active) startAnarchySettingsColors();
-    else stopAnarchySettingsColors();
+    if (active && document.visibilityState !== "hidden" && settingsCenter && !settingsCenter.hidden) {
+        startAnarchySettingsColors();
+    } else {
+        stopAnarchySettingsColors();
+    }
 }
+
+// Stop animated decoration the moment Dashboard goes into the background.
+// No new timer is needed: reopening/revealing Settings reactivates it.
+document.addEventListener("visibilitychange", syncAnarchySettingsVisuals);
 
 function notifySettingsVisibility(open) {
     chrome.runtime.sendMessage({
@@ -4565,12 +4567,12 @@ function diagnosticsCapabilityMatrix(providerStates, selfTest = {}) {
         const extensionSupported = extensionEntries.filter(([, capability]) => capability?.supported === true).length;
         const adapterState = !state.known
             ? `<span class="settings-diagnostics-cap neutral">COLD</span>`
-            : !state.alive
+            : state.alive === false
                 ? `<span class="settings-diagnostics-cap bad">DOWN</span>`
                 : page.ok && page.api?.adapterLoaded
                     ? `<span class="settings-diagnostics-cap good">v${escapeSettingsHtml(page.api.version || "?")}</span>`
-                    : cachedReport?.adapterKind
-                        ? `<span class="settings-diagnostics-cap neutral">v${escapeSettingsHtml(cachedReport.apiVersion || "?")}</span>`
+                    : cachedReport?.apiVersion
+                        ? `<span class="settings-diagnostics-cap ${cachedReport.ok === false ? "bad" : "good"}" title="Last cached Provider API self-test">v${escapeSettingsHtml(cachedReport.apiVersion || "?")}*</span>`
                         : `<span class="settings-diagnostics-cap neutral">IDLE</span>`;
 
         return `
@@ -4591,7 +4593,7 @@ function diagnosticsCapabilityMatrix(providerStates, selfTest = {}) {
         <section class="settings-diagnostics-card settings-diagnostics-card-wide settings-diagnostics-capability-card">
             <div class="settings-diagnostics-card-heading">
                 <h3>Provider capability matrix</h3>
-                <p>Supported vs. currently available through Provider API v1. WAIT means the adapter supports it but the required page/player state is not present.</p>
+                <p>Last recorded Provider API health; * indicates a cached self-test, not a current DOM probe. Deep export refreshes live details.</p>
             </div>
             <div class="settings-diagnostics-matrix-wrap">
                 <table class="settings-diagnostics-matrix">
@@ -4619,7 +4621,7 @@ async function collectSettingsDiagnostics(options = {}) {
     let runtime = {};
     try {
         runtime = await chrome.runtime.sendMessage({
-            type: "dashboard-diagnostics",
+            type: full ? "dashboard-diagnostics" : "dashboard-diagnostics-lite",
             full
         }) || {};
     } catch {
@@ -4699,12 +4701,15 @@ async function collectSettingsDiagnostics(options = {}) {
             leftMode: runtime.leftMode || currentLeftMode || "unknown",
             rightMode: runtime.rightMode || "unknown",
             activeProvider: runtime.activeProvider || null,
-            browserWindowsTotal: Number(runtime.browserWindowsTotal) || 0,
-            providerWindowsAlive: Number(runtime.providerWindowsAlive) || 0,
+            browserWindowsTotal: Number.isInteger(runtime.browserWindowsTotal) ? runtime.browserWindowsTotal : null,
+            managedWindowsRegistered: Number.isInteger(runtime.managedWindowsRegistered) ? runtime.managedWindowsRegistered : null,
+            providerWindowsAlive: Number.isInteger(runtime.providerWindowsAlive) ? runtime.providerWindowsAlive : null,
             providerWindowsKnown: Number(runtime.providerWindowsKnown) || 0,
             providerWindows: providerStates,
             landingWindowAlive: runtime.landingWindowAlive === true,
             dashboardWindowAlive: runtime.dashboardWindowAlive === true,
+            landingWindowRegistered: runtime.landingWindowRegistered === true,
+            dashboardWindowRegistered: runtime.dashboardWindowRegistered === true,
             twitchSplitLab: runtime.twitchSplitLab || {
                 active: false,
                 windowCount: 0,
@@ -4722,19 +4727,22 @@ async function collectSettingsDiagnostics(options = {}) {
             titlebarSettingsOpen: runtime.titlebarSettingsOpen === true,
             titlebarVolumeActive: runtime.titlebarVolumeActive === true,
             titlebarArtwork: runtime.titlebarArtwork || {},
+            titlebarProtocolReady: runtime.titlebarProtocolReady === true,
+            titlebarProtocolVersion: runtime.titlebarProtocolVersion || null,
+            titlebarNativeStatus: runtime.titlebarNativeStatus || null,
             titlebarProviderSync: runtime.titlebarProviderSync || null,
-            discordHelperConnected: runtime.discord?.ok === true,
-            discordRunning: runtime.discord?.running === true,
-            discordVisible: runtime.discord?.visible === true
+            discordHelperConnected: runtime.discord ? runtime.discord.ok === true : null,
+            discordRunning: runtime.discord ? runtime.discord.running === true : null,
+            discordVisible: runtime.discord ? runtime.discord.visible === true : null
         },
         audio: {
             active: runtime.audio?.active === true,
             provider: runtime.audio?.provider || null,
-            percent: Number.isFinite(Number(runtime.audio?.percent))
+            percent: runtime.audio?.percent != null && Number.isFinite(Number(runtime.audio.percent))
                 ? Number(runtime.audio.percent)
                 : null,
             profile: runtime.audio?.profile || null,
-            offscreenDocumentAlive: runtime.offscreenDocumentAlive === true
+            offscreenDocumentAlive: typeof runtime.offscreenDocumentAlive === 'boolean' ? runtime.offscreenDocumentAlive : null
         },
         playback: {
             provider: liveProvider,
@@ -4749,6 +4757,8 @@ async function collectSettingsDiagnostics(options = {}) {
         },
         sleepTimer: sleep,
         selfTest: runtime.launchSelfTest || null,
+        runtimeCounters: runtime.runtimeCounters || null,
+        cacheReady: runtime.cacheReady === true,
         flightRecorder: runtime.flightRecorder || {
             format: "stream-shell-flight-recorder",
             version: 1,
@@ -4873,7 +4883,7 @@ function diagnosticsSafeModeCard(provider, page) {
                 ${diagnosticsRow("Stored state", storedEnabled ? "Enabled" : "Disabled", storedEnabled ? "neutral" : "good")}
                 ${diagnosticsRow(
                     "Runtime state",
-                    runtimeEnabled === null ? "Unavailable" : (runtimeEnabled ? "Enabled · UI/DOM suppressed" : "Disabled · normal features active"),
+                    runtimeEnabled === null ? "Not live-probed · see stored state" : (runtimeEnabled ? "Enabled · UI/DOM suppressed" : "Disabled · normal features active"),
                     runtimeEnabled === null ? "neutral" : (runtimeMatches ? "good" : "bad")
                 )}
             </div>
@@ -4957,7 +4967,7 @@ function diagnosticsRepairCard(provider, page) {
         );
     }
 
-    if (!page?.ok) {
+    if (!page?.ok && page?.cached !== true) {
         const meta = DIAGNOSTICS_REPAIR_META["reload-provider"];
         return `
             <section class="settings-diagnostics-card settings-diagnostics-repair-card settings-diagnostics-action-card settings-diagnostics-targeted-repair-card">
@@ -5151,47 +5161,42 @@ function renderSettingsDiagnostics(snapshot) {
         diagnosticsRow("Right pane", shell.rightMode === "discord" ? "Discord" : "Dashboard", "neutral");
 
     const windowRows =
-        diagnosticsRow("Browser windows", shell.browserWindowsTotal ?? 0, "neutral") +
-        diagnosticsRow("Provider windows", `${shell.providerWindowsAlive}/${shell.providerWindowsKnown} alive`, shell.providerWindowsAlive === shell.providerWindowsKnown ? "good" : "neutral") +
-        diagnosticsRow("Landing window", shell.landingWindowAlive ? "Alive" : "Not present", shell.landingWindowAlive ? "good" : "neutral") +
-        diagnosticsRow("Dashboard window", shell.dashboardWindowAlive ? "Alive" : "Missing", shell.dashboardWindowAlive ? "good" : "bad");
+        diagnosticsRow("Managed windows", shell.managedWindowsRegistered ?? "Not sampled", "neutral") +
+        diagnosticsRow("Opera windows (total)", shell.browserWindowsTotal ?? "Deep only", "neutral") +
+        diagnosticsRow("Provider registrations", `${shell.providerWindowsKnown ?? 0} known`, "good") +
+        diagnosticsRow("Provider live probes", shell.providerWindowsAlive === null ? "Deep only" : `${shell.providerWindowsAlive} alive`, "neutral") +
+        diagnosticsRow("Landing", shell.landingWindowRegistered ? "Registered · cached" : (shell.landingWindowAlive ? "Alive" : "Not registered"), shell.landingWindowRegistered || shell.landingWindowAlive ? "good" : "neutral") +
+        diagnosticsRow("Dashboard", shell.dashboardWindowRegistered ? "Registered · cached" : (shell.dashboardWindowAlive ? "Alive" : "Not registered"), shell.dashboardWindowRegistered || shell.dashboardWindowAlive ? "good" : "neutral");
 
     const twitchWorkspace = shell.twitchWorkspaceV2 || {};
     const twitchRows = (twitchWorkspace.windows || []).map(slot => {
         const m = slot.twitchRuntime?.automation;
-        const drift = Number.isFinite(m?.heartbeatMaxDriftMs) ? `${Math.round(m.heartbeatMaxDriftMs)}ms peak drift` : "no heartbeat";
-        const lastJoin = m?.lastJoinResult || "none";
-        const visibility = slot.twitchRuntime?.documentVisibility || "unknown";
-        const value = `${slot.state || "missing"} · ${visibility} · ${slot.twitchRuntimeStatus || "unknown"} · ${drift} · join ${lastJoin}`;
+        const claim = slot.nativeClaim;
+        const drift = Number.isFinite(m?.heartbeatMaxDriftMs) ? `${Math.round(m.heartbeatMaxDriftMs)}ms peak` : "not live-probed";
+        const identity = Number.isInteger(slot.id) ? `window ${slot.id}` : "no window";
+        const claimLabel = claim?.phase === 'confirmed' ? 'native claimed' :
+            claim?.phase === 'pending' ? 'native pending' : claim ? `native ${claim.phase}` : 'claim not observed';
+        const value = `${slot.kind || 'empty'} · ${identity} · ${claimLabel} · ${drift}`;
         return diagnosticsRow(`Twitch ${String(slot.slot || "?").toUpperCase()}`, value,
-            slot.state === "minimized" ? "bad" : (slot.twitchRuntimeStatus === "ok" ? "good" : "neutral"));
+            claim?.phase === 'confirmed' ? 'good' : 'neutral');
     }).join("") || diagnosticsRow("Twitch Workspace", "Not running", "neutral");
+    const nativeClusterRow = diagnosticsRow("Native Twitch cluster",
+        Number.isInteger(twitchWorkspace.nativeClusterMembers) ?
+            `${twitchWorkspace.nativeClusterMembers} HWNDs · helper cache` : 'Not reported',
+        Number.isInteger(twitchWorkspace.nativeClusterMembers) ? 'good' : 'neutral');
 
     const providerRows = Object.entries(PROVIDER_NAMES).map(([provider, label]) => {
         const state = providerStates[provider] || {};
         const page = state.page || {};
-        const cachedReport = selfTest?.providers?.[provider]?.report || null;
-        const video = page.video || {};
-        const resolution = video.width && video.height ? ` · ${video.width}×${video.height}` : "";
-        const status = !state.known
-            ? "Not created"
-            : !state.alive
-                ? "Window missing"
-                : page.ok
-                    ? `Content OK${video.readyState !== undefined ? ` · video ${page.counts?.video || 0}${resolution}` : ""}`
-                    : cachedReport
-                        ? `Window alive · cached ${cachedReport.ok ? "runtime OK" : "self-test attention"}`
-                        : "Window alive · no live probe";
-        const statusClass = !state.known
-            ? "neutral"
-            : !state.alive
-                ? "bad"
-                : page.ok
-                    ? "good"
-                    : cachedReport?.ok === false
-                        ? "bad"
-                        : "neutral";
-        return diagnosticsRow(label, status, statusClass);
+        const cachedEntry = selfTest?.providers?.[provider] || null;
+        const cachedReport = cachedEntry?.report || null;
+        if (!state.known) return diagnosticsRow(label, "Not opened", "neutral");
+        if (state.alive === false) return diagnosticsRow(label, "Window missing · last check", "bad");
+        if (page.ok) return diagnosticsRow(label, "Live content OK", "good");
+        if (cachedReport) return diagnosticsRow(label,
+            `Window ${state.windowId ?? '?'} · API ${cachedReport.ok === false ? 'attention' : 'passed'} (cached)`,
+            cachedReport.ok === false ? 'bad' : 'good');
+        return diagnosticsRow(label, `Window ${state.windowId ?? '?'} registered · not live-probed`, "neutral");
     }).join("");
 
     const selfTestChecks = Object.values(selfTest.checks || {});
@@ -5207,7 +5212,9 @@ function renderSettingsDiagnostics(snapshot) {
         diagnosticsRow("Last check", selfTest.updatedAt ? new Date(selfTest.updatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : "—", "neutral");
 
     const activeProviderName = shell.activeProvider || null;
-    const activeProviderPage = activeProviderName ? providerStates[activeProviderName]?.page || null : null;
+    const activeProviderPage = activeProviderName
+        ? (providerStates[activeProviderName]?.page || (providerStates[activeProviderName]?.cached ? { cached: true } : null))
+        : null;
     let activeRows = "";
     let resumeRows = "";
     let featureRows = "";
@@ -5335,10 +5342,40 @@ function renderSettingsDiagnostics(snapshot) {
             featureRows = diagnosticsRow("Provider features", "No extension state reported", "neutral");
         }
     } else {
-        const unavailable = activeProviderName ? "Content diagnostics unavailable" : "No active provider";
-        activeRows = diagnosticsRow("Provider page", unavailable, "neutral");
-        resumeRows = diagnosticsRow("Resume state", unavailable, "neutral");
-        featureRows = diagnosticsRow("Provider features", unavailable, "neutral");
+        const cachedReport = selfTest?.providers?.[activeProviderName]?.report || null;
+        const providerWindowId = providerStates[activeProviderName]?.windowId;
+        if (activeProviderName && cachedReport) {
+            activeRows =
+                diagnosticsRow("Provider", PROVIDER_NAMES[activeProviderName] || activeProviderName, 'good') +
+                diagnosticsRow("Window", Number.isInteger(providerWindowId) ? `Registered · ${providerWindowId}` : 'Not registered', 'neutral') +
+                diagnosticsRow("Provider API", `v${cachedReport.apiVersion || '?'} · cached self-test`, cachedReport.ok !== false ? 'good' : 'bad') +
+                diagnosticsRow("Managed marker", cachedReport.managed ? 'Confirmed at last test' : 'Absent at last test', cachedReport.managed ? 'good' : 'bad') +
+                diagnosticsRow("Watch context", cachedReport.watchContext ? 'Active at last test' : 'Inactive at last test', 'neutral') +
+                diagnosticsRow("Video", cachedReport.videoPresent ? 'Present at last test' : 'No video at last test', 'neutral') +
+                diagnosticsRow("Last API check", cachedReport.checkedAt ? new Date(cachedReport.checkedAt).toLocaleTimeString() : 'Not recorded', 'neutral') +
+                diagnosticsRow("Live DOM probe", 'Deep export only', 'neutral');
+            const resumeCapability = cachedReport.capabilities?.['common.resume'];
+            const resolverCapability = cachedReport.capabilities?.['common.linkResolver'];
+            resumeRows = diagnosticsRow('Resume support', resumeCapability?.available ? (resumeCapability.detail || 'Available · cached') : 'Not reported', resumeCapability?.available ? 'good' : 'neutral') +
+                diagnosticsRow('Stale-link resolver', resolverCapability?.available ? (resolverCapability.detail || 'Ready · cached') : 'Not reported', resolverCapability?.available ? 'good' : 'neutral') +
+                diagnosticsRow('Live pending seek', 'Deep export only', 'neutral');
+            const capabilities = Object.entries(cachedReport.capabilities || {}).filter(([key]) => key.startsWith('extensions.'));
+            featureRows = capabilities.map(([key, cap]) => diagnosticsRow(
+                key.slice('extensions.'.length).replace(/([A-Z])/g, ' $1').replace(/^./, c => c.toUpperCase()),
+                `${cap?.state || (cap?.available ? 'Available' : 'Waiting')} · cached`,
+                cap?.available ? 'good' : 'neutral'
+            )).join('') || diagnosticsRow('Features', 'Not reported in last self-test', 'neutral');
+        } else if (activeProviderName) {
+            activeRows = diagnosticsRow('Provider', PROVIDER_NAMES[activeProviderName] || activeProviderName, 'good') +
+                diagnosticsRow('Window', Number.isInteger(providerWindowId) ? `Registered · ${providerWindowId}` : 'Not registered', 'neutral') +
+                diagnosticsRow('Provider API', 'Waiting for cached self-test', 'neutral');
+            resumeRows = diagnosticsRow('Resume', 'Not yet reported', 'neutral');
+            featureRows = diagnosticsRow('Features', 'Not yet reported', 'neutral');
+        } else {
+            activeRows = diagnosticsRow('Provider', 'No active provider', 'neutral');
+            resumeRows = diagnosticsRow('Resume', 'No active provider', 'neutral');
+            featureRows = diagnosticsRow('Features', 'No active provider', 'neutral');
+        }
     }
 
     const mediaRows =
@@ -5348,8 +5385,8 @@ function renderSettingsDiagnostics(snapshot) {
         diagnosticsRow(playback.provider === "youtube" ? "RYD ratio" : "TMDB rating", playback.hasRating ? "Available" : "Not available", playback.hasRating ? "good" : "neutral");
 
     const audioRows =
-        diagnosticsRow("Audio capture", audio.active ? "Active" : "Idle", audio.active ? "good" : "neutral") +
-        diagnosticsRow("Offscreen audio", audio.offscreenDocumentAlive ? "Alive" : "Not present", audio.active ? diagnosticsStatusClass(audio.offscreenDocumentAlive) : "neutral") +
+        diagnosticsRow("Audio capture", audio.active ? "Active" : "Idle / not sampled", audio.active ? "good" : "neutral") +
+        diagnosticsRow("Offscreen audio", audio.offscreenDocumentAlive === null ? 'Not polled (Deep only)' : (audio.offscreenDocumentAlive ? "Alive" : "Not present"), audio.offscreenDocumentAlive === true ? 'good' : 'neutral') +
         diagnosticsRow("Capture provider", audio.provider ? (PROVIDER_NAMES[audio.provider] || audio.provider) : "—", "neutral") +
         diagnosticsRow("Processing", audio.active ? `${audio.profile || "normal"} · ${audio.percent || 100}%` : "—", "neutral");
 
@@ -5386,8 +5423,10 @@ function renderSettingsDiagnostics(snapshot) {
         diagnosticsRow("Titlebar mode", native.titlebarVisibilityMode || "Unknown", "neutral") +
         diagnosticsRow("Settings state", native.titlebarSettingsOpen ? "Open" : "Closed", "neutral") +
         diagnosticsRow("Volume state", native.titlebarVolumeActive ? "Active" : "Idle", "neutral") +
-        diagnosticsRow("Discord helper", native.discordHelperConnected ? "Connected" : "Unavailable", diagnosticsStatusClass(native.discordHelperConnected)) +
-        diagnosticsRow("Discord process", native.discordRunning ? (native.discordVisible ? "Running · visible" : "Running · parked") : "Not running", native.discordRunning ? "good" : "neutral");
+        diagnosticsRow('Native protocol', native.titlebarProtocolReady ? `v${native.titlebarProtocolVersion || '?'} ready` : 'Not confirmed', native.titlebarProtocolReady ? 'good' : 'neutral') +
+        diagnosticsRow('Titlebar sync', native.titlebarProviderSync?.phase || 'Not reported', native.titlebarProviderSync?.acknowledgedGeneration >= native.titlebarProviderSync?.generation ? 'good' : 'neutral') +
+        diagnosticsRow("Discord helper", native.discordHelperConnected === null ? "Not polled (Deep only)" : (native.discordHelperConnected ? "Connected" : "Unavailable"), native.discordHelperConnected === true ? "good" : "neutral") +
+        diagnosticsRow("Discord process", native.discordRunning === null ? "Not polled (Deep only)" : native.discordRunning ? (native.discordVisible ? "Running · visible" : "Running · parked") : "Not running", native.discordRunning ? "good" : "neutral");
 
     const settingsRows =
         diagnosticsRow("Settings loaded", settings.loaded ? "Yes" : "No", diagnosticsStatusClass(settings.loaded)) +
@@ -5406,21 +5445,30 @@ function renderSettingsDiagnostics(snapshot) {
     const rawRows =
         diagnosticsRow("Format", snapshot.format || "stream-shell-diagnostics", "neutral") +
         diagnosticsRow("Schema", `v${snapshot.version || "?"}`, "neutral") +
-        diagnosticsRow("Snapshot mode", snapshot.mode === "full" ? "Full export" : "Panel · active provider live", "neutral") +
+        diagnosticsRow("Snapshot mode", snapshot.mode === "full" ? "Deep · live probes" : "Panel · cached health", "neutral") +
         diagnosticsRow("Generated", generatedAt, "neutral") +
         diagnosticsRow("Flight events", `${Number(flightRecorder.count) || 0}/${Number(flightRecorder.maxEvents) || 200}`, "neutral") +
-        diagnosticsRow("Export", "Header download button", "good");
+        diagnosticsRow("Export", "Runtime (fast) / Deep (optional)", "good");
 
     settingsDiagnosticsContent.innerHTML =
         diagnosticsSection(
             "01",
             "Overview",
-            "Shell status first: runtime, windows, provider reachability and launch self-test.",
+            "Cached runtime health and native claims: no expensive browser-wide probes when opening this panel.",
             diagnosticsCard("Runtime", runtimeRows) +
             diagnosticsCard("Windows", windowRows) +
-            diagnosticsCard("Twitch A–D runtime", twitchRows, "Full JSON includes timer drift, recent !play detection, join attempts, and visibility transition counters.") +
+            diagnosticsCard("Twitch A–D runtime", twitchRows + nativeClusterRow, "Native claims are real cached acknowledgements. Renderer heartbeat and join metrics require a Deep export.") +
             diagnosticsCard("Provider health", providerRows) +
-            diagnosticsCard("Self-test", selfTestRows),
+            diagnosticsCard("Self-test", selfTestRows) +
+            diagnosticsCard("IPC / Startup", snapshot.runtimeCounters ?
+                diagnosticsRow('Focus events', snapshot.runtimeCounters.focusEvents ?? 0, 'good') +
+                diagnosticsRow('Focus state cache', snapshot.runtimeCounters.focusCacheReady ? 'Ready' : 'Warming', snapshot.runtimeCounters.focusCacheReady ? 'good' : 'neutral') +
+                diagnosticsRow('Window event queue', `${snapshot.runtimeCounters.eventQueuePending ?? 0} pending · ${snapshot.runtimeCounters.eventQueueRunning ? 'running' : 'idle'}`, 'neutral') +
+                diagnosticsRow('Transitions', `${snapshot.runtimeCounters.transitionWaiters ?? 0} waiting · ${snapshot.runtimeCounters.transitionActive || 'idle'}`, 'neutral') +
+                diagnosticsRow('Renderer handoff', snapshot.runtimeCounters.rendererLaunchKind || 'none', 'neutral') +
+                diagnosticsRow('Native recovery audit', snapshot.runtimeCounters.nativeSlowAuditDeferred ? 'Idle · paused' : 'Enabled', snapshot.runtimeCounters.nativeSlowAuditDeferred ? 'neutral' : 'good') +
+                diagnosticsRow('Skipped idle audits', snapshot.runtimeCounters.nativeSlowAuditSkippedUnmanaged ?? 0, 'neutral') :
+                diagnosticsRow('IPC counters', 'Not sampled', 'neutral')),
             "overview"
         ) +
         diagnosticsSection(
@@ -5480,8 +5528,62 @@ function setDiagnosticsStatus(text) {
     settingsDiagnosticsStatus.textContent = text || "";
 }
 
+// Diagnostics panel hydration is an EXPLICIT user action. Cache is painted
+// first; only the selected provider gets one direct content-script request.
+// No window enumeration, script injection or native IPC. Never poll.
+let settingsDiagnosticsPanelEpoch = 0;
+let settingsDiagnosticsPanelProbePending = false;
+function settingsDiagnosticsBounded(promise, ms) {
+    return Promise.race([
+        promise,
+        new Promise(resolve => setTimeout(() => resolve(null), ms))
+    ]);
+}
+async function hydrateActiveProviderDiagnostics(snapshot, epoch) {
+    if (settingsDiagnosticsPanelProbePending || !diagnosticsIsOpen()) return;
+    const provider = snapshot?.shell?.activeProvider;
+    const windowId = snapshot?.shell?.providerWindows?.[provider]?.windowId;
+    if (!provider || !Number.isInteger(windowId)) return;
+    // Never add renderer diagnostics pressure during a startup handoff.
+    if (snapshot.runtimeCounters?.transitionActive ||
+        (snapshot.runtimeCounters?.transitionWaiters || 0) > 0) return;
+    settingsDiagnosticsPanelProbePending = true;
+    try {
+        const tabs = await settingsDiagnosticsBounded(
+            chrome.tabs.query({ windowId, active: true }), 1100);
+        const tabId = tabs?.find(tab => Number.isInteger(tab?.id))?.id;
+        if (!Number.isInteger(tabId)) return;
+        const page = await settingsDiagnosticsBounded(
+            chrome.tabs.sendMessage(tabId, { type: 'stream-shell-provider-diagnostics' }),
+            1600);
+        if (page?.ok !== true || epoch !== settingsDiagnosticsPanelEpoch ||
+            !diagnosticsIsOpen()) return;
+        const entry = snapshot.shell.providerWindows[provider];
+        if (!entry || entry.windowId !== windowId) return;
+        entry.page = page;
+        entry.alive = true;
+        entry.liveProbe = true;
+        entry.tab = { id: tabId };
+        settingsDiagnosticsSnapshot = snapshot;
+        renderSettingsDiagnostics(snapshot);
+        setDiagnosticsStatus('Cached health + live ' +
+            (PROVIDER_NAMES[provider] || provider) + ' probe · ' +
+            new Date().toLocaleTimeString());
+    } catch {
+        // A timeout or inaccessible content script is "not probed", not a
+        // failed provider. The previously rendered cache stays on screen.
+    } finally {
+        settingsDiagnosticsPanelProbePending = false;
+        if (epoch === settingsDiagnosticsPanelEpoch && diagnosticsIsOpen() &&
+            !snapshot.shell.providerWindows[provider]?.liveProbe) {
+            setDiagnosticsStatus('Cached health · provider live probe not available');
+        }
+    }
+}
+
 async function refreshSettingsDiagnostics() {
-    setDiagnosticsStatus("Refreshing…");
+    const epoch = ++settingsDiagnosticsPanelEpoch;
+    setDiagnosticsStatus("Refreshing cached health…");
     renderSettingsDiagnostics(null);
     const startedAt = performance.now();
 
@@ -5489,11 +5591,10 @@ async function refreshSettingsDiagnostics() {
         settingsDiagnosticsSnapshot = await collectSettingsDiagnostics({ full: false });
         renderSettingsDiagnostics(settingsDiagnosticsSnapshot);
         const elapsedMs = Math.max(0, Math.round(performance.now() - startedAt));
-        setDiagnosticsStatus(`Updated ${new Date().toLocaleTimeString([], {
-            hour: "numeric",
-            minute: "2-digit",
-            second: "2-digit"
-        })} · ${elapsedMs}ms`);
+        setDiagnosticsStatus(`Cached health · ${elapsedMs}ms · active provider probe pending`);
+        // Render first. Probe the active provider once, separately, *after*
+        // the panel is already usable. Do not block the open/refresh action.
+        void hydrateActiveProviderDiagnostics(settingsDiagnosticsSnapshot, epoch);
     } catch {
         settingsDiagnosticsSnapshot = null;
         settingsDiagnosticsContent.innerHTML = `
@@ -5531,6 +5632,7 @@ function openSettingsDiagnostics() {
 }
 
 function closeSettingsDiagnostics() {
+    ++settingsDiagnosticsPanelEpoch;
     if (!settingsDiagnosticsOverlay) return;
 
     settingsDiagnosticsOverlay.classList.remove("visible");
@@ -5548,9 +5650,9 @@ function closeSettingsDiagnostics() {
     }, 220);
 }
 
-async function exportSettingsDiagnostics() {
-    setDiagnosticsStatus("Collecting full export…");
-    const snapshot = await collectSettingsDiagnostics({ full: true });
+async function exportSettingsDiagnostics(deep = false) {
+    setDiagnosticsStatus(deep ? "Collecting deep export…" : "Exporting lightweight runtime log…");
+    const snapshot = await collectSettingsDiagnostics({ full: deep });
     const payload = {
         ...snapshot
     };
@@ -5562,12 +5664,12 @@ async function exportSettingsDiagnostics() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `StreamShell-diagnostics-${snapshot.extensionVersion}.json`;
+    anchor.download = `StreamShell-${deep ? 'deep' : 'runtime'}-${snapshot.extensionVersion}.json`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
     setTimeout(() => URL.revokeObjectURL(url), 0);
-    setDiagnosticsStatus("Exported");
+    setDiagnosticsStatus(deep ? "Deep export completed" : "Runtime log exported");
 }
 
 function renderYouTubeSettings(section) {
@@ -6591,6 +6693,13 @@ function handleSettingsClick(event) {
         return true;
     }
 
+    if (button.id === "settings-diagnostics-export-deep") {
+        event.preventDefault();
+        exportSettingsDiagnostics(true)
+            .catch(() => setDiagnosticsStatus("Deep export failed"));
+        return true;
+    }
+
     if (button.id === "settings-diagnostics-export") {
         event.preventDefault();
         exportSettingsDiagnostics()
@@ -7327,6 +7436,64 @@ function renderTwitchWorkspaceBackdrop(state, rightMode) {
  * STREAM SHELL STATE
  * ============================================================
  */
+
+/* Twitch cold-launch placeholder. This listens only to explicit transitions;
+ * there is no timer-driven polling and no browser/window/native diagnostics. */
+let streamShellTwitchSkeletonId = 0;
+let streamShellTwitchSkeletonTimer = null;
+function ensureStreamShellTwitchSkeleton() {
+    let surface = document.getElementById('stream-shell-twitch-skeleton');
+    if (surface) return surface;
+    surface = document.createElement('section');
+    surface.id = 'stream-shell-twitch-skeleton';
+    surface.className = 'stream-shell-twitch-skeleton';
+    surface.hidden = true;
+    surface.setAttribute('role','status');
+    surface.setAttribute('aria-live','polite');
+    /* Each placeholder owns its own header. The dashboard lives *behind*
+     * four separate native Opera windows, so one shared header/grid gap gets
+     * cut in half as A and B appear. Keep all visuals within their respective
+     * 50% x 50% viewport cells instead. No window/Storage/native probes. */
+    surface.innerHTML = `<span class="ss-ts-accessible-status ss-ts-stage">Preparing browser windows…</span>
+    <div class="ss-ts-grid" aria-hidden="true">${['A','B','C','D'].map(letter => `<div class="ss-ts-card ss-ts-card-${letter.toLowerCase()}" data-slot="${letter.toLowerCase()}">
+      <div class="ss-ts-head"><span class="ss-ts-dot"></span><div><strong>Twitch ${letter}</strong><p>Preparing workspace window…</p></div></div>
+      <div class="ss-ts-shimmer ss-ts-video"></div>
+      <div class="ss-ts-footer"><span class="ss-ts-shimmer ss-ts-avatar"></span><div class="ss-ts-lines"><span class="ss-ts-shimmer"></span><span class="ss-ts-shimmer"></span></div><span class="ss-ts-label">${letter}</span></div>
+    </div>`).join('')}</div>`;
+    document.querySelector('.dashboard')?.appendChild(surface);
+    return surface;
+}
+function renderStreamShellTwitchSkeleton(message) {
+    if (message?.surface !== 'twitch') return;
+    const stage = message.stage;
+    const id = Number(message.id) || 0;
+    if (stage === 'done' || stage === 'failed') {
+        if (id !== streamShellTwitchSkeletonId) return;
+        clearTimeout(streamShellTwitchSkeletonTimer);
+        const surface = document.getElementById('stream-shell-twitch-skeleton');
+        if (surface) surface.hidden = true;
+        return;
+    }
+    if (id < streamShellTwitchSkeletonId) return;
+    streamShellTwitchSkeletonId = id;
+    const surface = ensureStreamShellTwitchSkeleton();
+    const text = surface.querySelector('.ss-ts-stage');
+    if (text) text.textContent = stage === 'creating'
+        ? 'Starting Twitch A–D, one window at a time…'
+        : 'Waiting for the previous provider to settle…';
+    clearTimeout(streamShellTwitchSkeletonTimer);
+    // Skip a flash for warm sub-200ms transitions; cold launches always show.
+    if (stage === 'waiting') {
+        streamShellTwitchSkeletonTimer = setTimeout(() => {
+            if (streamShellTwitchSkeletonId === id) surface.hidden = false;
+        }, 180);
+    } else surface.hidden = false;
+}
+chrome.runtime.onMessage.addListener(message => {
+    if (message?.type === 'stream-shell-transition-visual') {
+        renderStreamShellTwitchSkeleton(message);
+    }
+});
 
 chrome.runtime.sendMessage({
     type:

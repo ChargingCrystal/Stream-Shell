@@ -646,10 +646,20 @@
 
                             <button
                                 type="button"
+                                id="settings-diagnostics-export-deep"
+                                class="settings-header-action"
+                                title="Deep export (slow, live probes; use only when needed)"
+                                aria-label="Deep export"
+                            >
+                                <span aria-hidden="true" style="font-size:10px;font-weight:700">DEEP</span>
+                            </button>
+
+                            <button
+                                type="button"
                                 id="settings-diagnostics-export"
                                 class="settings-header-action"
-                                title="Export diagnostics"
-                                aria-label="Export diagnostics"
+                                title="Fast runtime log (no live probes)"
+                                aria-label="Export runtime log"
                             >
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="M12 15V4M8.5 7.5L12 4L15.5 7.5"></path>

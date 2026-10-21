@@ -488,6 +488,11 @@ async function ensureTwitchWorkspaceV2Slot(record, slotId, focused = false) {
         await chrome.tabs.update(tab.id, tabPatch).catch(() => {});
     }
 
+    // The old browser window may have closed while its HWND was still alive
+    // in the native mapping. A new chrome.windows ID must NOT receive a blind
+    // native claim renewal for that previous HWND.
+    resetTwitchWorkspaceV2ClaimCache(slot.windowId);
+    twitchWorkspaceV2ForceRebindIds.add(win.id);
     const next = {
         ...record,
         slots: {
@@ -510,6 +515,8 @@ async function ensureTwitchWorkspaceV2Slot(record, slotId, focused = false) {
  * underneath Opera for the lifetime of the service worker. */
 const twitchWorkspaceV2ClaimStates = new Map();
 const twitchWorkspaceV2ClaimRequests = new Map();
+// Window creation is a change of identity, not an ordinary idempotent renewal.
+const twitchWorkspaceV2ForceRebindIds = new Set();
 const TWITCH_WORKSPACE_V2_CLAIM_RETRY_MS = 9000;
 let twitchWorkspaceV2ClaimGeneration = 0;
 let twitchWorkspaceV2ClaimAuditRunning = false;
@@ -528,6 +535,12 @@ function acknowledgeTwitchWorkspaceV2Claim(message) {
     if (!TWITCH_WORKSPACE_V2_SLOT_IDS.includes(member)) return;
     for (const [windowId, state] of twitchWorkspaceV2ClaimStates) {
         if (state.member !== member || state.phase !== "pending") continue;
+        // Old helper versions can acknowledge a live but obsolete HWND as a
+        // renewal. Do not mark a new popup claimed until native confirms rebind.
+        if (Number.isInteger(message.browserWindowId) && message.browserWindowId !== windowId) continue;
+        if (twitchWorkspaceV2ForceRebindIds.has(windowId) &&
+            (message.rebound !== true || message.browserWindowId !== windowId)) continue;
+        twitchWorkspaceV2ForceRebindIds.delete(windowId);
         twitchWorkspaceV2ClaimStates.set(windowId, { ...state, phase: "confirmed", acknowledgedAt: Date.now() });
         return;
     }
@@ -568,7 +581,8 @@ async function claimTwitchWorkspaceV2Window(windowId, member, rect) {
 
 async function postTwitchWorkspaceV2WindowClaim(windowId, member, rect) {
     const prior = twitchWorkspaceV2ClaimStates.get(windowId);
-    if (prior?.member === member && prior.phase === "confirmed") return true;
+    const forceRebind = twitchWorkspaceV2ForceRebindIds.has(windowId);
+    if (!forceRebind && prior?.member === member && prior.phase === "confirmed") return true;
     if (!titlebarPort) await ensureTitlebarNative();
     if (!titlebarPort || !titlebarProtocolReady) return false;
 
@@ -596,6 +610,8 @@ async function postTwitchWorkspaceV2WindowClaim(windowId, member, rect) {
             mode: "twitch",
             member,
             titleHint,
+            forceRebind,
+            browserWindowId: windowId,
             left: rect.left,
             top: rect.top,
             width: rect.width,
@@ -802,17 +818,39 @@ async function restoreTwitchWorkspaceV2GridGeometry(record, slotId, focused = tr
     return true;
 }
 
+const TWITCH_WORKSPACE_V2_COLD_SLOT_SPACING_MS = 1250;
+
 async function raiseTwitchWorkspaceV2(record, preferredSlot = null) {
     let next = record;
     const live = [];
+    let newPopups = 0;
 
     /* Ensure each cell exists, but do not focus A -> B -> C -> D. The old
      * focus carousel was visible to Windows/Opera and was the main source of
      * compositor/titlebar thrash in 0.19.1. */
     for (const id of TWITCH_WORKSPACE_V2_SLOT_IDS) {
+        if (shuttingDown) break;
+        const previousWindowId = next.slots?.[id]?.windowId;
         const ensured = await ensureTwitchWorkspaceV2Slot(next, id, false);
         next = ensured.record;
         if (Number.isInteger(ensured.window?.id)) live.push({ id, windowId: ensured.window.id });
+        if (Number.isInteger(ensured.window?.id) &&
+            ensured.window.id !== previousWindowId) {
+            newPopups += 1;
+            // Chromium is still constructing the Twitch renderer after the
+            // window API has resolved. A-D must not all begin decoding,
+            // injecting scripts, and loading chat in the same instant.
+            if (id !== TWITCH_WORKSPACE_V2_SLOT_IDS.at(-1)) {
+                await new Promise(resolve => setTimeout(resolve, TWITCH_WORKSPACE_V2_COLD_SLOT_SPACING_MS));
+            }
+        }
+    }
+    if (newPopups > 0) {
+        streamShellRendererColdUntil = Date.now() + STREAM_SHELL_RENDERER_WARM_AFTER_MS;
+        recordFlightEvent({
+            category: 'twitch-workspace-v2', action: 'staggered-popup-startup',
+            detail: { newPopups, spacingMs: TWITCH_WORKSPACE_V2_COLD_SLOT_SPACING_MS }
+        }).catch(() => {});
     }
 
     const fullscreenId = TWITCH_WORKSPACE_V2_SLOT_IDS.includes(next.paneFullscreenSlot)
@@ -890,20 +928,27 @@ function scheduleTwitchWorkspaceV2SurfaceWake(record, preferredSlot, coldStart =
     }
 }
 
-async function showTwitchWorkspaceV2(target = "workspace") {
+function showTwitchWorkspaceV2(target = "workspace") {
+    return runStreamShellWindowTransition(
+        `twitch:${target}`,
+        () => _showTwitchWorkspaceV2(target)
+    );
+}
+
+async function _showTwitchWorkspaceV2(target = "workspace") {
     if (shuttingDown) return null;
     const profile = await getStreamShellDisplayProfile().catch(() => null);
     if (profile?.mode === "compact") {
         throw new Error("Twitch Workspace is available from the Wide Landing layout.");
     }
 
-    await ensureDashboardWindow();
+    await measureShellWindowStep("twitch:ensure-dashboard", () => ensureDashboardWindow());
     const surfaceBeforeShow = await chrome.storage.local.get("rightMode").catch(() => ({}));
     if (surfaceBeforeShow.rightMode === "discord") {
         await hideDiscordForDashboard();
     }
 
-    let record = await migrateIntoTwitchWorkspaceV2();
+    let record = await measureShellWindowStep("twitch:load-workspace", () => migrateIntoTwitchWorkspaceV2());
     let preferredSlot = record.selectedSlot || "a";
 
     if (target === "drops") {
@@ -939,12 +984,12 @@ async function showTwitchWorkspaceV2(target = "workspace") {
 
     // The helper now refuses Twitch cluster raises while Dashboard is active.
     // Synchronize intent before trying to raise A-D on a deliberate transition.
-    await syncConnectedTitlebarNative().catch(() => {});
+    await measureShellWindowStep("twitch:sync-titlebar", () => syncConnectedTitlebarNative().catch(() => {}));
 
-    record = await raiseTwitchWorkspaceV2(record, preferredSlot);
+    record = await measureShellWindowStep("twitch:raise-workspace", () => raiseTwitchWorkspaceV2(record, preferredSlot));
     scheduleTwitchWorkspaceV2Claims(record);
     scheduleTwitchWorkspaceV2SurfaceWake(record, preferredSlot, coldStart);
-    await syncTwitchWorkspaceV2StreamRefreshAlarms(record).catch(() => {});
+    await measureShellWindowStep("twitch:refresh-alarms", () => syncTwitchWorkspaceV2StreamRefreshAlarms(record).catch(() => {}));
 
     await recordFlightEvent({
         source: "background",
@@ -960,8 +1005,14 @@ async function showTwitchWorkspaceV2(target = "workspace") {
         }
     }).catch(() => {});
 
-    await broadcastState();
-    return getTwitchWorkspaceV2Diagnostics();
+    /* v0.20.3: Cold-start telemetry measured a 3.4s full broadcast. That
+     * enumerates all browser windows and awaits renderer-facing messages while
+     * the global transition queue is locked. State was ALREADY persisted and
+     * the native titlebar synchronized above. Send a lightweight UI event only;
+     * leave full broadcastState() for regular state reconciliation and explicit
+     * updates, never for the critical Twitch launch path. */
+    await measureShellWindowStep("twitch:notify-ui", () => broadcastTwitchWorkspaceV2LaunchState(record));
+    return twitchWorkspaceV2SummaryFromRecord(record);
 }
 
 async function assignTwitchWorkspaceV2Slot(slotId, input, preferredKind = null, makeVisible = true) {
@@ -1281,11 +1332,20 @@ async function syncTwitchWorkspaceV2Location(tab) {
 async function reconcileClosedTwitchWorkspaceV2Window(windowId) {
     if (!Number.isInteger(windowId)) return;
     resetTwitchWorkspaceV2ClaimCache(windowId);
+    twitchWorkspaceV2ForceRebindIds.delete(windowId);
     let record = await getTwitchWorkspaceV2Record();
     if (!record) return;
 
     const slotId = getTwitchWorkspaceV2SlotByWindowId(record, windowId);
     if (!slotId) return;
+    // Distinguish native claim loss from Opera actually closing a popup.
+    // A closed slot is rebuilt on the next deliberate Twitch activation;
+    // never launch a new browser window as a side effect of onRemoved.
+    void recordFlightEvent({
+        source: 'background', category: 'twitch-workspace-v2',
+        action: 'slot-window-removed', level: 'warn',
+        detail: { slotId, windowId, previousTabId: record.slots?.[slotId]?.tabId ?? null }
+    }).catch(() => {});
     record = {
         ...record,
         paneFullscreenSlot: record.paneFullscreenSlot === slotId ? null : record.paneFullscreenSlot,
@@ -1341,12 +1401,14 @@ async function closeTwitchWorkspaceV2Windows(preserveDefinition = true) {
         await chrome.storage.local.set({ [TWITCH_WORKSPACE_V2_STORAGE_KEY]: record });
     }
 
-    for (const windowId of windowIds) resetTwitchWorkspaceV2ClaimCache(windowId);
+    for (const windowId of windowIds) {
+        resetTwitchWorkspaceV2ClaimCache(windowId);
+        twitchWorkspaceV2ForceRebindIds.delete(windowId);
+    }
     await Promise.allSettled(windowIds.map(windowId => safelyRemoveWindow(windowId)));
 }
 
-async function getTwitchWorkspaceV2Summary() {
-    const record = await getTwitchWorkspaceV2Record();
+function twitchWorkspaceV2SummaryFromRecord(record) {
     if (!record) return { active: false, version: TWITCH_WORKSPACE_V2_VERSION, slots: [] };
     return {
         active: true,
@@ -1367,6 +1429,10 @@ async function getTwitchWorkspaceV2Summary() {
             raidProtectionEnabled: record.slots?.[id]?.raidProtectionEnabled === true
         }))
     };
+}
+
+async function getTwitchWorkspaceV2Summary() {
+    return twitchWorkspaceV2SummaryFromRecord(await getTwitchWorkspaceV2Record());
 }
 
 async function getTwitchWorkspaceV2Diagnostics() {
@@ -1437,6 +1503,7 @@ async function getTwitchWorkspaceV2Diagnostics() {
                         member: claim.member,
                         sentAgoMs: Math.max(0, Date.now() - claim.sentAt),
                         attempts: claim.attempts,
+                        forceRebindPending: twitchWorkspaceV2ForceRebindIds.has(slot.windowId),
                         acknowledgedAgoMs: claim.acknowledgedAt
                             ? Math.max(0, Date.now() - claim.acknowledgedAt)
                             : null

@@ -1,3 +1,150 @@
+## v0.20.18 – Restore COBOL Financial Operations (2026-10-21)
+
+- Restore `landing/src/finance.js` to the generated Wide Landing bundle, fixing the five-click Subscriptions secret entry that silently stopped working in v0.19.35.
+- Retain `finance.js` outside Compact Home; the native `com.streamshell.finance` host, GnuCOBOL worker, prices/settings, print/report logic and other runtimes are unchanged.
+- Add Finance trigger and native-bridge smoke coverage to the cross-platform regression suite; correct v0.20.17 audit's mistaken dormant-prototype classification.
+- No native recompilation required, no window/renderer timing or Twitch/provider changes.
+
+## v0.20.17 – Repository Quality Gate & Safe IPC Boundaries (2026-10-21)
+
+- Run comprehensive static, bundle-parity and regression audit across Stream Shell; findings in `CODE_AUDIT_v0.20.17.md`.
+- Add cross-platform `node tools/check-project.mjs` and CI workflow for source/build/asset integrity and all existing JS tests plus C# source contract.
+- Prevent a latent Landing bundle mismatch from enabling archived finance code on rebuild.
+- Guard malformed background message envelopes and make the async `get-state` response reject-safe.
+- Keep native, automation, all renderer startup intervals and known-good runtime behavior unchanged.
+
+## v0.20.14 — Native Resilience / C# Care
+
+- Catch individual Native Messaging command failures without tearing down the entire read loop.
+- Keep overlay sync and focus exceptions inside Win32 callback boundaries; log rate-limited faults.
+- Replace unbounded cross-process Opera `SendMessage` and caption changes with 350 ms `SendMessageTimeoutW` IPC.
+- Pause heavy taskbar/Alt-Tab audits when a foreign fullscreen window covers both Wide panes, while retaining claim handling and active-pane logic.
+- C# command dispatch and button routing use explicit switches. Runtime health counters use an instance-owned object instead of additional global mutable fields.
+- Native status includes callback failures, command failures, fullscreen idle skips, and slow sync counts.
+- No change to renderer handoff timing, Twitch popup stagger, or extension background behavior.
+
+## v0.20.16 – Native IPC Idle-Aware Recovery
+
+- Skip expensive background 10-second titlebar/claim audits while a non-Shell application is focused in Wide mode; keep native heartbeat and ACK retry cadence intact.
+- Deep Diagnostics again includes runtime counters, and the panel shows recovery-audit idle/scheduling status.
+- All startup stagger timings, Twitch automation and C# native code unchanged.
+
+
+## v0.20.15 – Background Idle Budget & Runtime Code Care
+
+- Dashboard hidden idle budget: clock and playback progress suspend timer wakeups until visible again.
+- Anarchy Settings interval only runs when visible and open.
+- Provider governor ignores focus-only workload timer restarts while retaining immediate state-transition work.
+- Twitch pointer IPC throttled to 1/s; Marbles chat mutation deduplication without delaying autojoin.
+- No native changes, no startup delay changes.
+
+
+## v0.20.13 – Native Titlebar Source Split (2026-10-20)
+
+- Split the 7,925-line native titlebar C# monolith into one `StreamShellTitlebarHost.cs` core (constants, state, Win32/COM interop) and 18 topical `native/titlebar-src/*.cs` partial-class modules.
+- Retain **every original method body and declaration in its original order**. All static field initialization stays within the original core file in the original sequence; no Native Messaging protocol, claim, focus, z-order, timer, or UI behavior is changed.
+- Native titlebar installer compiles all partial source units in one existing `Add-Type` C# invocation. Native Messaging executable/manifest paths and Windows registry setup remain unchanged.
+- Add reproducible SHA-256 parity test proving that the partial member bodies reconstruct the **exact v0.20.12 source**, byte-for-byte. No runtime logic added by this refactor.
+- Re-run `native/install-titlebar-helper.cmd` to compile/install the refactored C# code; this environment cannot execute a Windows native compile, so smoke-test the titlebar and Twitch claims on Windows.
+- Preserve all existing 5.5s/3s renderer handoff protection, 1.25s Twitch stagger, skeleton placement, Discord, YouTube extras and Runtime/Deep Diagnostics.
+
+## v0.20.12 – Twitch Skeleton Geometry Alignment (2026-10-20)
+
+- Align each of four Twitch loading cards to its actual half-pane viewport cell; eliminate the shared header and card gaps that were partially covered by native A/B windows.
+- Keep a local header/status/pulsing dot and shimmer in EACH A–D placeholder, so windows replace their own placeholders cleanly as they appear.
+- Reserve 40px at the top-row bottom edge to tolerate the deliberate 20px-per-row Opera popup overlap (A/B 0–560; C/D 520–1080 at 32:9).
+- Pure dashboard DOM/CSS fix. Cold-launch 5.5s guard, 1.25s stagger and warm 3s handoff, native titlebar mapping, chat/MoS automation, Diagnostics remain unchanged.
+
+## v0.20.11 – Functional Reconciliation & Twitch Skeleton (2026-10-20)
+
+- Wide focus: reinstate Twitch selected-slot tracking and native cluster raise without storage reads, browser enumeration, or awaited native operations.
+- Provider governor: forward lightweight focus change to observed active provider tabs, coalesced and max one outstanding batch; existing provider/content visibility self-refresh remains authoritative for minimized state.
+- Cross-surface renderer guard: maintain 5500ms near cold launch or during 30s renderer stabilization; reduce to 3000ms only when already warm and cached windows exist. Preserve Twitch A–D cold-popup spacing at 1250ms.
+- Dashboard: temporary four-pane shimmer skeleton during explicit Twitch startup admission/warmup, cleared on completion/failure. No new background polling.
+- C# helper: remove duplicate/stale Twitch member browser-window ID entries whenever the HWND member entry is removed.
+- No restoration of hot-path browser-wide/Storage scans; Runtime and Deep Diagnostics remain separate.
+
+## v0.20.10 – Diagnostics Panel Restoration (2026-10-20)
+
+- The Diagnostics panel again displays meaningful cached health instead of placeholder zeros and false unavailable states: display profile, managed window registrations, native protocol and provider sync, Twitch A–D native claim acknowledgements, cached Provider API self-tests and capability matrix, and IPC/renderer handoff counters.
+- One optional bounded, deferred direct content-script probe of the ACTIVE provider enriches feature and player state after cached panel data renders. No browser-wide enumeration, native helper calls, script injection, background polling, or parallel Twitch probes on opening Diagnostics.
+- Runtime export stays lightweight. Deep export still supports comprehensive on-demand checks.
+- Unknown/stale/unprobed is not presented as a confirmed failure; this applies to browser window liveness, Discord helper state, and provider capability matrix.
+- No native helper changes. Local backgrounds/custom artwork excluded from release archives.
+
+## v0.20.9 – Renderer Startup Admission Control (2026-10-20)
+
+- Guard rapid provider↔Twitch transitions: wait 5.5 seconds after the previous costly renderer-facing transition before beginning the next, based on the user-reproduced Opera GX startup-lockup scenario.
+- A parked warm provider counts as renderer work, not only a deliberately selected provider.
+- Pace fresh Twitch A–D popup creation with 1.25 seconds between newly created windows, reducing concurrent Twitch page/decoder/content-script initialization; already-live slots are unchanged.
+- Add lightweight `renderer-handoff-staggered` and `staggered-popup-startup` diagnostics events, with a dedicated regression test. Native helper and private artwork unchanged.
+- Controlled launch delay is intentional; real Opera GX/WuWa validation is still required.
+
+## v0.20.8 – Emergency IPC Backpressure (2026-10-20)
+
+- No Opera storage/window API calls in Wide focus/resize event handlers.
+- One-time in-memory focus state cache updated via storage changes.
+- Twitch native claims only on tab completed/new tab, not unread-title changes.
+- Lightweight runtime Diagnostics panel/one-click export; optional separate Deep export.
+- Session Flight Recorder: 80 events, 5-second coalesced flush.
+
+## 0.20.7 — Wide Focus IPC Decongestion (2026-10-20)
+
+- Diagnostics showed one Wide focus reconcile lasting **22.8 seconds**: 8.2 s focus operations (including 3.1 s storage) and 14.6 s in `broadcastState()` for a **single** focus event. Background UI work was awaiting multiple Opera round trips during GPU/browser pressure.
+- For ordinary Wide focus and managed window-bounds notifications, replace full browser-wide reconciliation with a cheap state snapshot, a coalesced/latest-only UI message and existing native focus claims. Never await the UI response inside window-event draining.
+- Stop scanning all provider playback windows on every Wide focus event; reconcile provider playback changes asynchronously and at most once concurrently when a managed window changes geometry. Unrelated normal Opera window bounds changes now skip that scan entirely.
+- Preserve full `broadcastState()` on intentional provider/Twitch transitions and on Compact focus, where focus can change the active provider. Keep the independent Twitch chat, autojoin and native A-D claims untouched.
+- Add `twitch-workspace-v2 / slot-window-removed` telemetry when Opera actually closes A-D, distinguishing missing popup IDs from failed native HWND claims. Closed slots retain their configuration and are still rebuilt on intentional Twitch activation.
+- This is a targeted reduction in blocking work, not proof that Opera GX/WuWa long-running lag is fully resolved. JavaScript only; native helper v9 unchanged and no reinstall required.
+
+## 0.20.6 — Twitch Claim Recovery after Popup Replacement (2026-10-20)
+
+- Prevent the unmanaged focus fast-path from sending `claim-cancel` to the native host, since that command globally discards pending provider AND Twitch A-D claims. Keep fast-path performance behavior otherwise unchanged.
+- New Twitch popup windows request a **forceRebind** rather than renewing a native mapping that may still refer to the previous HWND; explicit rebind excludes the previous HWND and correlates with the Chrome popup window ID from pane/title candidate matching.
+- JS claim telemetry requires `rebound:true` from the native helper for newly created windows, avoiding a false `confirmed` status from older native hosts.
+- Existing HWNDs, normal Twitch SPA navigations, fullscreen transitions, and other native members retain their original idempotent claim behavior.
+- Native helper source changed: **re-run native/install-titlebar-helper.cmd** after installing the update. Native protocol v9 unchanged; forceRebind/rebound are backwards-compatible optional fields.
+- No changes to Twitch autojoin, chat, provider styles or personal background assets.
+
+## 0.20.5 — Focus Fast Path & Reconcile Instrumentation (2026-10-20)
+
+- Stop treating normal, unmanaged Opera window focus and browser focus loss (e.g. WuWa foreground) as Stream Shell navigation: no unnecessary browser-wide state broadcast, provider scan or titlebar surface claim. Still notify the native helper to hide shell-owned chrome and update provider resource-window focus asynchronously.
+- Preserve full reconciliation for managed provider, Dashboard and Landing focus; keep Twitch A-D lightweight focus behavior and window bounds logic unchanged.
+- Add `window-events / focus-phase` and `window-events / reconciled` timing breakdowns (`storageMs`, `compactMs`, `operationsMs`, `focusMs`, `boundsMs`, `broadcastMs`) for differentiating Chrome APIs from Native Messaging.
+- No C# or native protocol changes; keep all personal artwork excluded from release ZIPs.
+
+## 0.20.4 — Window Event Backpressure (2026-10-20)
+
+- Coalesce focus and bounds-change events across Opera windows into a single 110ms latest-state reconciliation; at most one reconciliation batch runs at a time. Preserve the distinct Twitch A–D focus fast path, full state reconciliation when necessary, Compact ownership rules, and independent chat/MoS automation.
+- Avoid spawning Discord native-status probes for ordinary Opera focus changes when rightMode is not Discord.
+- Suppress redundant provider registry refresh inside a serialized provider switch; generic provider creation still refreshes the registry normally.
+- Add sampled window-events/reconciled diagnostics with batch size, unique bounds handles and duration; record unexpected event-reconcile failures instead of silently ignoring them.
+- Native C# and protocol v9 unchanged; custom images/backgrounds excluded from release ZIPs.
+
+## 0.20.3 — Twitch Broadcast Decongestion (2026-10-20)
+
+- Replace the full browser-window-enumerating `broadcastState()` in the critical Twitch launch transition with a lightweight UI state notification using the already-known A–D record. Native titlebar remains synchronized before raising the Twitch cluster; full state broadcasts remain on other existing paths.
+- `restoreWindow()` uses a one-step focus fast path when an existing provider window is already normal and in the correct pane; minimized/misplaced windows retain the original geometry validation and retry behavior.
+- Record >350 ms provider-transition steps (target refresh, window acquisition, volume, restore, native claim, full broadcast), allowing future diagnostics to distinguish overloaded `chrome.windows` APIs from background messaging.
+- Native helper/C# protocol unchanged. Custom art and backgrounds excluded from release archives.
+
+## 0.20.2 — Twitch Launch Response Latency (2026-10-20)
+
+- Remove an expensive, unintended **full Twitch A–D diagnostics collection** from the normal `showTwitchWorkspaceV2` completion path. The v0.20.1 transition FIFO stayed locked while Chrome APIs queried four tabs serially, including up-to-1.3-second runtime-diagnostics timeouts per tab, even after the Twitch workspace was shown.
+- Return a lightweight Twitch workspace summary to launch callers. Full window/renderer/runtime diagnostics remain unchanged and are still collected on explicit Diagnostics export.
+- Record an event only when post-launch state broadcast takes over 750 ms, helping isolate any remaining delay without increasing normal storage work.
+- Preserve native claims, z-order correction, MoS autojoin, Twitch chat, window lifecycle and native helper protocol v9. **No C# changes.**
+- Regression coverage checks that normal Twitch activation never invokes the heavy diagnostics probe and that the explicit diagnostics function remains available. Opera GX + WuWa sustained-load verification remains pending.
+
+## 0.20.1 — Runtime Stability / Backpressure (2026-10-20)
+
+- Coalesce Flight Recorder persistence to one best-effort, nonblocking write at a time; preserve the live bounded ringbuffer and export storage-write health metadata.
+- Serialize deliberate Home/provider/Twitch workspace launch transitions with bounded FIFO backpressure (at most two queued); passive playback/chat/MoS loops are not gated.
+- Replace silent exception loops in Provider Resource Governor callbacks with console warnings, failure counts, durations, and capped exponential retry backoff.
+- Prevent slow periodic native titlebar reconciliation from producing overlapping browser-window queries.
+- Add Node regression tests for stalled storage, transition contention/recovery, and failing provider workload backoff. No C# or native protocol changes; native helper reinstall not required.
+- Opera GX/WuWa sustained-load validation remains pending. This is a reduction of known overload patterns, **not** a verified fix for the multi-minute freeze.
+
 ## 0.20.0 — Provider Registry UI Consolidation (2026-10-19)
 
 - The dynamic Provider Registry milestone receives a dedicated layout pass. In **General → Providers**, the Dashboard (1–7 pins) and native Titlebar (unlimited) lists now sit side by side on wide settings panes, with tighter row spacing, truncated long URLs and unchanged reorder/enable/show/color actions. On narrower panes they stack automatically.

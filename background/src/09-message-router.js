@@ -4,6 +4,12 @@ chrome.runtime.onMessage.addListener(
         sender,
         sendResponse
     ) => {
+        // Unexpected or malformed extension messages must not throw from the
+        // background listener. Unknown message types are left to other listeners.
+        if (!message || typeof message !== "object" || typeof message.type !== "string") {
+            return false;
+        }
+
         if (
             message.type ===
                 "kill-stream-shell" ||
@@ -362,6 +368,139 @@ chrome.runtime.onMessage.addListener(
         }
 
 
+        // v0.20.10: rich, synchronous panel diagnostics. This intentionally
+        // observes *existing* caches only. It does not enumerate windows,
+        // query storage, invoke the native helper or probe provider renderers.
+        if (message.type === "dashboard-diagnostics-lite") {
+            if (!isDashboardSender(sender)) {
+                sendResponse({ ok: false });
+                return;
+            }
+            const cached = shellWideFocusCache;
+            const workspace = cached[TWITCH_WORKSPACE_V2_STORAGE_KEY];
+            const selfTest = cached[STREAM_SHELL_SELF_TEST_KEY] || null;
+            const registeredProviderWindows = cached.providerWindows || {};
+            const providerDiagnostics = Object.fromEntries(
+                Object.keys(PROVIDERS).map(provider => {
+                    const windowId = registeredProviderWindows[provider];
+                    const known = Number.isInteger(windowId);
+                    const reportEntry = selfTest?.providers?.[provider];
+                    // Window liveness must not be inferred from an ID: only a
+                    // cached test is available, not a current live probe.
+                    return [provider, {
+                        known,
+                        alive: known && reportEntry?.windowAlive === true ? true : null,
+                        windowId: known ? windowId : null,
+                        cached: true,
+                        page: null
+                    }];
+                })
+            );
+            const workspaceWindows = TWITCH_WORKSPACE_V2_SLOT_IDS.map(id => {
+                const slot = workspace?.slots?.[id];
+                const windowId = slot?.windowId;
+                const claim = Number.isInteger(windowId)
+                    ? twitchWorkspaceV2ClaimStates.get(windowId)
+                    : null;
+                return {
+                    slot: id,
+                    id: Number.isInteger(windowId) ? windowId : null,
+                    kind: slot?.kind || 'empty',
+                    configuredUrl: slot?.url || null,
+                    configuredMuted: slot?.audioMuted !== false,
+                    state: Number.isInteger(windowId) ? 'registered' : null,
+                    twitchRuntimeStatus: Number.isInteger(windowId) ? 'not-probed' : 'not-opened',
+                    cached: true,
+                    nativeClaim: claim ? {
+                        phase: claim.phase,
+                        member: claim.member,
+                        attempts: claim.attempts,
+                        sentAgoMs: Math.max(0, Date.now() - claim.sentAt),
+                        acknowledgedAgoMs: claim.acknowledgedAt
+                            ? Math.max(0, Date.now() - claim.acknowledgedAt) : null,
+                        forceRebindPending: twitchWorkspaceV2ForceRebindIds.has(windowId)
+                    } : null
+                };
+            });
+            const providerIds = Object.values(registeredProviderWindows).filter(Number.isInteger);
+            const knownShellWindows = [cached.landingWindowId, cached.dashboardWindowId, ...providerIds,
+                ...workspaceWindows.map(item => item.id)].filter(Number.isInteger);
+            sendResponse({
+                ok: true,
+                diagnosticsMode: 'runtime-cached',
+                cacheReady: shellWideFocusCacheReady,
+                activeProvider: cached.activeProvider || null,
+                leftMode: cached.leftMode || 'landing',
+                rightMode: cached.rightMode || 'dashboard',
+                // This is managed-window count, not Opera's browser-wide total.
+                managedWindowsRegistered: new Set(knownShellWindows).size,
+                browserWindowsTotal: null,
+                providerWindowsKnown: providerIds.length,
+                providerWindowsAlive: null,
+                providerWindows: providerDiagnostics,
+                landingWindowRegistered: Number.isInteger(cached.landingWindowId),
+                dashboardWindowRegistered: Number.isInteger(cached.dashboardWindowId),
+                launchSelfTest: selfTest,
+                displayProfile: streamShellDisplayProfileCache || null,
+                twitchWorkspaceV2: {
+                    active: !!workspace,
+                    version: workspace?.version || TWITCH_WORKSPACE_V2_VERSION,
+                    visible: cached.rightMode === 'twitch',
+                    covered: cached.rightMode !== 'twitch',
+                    selectedSlot: workspace?.selectedSlot || null,
+                    activationCount: workspace?.activationCount || 0,
+                    nativeClusterMembers: titlebarLastNativeStatus?.twitchClusterMembers ?? null,
+                    nativeClusterMap: titlebarLastNativeStatus?.twitchClusterMap || null,
+                    updatedAt: workspace?.updatedAt || null,
+                    windows: workspaceWindows
+                },
+                titlebarConnected: Boolean(titlebarPort),
+                titlebarProtocolReady: titlebarProtocolReady === true,
+                titlebarProtocolVersion: TITLEBAR_PROTOCOL_VERSION,
+                titlebarReconcileIntervalMs: TITLEBAR_RECONCILE_INTERVAL_MS,
+                titlebarNativeStatus: titlebarLastNativeStatus,
+                titlebarVisibilityMode: shellWideFocusVisibility || 'unknown',
+                titlebarSettingsOpen: titlebarSettingsOpen === true,
+                titlebarVolumeActive: titlebarVolumeActive === true,
+                titlebarArtwork: Object.fromEntries(streamShellTitlebarArtworkStatus),
+                titlebarProviderSync: {
+                    phase: titlebarProviderSyncPhase,
+                    generation: titlebarProviderGeneration,
+                    acknowledgedGeneration: titlebarProviderAckGeneration,
+                    lastSentAt: titlebarProviderLastSentAt,
+                    lastAcknowledgedAt: titlebarProviderLastAckAt,
+                    skippedIcons: titlebarProviderLastRejectedIconCount,
+                    lastError: titlebarProviderLastError
+                },
+                // Absence of an IPC probe does NOT mean Discord has failed.
+                discord: null,
+                offscreenDocumentAlive: null,
+                audio: null,
+                flightRecorder: {
+                    format: 'stream-shell-flight-recorder', version: 1,
+                    count: flightRecorderEvents.length,
+                    maxEvents: STREAM_SHELL_FLIGHT_RECORDER_MAX_EVENTS,
+                    updatedAt: flightRecorderEvents.at(-1)?.at || null,
+                    events: flightRecorderEvents.slice(-60)
+                },
+                runtimeCounters: {
+                    focusEvents: shellWideFocusEventCount,
+                    lastFocusId: shellWideFocusLastId,
+                    focusCacheReady: shellWideFocusCacheReady,
+                    eventQueuePending: shellWindowEventPendingCount,
+                    eventQueueRunning: shellWindowEventRunning,
+                    transitionActive: streamShellTransitionActive,
+                    transitionWaiters: streamShellTransitionWaiters,
+                    rendererLaunchKind: streamShellLastRendererLaunchKind,
+                    rendererLastLaunchAt: streamShellLastRendererLaunchFinishedAt,
+                    nativeSlowAuditSkippedUnmanaged: titlebarSlowReconcileSkippedUnmanaged,
+                    nativeSlowAuditLastRunAt: titlebarSlowReconcileLastRanAt,
+                    nativeSlowAuditDeferred: shouldDeferTitlebarSlowReconcile()
+                }
+            });
+            return;
+        }
+
         if (
             message.type ===
                 "dashboard-diagnostics"
@@ -497,6 +636,21 @@ chrome.runtime.onMessage.addListener(
                             displayProfile,
                             twitchSplitLab,
                             twitchWorkspaceV2,
+                            cacheReady: shellWideFocusCacheReady,
+                            runtimeCounters: {
+                                focusEvents: shellWideFocusEventCount,
+                                lastFocusId: shellWideFocusLastId,
+                                focusCacheReady: shellWideFocusCacheReady,
+                                eventQueuePending: shellWindowEventPendingCount,
+                                eventQueueRunning: shellWindowEventRunning,
+                                transitionActive: streamShellTransitionActive,
+                                transitionWaiters: streamShellTransitionWaiters,
+                                rendererLaunchKind: streamShellLastRendererLaunchKind,
+                                rendererLastLaunchAt: streamShellLastRendererLaunchFinishedAt,
+                                nativeSlowAuditSkippedUnmanaged: titlebarSlowReconcileSkippedUnmanaged,
+                                nativeSlowAuditLastRunAt: titlebarSlowReconcileLastRanAt,
+                                nativeSlowAuditDeferred: shouldDeferTitlebarSlowReconcile()
+                            },
                             audio:
                                 volumeSession
                                     ? {
@@ -1903,7 +2057,13 @@ chrome.runtime.onMessage.addListener(
                             landingExposed
                         });
                     }
-                );
+                )
+                .catch(error => {
+                    sendResponse({
+                        ok: false,
+                        error: String(error?.message || "Unable to read shell state.")
+                    });
+                });
 
             return true;
         }

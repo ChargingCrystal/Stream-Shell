@@ -1120,6 +1120,36 @@ function stopTitlebarReconcileLoop() {
 }
 
 
+let titlebarSlowReconcileInFlight = false;
+// A normal native heartbeat is cheap and mandatory. Browser-wide recovery
+// queries are not: do not poke Opera's parked renderer windows every 10s
+// while an unrelated application (e.g. a fullscreen game) owns focus.
+// The focus fast-path updates this memory-only visibility hint without IPC.
+let titlebarSlowReconcileSkippedUnmanaged = 0;
+let titlebarSlowReconcileLastRanAt = null;
+function shouldDeferTitlebarSlowReconcile() {
+    return streamShellDisplayProfileCache?.mode === 'wide' &&
+        shellWideFocusCacheReady === true && shellWideFocusVisibility === 'none';
+}
+
+async function titlebarReconcileSlowPass() {
+    if (titlebarSlowReconcileInFlight || shuttingDown || !titlebarProtocolReady) return;
+    if (shouldDeferTitlebarSlowReconcile()) {
+        titlebarSlowReconcileSkippedUnmanaged++;
+        return;
+    }
+    titlebarSlowReconcileInFlight = true;
+    titlebarSlowReconcileLastRanAt = Date.now();
+    try {
+        await claimFocusedTitlebarSurface();
+        await reconcileTwitchWorkspaceV2Claims();
+    } catch (error) {
+        console.warn("Stream Shell native surface reconciliation failed:", error);
+    } finally {
+        titlebarSlowReconcileInFlight = false;
+    }
+}
+
 function startTitlebarReconcileLoop() {
     stopTitlebarReconcileLoop();
 
@@ -1170,8 +1200,9 @@ function startTitlebarReconcileLoop() {
 
                 titlebarReconcileTick += 1;
                 if (titlebarReconcileTick % 4 === 0) {
-                    claimFocusedTitlebarSurface().catch(() => {});
-                    reconcileTwitchWorkspaceV2Claims().catch(() => {});
+                    // Never pile up overlapping browser/window queries when Opera
+                    // is under GPU or UI-thread pressure.
+                    void titlebarReconcileSlowPass();
                 }
             },
             TITLEBAR_RECONCILE_INTERVAL_MS

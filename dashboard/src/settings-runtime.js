@@ -555,6 +555,13 @@ function handleSettingsClick(event) {
         return true;
     }
 
+    if (button.id === "settings-diagnostics-export-deep") {
+        event.preventDefault();
+        exportSettingsDiagnostics(true)
+            .catch(() => setDiagnosticsStatus("Deep export failed"));
+        return true;
+    }
+
     if (button.id === "settings-diagnostics-export") {
         event.preventDefault();
         exportSettingsDiagnostics()

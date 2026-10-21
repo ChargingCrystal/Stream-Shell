@@ -5301,3 +5301,55 @@ body[data-layout-profile="compact"] .provider-card .provider-card-custom-icon {
     .settings-custom-provider-bottom > label { flex: 0 1 auto; }
     .settings-custom-provider-artwork { grid-template-columns: minmax(0, 1fr); }
 }
+
+
+/* v0.20.12 · Window-aligned skeleton; never a separate header across native panes.
+ * Real four-popup layout (3840x1080): A/B x=1920/2880 y=0 h=560;
+ * C/D x=1920/2880 y=520 h=560 (40px overlap). The viewport excludes Opera
+ * browser chrome (~41px), so the VISIBLE seam is near 50% of this dashboard.
+ * Keep upper card footer >40px above the seam: C/D can cover that seam when
+ * Chromium brings a newly created native popup to the foreground. */
+.stream-shell-twitch-skeleton {
+    position:absolute; inset:0; z-index:42; padding:0;
+    color:#e9e7f2; pointer-events:none;
+    background:#08090f;
+}
+.stream-shell-twitch-skeleton[hidden]{display:none;}
+.ss-ts-grid {
+    position:absolute; inset:0; display:grid;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    grid-template-rows:repeat(2,minmax(0,1fr));
+    gap:0; min-width:0; min-height:0;
+}
+.ss-ts-card {
+    min-width:0; min-height:0; overflow:hidden;
+    background:linear-gradient(155deg,#181824,#10111b 65%,#0b0c15);
+    border:1px solid #ffffff18;
+    display:flex; flex-direction:column; gap:18px;
+    padding:22px 24px 24px;
+}
+/* The bottom native popups start 20px ABOVE the 540px middle line and may
+ * cover up to 40px of the top row. Never put the header/footer in that seam. */
+.ss-ts-card:nth-child(-n+2){padding-bottom:64px;}
+.ss-ts-card:nth-child(n+3){padding-top:24px;}
+.ss-ts-head{display:flex;align-items:center;gap:14px;flex:none;min-width:0;}
+.ss-ts-head strong{display:block;font:650 17px/1.35 system-ui,sans-serif;letter-spacing:.012em;}
+.ss-ts-head p{margin:2px 0 0;color:#9e9bab;font:12px/1.4 system-ui,sans-serif;}
+.ss-ts-dot{width:15px;height:15px;border-radius:50%;background:#aa75ff;
+    box-shadow:0 0 0 7px #9f62fe22,0 0 25px #aa75ff88;flex:none;
+    animation:ss-ts-pulse 1.5s ease-in-out infinite;}
+.ss-ts-video{flex:1;min-height:0;border-radius:9px;}
+.ss-ts-footer{display:flex;align-items:center;gap:11px;flex:none;min-width:0;}
+.ss-ts-avatar{width:34px;height:34px;border-radius:50%!important;flex:none;}
+.ss-ts-lines{display:flex;flex-direction:column;gap:6px;flex:1;min-width:0;}
+.ss-ts-lines .ss-ts-shimmer{height:9px;border-radius:5px;}
+.ss-ts-lines .ss-ts-shimmer:last-child{width:63%;}
+.ss-ts-label{font:700 11px/1 system-ui,sans-serif;color:#978da9;}
+.ss-ts-shimmer{display:block;background:linear-gradient(100deg,#262734 12%,#3f3a51 45%,#262734 76%);
+    background-size:240% 100%;animation:ss-ts-sweep 1.65s linear infinite;}
+.ss-ts-accessible-status{position:absolute;width:1px;height:1px;overflow:hidden;
+    clip-path:inset(50%);white-space:nowrap;}
+@keyframes ss-ts-sweep{from{background-position:120% 0;}to{background-position:-120% 0;}}
+@keyframes ss-ts-pulse{50%{opacity:.45;transform:scale(.8);}}
+@media(prefers-reduced-motion:reduce){.ss-ts-shimmer,.ss-ts-dot{animation:none;}}
+body[data-layout-profile="compact"] .stream-shell-twitch-skeleton{display:none;}
