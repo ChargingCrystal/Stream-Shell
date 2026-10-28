@@ -146,6 +146,7 @@ async function showDashboard() {
 
     const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
     const compact = displayProfile?.mode === "compact";
+    if (compact) await hideMangayomiIfActive();
 
     await deactivateTwitchForRightSurface({
         forceMinimize: compact
@@ -218,6 +219,8 @@ async function showDashboard() {
         // Right Dashboard was explicitly selected. Repair any owner-graph
         // ordering drift after Opera completes the focus hand-off, once only.
         scheduleWideRightPaneReassert("dashboard");
+        // Also maintain Mangayomi's LEFT app over its Landing owner. Passive only.
+        scheduleMangayomiWideReassert();
     }
 }
 

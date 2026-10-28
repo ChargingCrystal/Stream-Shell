@@ -329,6 +329,9 @@ async function _ensureProviderWindow(
 
 
 function switchProvider(providerName) {
+    if (providerName === "mangayomi") {
+        return runStreamShellWindowTransition("native:mangayomi", () => showMangayomi());
+    }
     return runStreamShellWindowTransition(
         `provider:${providerName}`,
         () => _switchProvider(providerName)
@@ -344,6 +347,7 @@ async function _switchProvider(
         return;
     }
 
+    await hideMangayomiIfActive();
     await measureShellWindowStep("provider:refresh-targets", () => refreshStreamShellProviderTargets());
     if (!PROVIDERS[providerName]) {
         throw new Error(`Unknown or disabled provider: ${providerName}`);

@@ -13,6 +13,87 @@ using System.Threading;
 // Original v0.20.12 source: lines 4523-5113.
 internal static partial class StreamShellTitlebarHost
 {
+    // Mangayomi is the only externally-owned LEFT surface adopted into the Wide
+    // Landing owner graph. Windows must reorder it with the Shell group when the
+    // RIGHT Dashboard receives focus; a one-shot HWND_TOP repair is insufficient.
+    // This state is intentionally separate from AltTabManagedWindows so we never
+    // rewrite a Flutter window's text/icon or treat it as an Opera HWND.
+    private static IntPtr mangayomiOwnedHwnd = IntPtr.Zero;
+    private static IntPtr mangayomiPreviousOwner = IntPtr.Zero;
+    private static int mangayomiWideOwnerAttaches = 0;
+
+    private static void ReleaseMangayomiWideOwner()
+    {
+        IntPtr app = mangayomiOwnedHwnd;
+        if (app == IntPtr.Zero) return;
+        if (IsWindow(app) &&
+            String.Equals(GetProcessName(app), "Mangayomi", StringComparison.OrdinalIgnoreCase))
+        {
+            SetOwner(app, mangayomiPreviousOwner);
+        }
+        mangayomiOwnedHwnd = IntPtr.Zero;
+        mangayomiPreviousOwner = IntPtr.Zero;
+    }
+
+    private static IntPtr FindMangayomiWideLeftApp(TargetInfo landing)
+    {
+        if (landing == null || landing.Handle == IntPtr.Zero ||
+            !IsWindow(landing.Handle) || !IsHeartbeatFresh()) return IntPtr.Zero;
+
+        IntPtr found = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            if (IsWindowVisible(hWnd) && !IsIconic(hWnd) &&
+                IsSelectedMangayomiLeftWindow(hWnd, landing))
+            {
+                found = hWnd;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return found;
+    }
+
+    private static void SyncMangayomiWideOwner(
+        bool compactLayout, string currentLeftMode, TargetInfo landing)
+    {
+        // No change outside the explicitly active Wide native-app pane.
+        bool selected = !compactLayout &&
+            String.Equals(currentLeftMode, "mangayomi", StringComparison.OrdinalIgnoreCase) &&
+            landing != null && IsTrustedShellTarget(landing) &&
+            IsWindowVisible(landing.Handle) && !IsIconic(landing.Handle) &&
+            IsHeartbeatFresh();
+        IntPtr app = selected ? FindMangayomiWideLeftApp(landing) : IntPtr.Zero;
+        if (app == IntPtr.Zero || app != mangayomiOwnedHwnd)
+            ReleaseMangayomiWideOwner();
+        if (app == IntPtr.Zero) return;
+
+        IntPtr existingOwner = GetWindow(app, GW_OWNER);
+        if (mangayomiOwnedHwnd == IntPtr.Zero)
+        {
+            // Never hijack an app window which already belongs to another owner.
+            if (existingOwner != IntPtr.Zero && existingOwner != landing.Handle) return;
+            mangayomiPreviousOwner = existingOwner;
+            SetOwner(app, landing.Handle);
+            if (GetWindow(app, GW_OWNER) != landing.Handle)
+            {
+                mangayomiPreviousOwner = IntPtr.Zero;
+                return;
+            }
+            mangayomiOwnedHwnd = app;
+            Interlocked.Increment(ref mangayomiWideOwnerAttaches);
+            LogDiagnostic("Mangayomi Wide owner attached hwnd=0x" +
+                app.ToInt64().ToString("X") + " landing=0x" +
+                landing.Handle.ToInt64().ToString("X"));
+        }
+        else if (existingOwner != landing.Handle)
+        {
+            // Do not fight an external owner change. Give up our claim.
+            mangayomiOwnedHwnd = IntPtr.Zero;
+            mangayomiPreviousOwner = IntPtr.Zero;
+        }
+    }
+
     private static void SyncAltTabIntegration(
         string currentVisibility,
         TargetInfo leftTarget,
@@ -241,6 +322,7 @@ internal static partial class StreamShellTitlebarHost
 
     private static void ResetAltTabOwnership()
     {
+        ReleaseMangayomiWideOwner();
         List<IntPtr> managed;
         lock (AltTabManagedWindows)
         {
@@ -555,6 +637,7 @@ internal static partial class StreamShellTitlebarHost
 
     private static void DisposeAltTabIntegration()
     {
+        ReleaseMangayomiWideOwner();
         List<IntPtr> windows;
         lock (AltTabManagedWindows)
         {

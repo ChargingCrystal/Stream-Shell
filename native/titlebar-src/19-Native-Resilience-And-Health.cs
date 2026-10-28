@@ -82,7 +82,11 @@ internal static partial class StreamShellTitlebarHost
             {
                 NativeHealth.MarkSlowSync();
                 if (NativeHealth.ShouldLogFault("overlay-slow"))
+                {
                     LogDiagnostic("overlay-sync slow ms=" + watch.ElapsedMilliseconds);
+                    WritePerformanceIncident("native", "native-overlay-stall",
+                        (int)Math.Min(86400000L, watch.ElapsedMilliseconds), false);
+                }
             }
         }
     }

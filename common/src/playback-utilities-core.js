@@ -34,13 +34,27 @@
     const PLAYBACK_UTILITY_GLOBAL_KEYS = new Set([
         "streamShellPlaybackAnarchy",
         "streamShellSubtitleAnarchy",
-        "streamShellDvdAnarchy"
+        "streamShellDvdAnarchy",
+        "streamShellVisualAnarchy", "streamShellVisualFrequency", "streamShellVisualIntensity",
+        "streamShellVisualZoom", "streamShellVisualDeepFry", "streamShellVisualVhs",
+        "streamShellVisualColor", "streamShellVisualGravity", "streamShellVisualAspect",
+        "streamShellVisualBoss"
     ]);
 
     const playbackUtilityDefaults = {
         streamShellPlaybackAnarchy: false,
         streamShellSubtitleAnarchy: false,
-        streamShellDvdAnarchy: false
+        streamShellDvdAnarchy: false,
+        streamShellVisualAnarchy: false,
+        streamShellVisualFrequency: "occasional",
+        streamShellVisualIntensity: 75,
+        streamShellVisualZoom: true,
+        streamShellVisualDeepFry: true,
+        streamShellVisualVhs: true,
+        streamShellVisualColor: true,
+        streamShellVisualGravity: true,
+        streamShellVisualAspect: true,
+        streamShellVisualBoss: false
     };
 
     for (const provider of PLAYBACK_UTILITY_PROVIDERS) {
@@ -95,6 +109,9 @@
     let subtitleAnarchyTimer = null;
     let subtitleColorTimer = null;
     let subtitleAnarchyState = null;
+    let visualAnarchyTimer = null;
+    let visualAnarchyActive = null;
+    let visualAnarchyProvider = null;
     let dvdAnarchyFrame = null;
     let dvdAnarchyHost = null;
     let dvdAnarchyLogo = null;

@@ -8,7 +8,8 @@ function streamShellPinnedProviders(registry = getStreamShellProviderRegistry())
     const lookup = new Map(registry.providers.map(p => [p.id, p]));
     return registry.dashboardOrder
         .map(id => lookup.get(id))
-        .filter(p => p?.enabled && p?.showOnDashboard)
+        .filter(p => p?.enabled && p?.showOnDashboard &&
+            (p.id !== "mangayomi" || settingsValues.streamShellSevenSeasAcknowledged === true))
         .slice(0, 7);
 }
 
@@ -17,9 +18,14 @@ function renderProviderSelector() {
     if (!root) return;
 
     const pinned = streamShellPinnedProviders();
-    const layout = STREAM_SHELL_PROVIDER_GRID_PATTERNS[pinned.length];
+    const layout = STREAM_SHELL_PROVIDER_GRID_PATTERNS[pinned.length] || [];
     root.replaceChildren();
     root.dataset.providerCount = String(pinned.length);
+    root.style.setProperty("--compact-provider-count", String(Math.max(1, pinned.length)));
+    // Keep the Compact rail fluid: fewer pins get more air, seven pins fit
+    // comfortably without changing the fixed outer or media-column gutters.
+    root.style.setProperty("--compact-provider-gap-factor",
+        String(Math.min(1.8, Math.max(0.7, 5 / Math.max(1, pinned.length)))));
     let index = 0;
 
     for (const size of layout) {
@@ -76,6 +82,10 @@ function updateStreamShellProviderRegistry(mutator) {
     const nextWrite = streamShellProviderRegistryWriteQueue.catch(() => {}).then(async () => {
         const current = getStreamShellProviderRegistry();
         const proposed = mutator(current);
+        if (settingsValues.streamShellSevenSeasAcknowledged !== true) {
+            const native = proposed.providers.find(p => p.id === "mangayomi");
+            if (native) { native.enabled = false; native.showOnDashboard = false; native.showInTitlebar = false; }
+        }
         const next = normalizeStreamShellProviderRegistry(proposed);
         await chrome.storage.local.set({ [STREAM_SHELL_PROVIDER_REGISTRY_KEY]: next });
         settingsValues[STREAM_SHELL_PROVIDER_REGISTRY_KEY] = next;
@@ -168,22 +178,31 @@ function updateStreamShellLocalArtworkHints(rawKey) {
 }
 
 function renderProviderRegistrySettings() {
+    if (typeof chrome !== "undefined" && chrome.storage?.local?.get) chrome.storage.local.get("streamShellMangayomiExecutable").then(stored => {
+        const input = document.getElementById("settings-mangayomi-path");
+        if (input && document.activeElement !== input) {
+            input.value = stored.streamShellMangayomiExecutable || "";
+        }
+        settingsValues.streamShellMangayomiExecutable = stored.streamShellMangayomiExecutable || "";
+    }).catch(() => {});
     const registry = getStreamShellProviderRegistry();
+    const sevenSeas = settingsValues.streamShellSevenSeasAcknowledged === true;
     const byId = new Map(registry.providers.map(p => [p.id, p]));
     const visible = streamShellPinnedProviders(registry).length;
     const rows = registry.dashboardOrder.map((id, index) => {
         const p = byId.get(id);
-        const pinned = p.enabled && p.showOnDashboard;
+        const locked = p.id === "mangayomi" && !sevenSeas;
+        const pinned = !locked && p.enabled && p.showOnDashboard;
         const label = escapeSettingsHtml(p.name);
         return `<div class="setting-row settings-provider-registry-row">
             <span class="setting-copy"><strong>${label}</strong>
-            <span>${p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}${p.kind === "custom" ? " · " + escapeSettingsHtml(p.url) : ""}</span></span>
+            <span>${p.kind === "native" ? "Native Windows app · optional helper" : p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}${p.kind === "custom" ? " · " + escapeSettingsHtml(p.url) : ""}</span></span>
             <label class="settings-provider-registry-toggle">
-                <input type="checkbox" data-registry-enabled="${id}" ${p.enabled ? "checked" : ""}>
+                <input type="checkbox" data-registry-enabled="${id}" ${p.enabled && !locked ? "checked" : ""} ${locked ? "disabled" : ""}>
                 <span>Enabled</span>
             </label>
             <label class="settings-provider-registry-toggle">
-                <input type="checkbox" data-registry-visibility="${id}" ${pinned ? "checked" : ""} ${p.enabled ? "" : "disabled"}>
+                <input type="checkbox" data-registry-visibility="${id}" ${pinned ? "checked" : ""} ${p.enabled && !locked ? "" : "disabled"}>
                 <span>Dashboard</span>
             </label>
             <button type="button" class="settings-provider-registry-move" data-registry-move="${id}" data-registry-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${label} up">↑</button>
@@ -195,11 +214,12 @@ function renderProviderRegistrySettings() {
     const titlebarRows = registry.titlebarOrder.map((id, index) => {
         const p = byId.get(id);
         if (!p) return "";
+        const locked = p.id === "mangayomi" && !sevenSeas;
         return `<div class="setting-row settings-provider-registry-row">
             <span class="setting-copy"><strong>${escapeSettingsHtml(p.name)}</strong>
-                <span>${p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}</span></span>
+                <span>${p.kind === "native" ? "Native Windows app" : p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}</span></span>
             <label class="settings-provider-registry-toggle">
-                <input type="checkbox" data-registry-titlebar-visible="${id}" ${p.showInTitlebar && p.enabled ? "checked" : ""} ${p.enabled ? "" : "disabled"}>
+                <input type="checkbox" data-registry-titlebar-visible="${id}" ${p.showInTitlebar && p.enabled && !locked ? "checked" : ""} ${p.enabled && !locked ? "" : "disabled"}>
                 <span>Titlebar</span>
             </label>
             <label class="settings-provider-titlebar-color" title="Titlebar theme / active-state background color; icons always stay neutral monochrome">
@@ -239,13 +259,23 @@ function renderProviderRegistrySettings() {
         <span id="settings-custom-provider-error" role="status"></span>
         <div class="settings-custom-provider-artwork" aria-label="Local artwork paths">${artworkHints}</div>
     </div>`;
+    const nativeSetup = `<div class="settings-custom-provider-form">
+        <div class="settings-custom-provider-fields"><label>Mangayomi.exe path (optional)
+        <input id="settings-mangayomi-path" placeholder="C:\\Apps\\Mangayomi\\Mangayomi.exe" spellcheck="false" value="${escapeSettingsHtml(settingsValues.streamShellMangayomiExecutable || '')}">
+        </label></div><div class="settings-custom-provider-actions">
+        <button type="button" id="settings-mangayomi-save" class="settings-provider-registry-move">Save path</button>
+        <button type="button" id="settings-mangayomi-kill" class="settings-provider-registry-move" title="Force-close the configured Mangayomi process and its child processes">Kill Mangayomi (process)</button></div>
+        <span id="settings-mangayomi-status" role="status">Install integrations/mangayomi/install-mangayomi-helper.ps1 once. Enable the button above when ready.</span>
+    </div>`;
     return settingsPage("Providers",
+        `<p class="ss-seven-seas-status">${sevenSeas ? "Third-party integrations unlocked." : "Mangayomi is locked. Enable General → Seven Seas to unlock it."}</p>` +
         `<div class="settings-provider-registry-columns">` +
             settingsSubgroup(`Dashboard (${visible}/7)`, rows,
                 "Up to seven pinned providers; independent of the native titlebar.") +
             settingsSubgroup("Native titlebar (unlimited)", titlebarRows,
                 "Independent order and colors; extra buttons appear under … .") +
         `</div>` +
+        settingsSubgroup("Mangayomi · native integration", nativeSetup) +
         settingsSubgroup(editing ? "Edit custom provider" : "Add custom provider", form)
     );
 }

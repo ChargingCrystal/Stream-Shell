@@ -44,11 +44,15 @@
     let settings = { ...DEFAULTS };
     let observer = null;
     let fallbackTimer = null;
+    let raidGuardTimer = null;
     let scanTimer = null;
-    let lastStableChannelUrl = null;
     let raidGuardCooldownUntil = 0;
     let raidProtectionEnabled = core.getRaidProtectionEnabled();
     const recentClicks = new WeakMap();
+    const raidGuardMetrics = {
+        bannersSeen: 0, optOutAttempts: 0, lastOptOutAt: null,
+        lastOptOutLabel: null, lastScanAt: null, lastResult: "not-seen"
+    };
     const workspaceSlotId = core.getSlotId();
     let marblesLastAutoPlayAt = 0;
     let marblesPendingTimer = null;
@@ -568,9 +572,15 @@
     }
 
     function raidContainers() {
-        return Array.from(document.querySelectorAll(
-            '[data-test-selector*="raid" i], [data-a-target*="raid" i], [aria-label*="raid" i], [role="dialog"]'
-        ));
+        // Viewer raid banners may label the actionable button simply "Leave".
+        // Search both banner identities and dialogs instead of requiring the
+        // button itself to say "Leave Raid". Never search the whole document
+        // for a bare Leave button (unrelated dialogs would be dangerous).
+        return Array.from(new Set(document.querySelectorAll(
+            '[data-test-selector*="raid" i], [data-a-target*="raid" i], ' +
+            '[aria-label*="raid" i], [class*="raid-banner" i], ' +
+            '[class*="raid-notification" i], [role="dialog"]'
+        )));
     }
 
     function isVisiblyRendered(element) {
@@ -580,37 +590,51 @@
         return element.getClientRects().length > 0;
     }
 
+    function raidBannerEvidence(element) {
+        const identity = [
+            element.getAttribute("data-test-selector"),
+            element.getAttribute("data-a-target"),
+            element.getAttribute("aria-label"),
+            typeof element.className === "string" ? element.className : ""
+        ].filter(Boolean).join(" ").toLowerCase();
+        const text = String(element.textContent || "").toLowerCase().replace(/\s+/g, " ").slice(0, 1800);
+        return /\braid(?:ing|s)?\b/.test(`${identity} ${text}`);
+    }
+
     function preventRaid() {
         if (!raidProtectionEnabled || Date.now() < raidGuardCooldownUntil) return;
-
-        const source = currentChannelUrl();
-        if (source) lastStableChannelUrl = source;
-        if (!lastStableChannelUrl) return;
-
+        raidGuardMetrics.lastScanAt = Date.now();
         for (const container of raidContainers()) {
-            /* Twitch keeps stale raid-labelled nodes around. Only a currently
-             * rendered raid surface is allowed to arm this slot's redirect
-             * guard; this restores anti-raid without reviving the 0.19.17
-             * "old stream snaps back forever" failure mode. */
-            if (!isVisiblyRendered(container)) continue;
+            if (!isVisiblyRendered(container) || !raidBannerEvidence(container)) continue;
+            raidGuardMetrics.bannersSeen++;
 
-            const text = String(container.textContent || "").toLowerCase().replace(/\s+/g, " ").slice(0, 1800);
-            if (!/\braid(?:ing)?\b/.test(text)) continue;
-
-            const buttons = container.querySelectorAll('button, [role="button"]');
-            for (const button of buttons) {
-                const label = `${button.textContent || ""} ${button.getAttribute("aria-label") || ""}`.trim().toLowerCase().replace(/\s+/g, " ");
-                if (/leave raid|cancel raid|raid verlassen|raid abbrechen/.test(label)) {
-                    clickOnce(button, 15000);
-                    break;
-                }
+            // Twitch's viewer action is typically "Leave", NOT the
+            // broadcaster's "Cancel Raid". Only allow bare "Leave" inside a
+            // positively identified, currently visible raid surface.
+            const controls = container.matches?.('button, [role="button"]')
+                ? [container, ...container.querySelectorAll('button, [role="button"]')]
+                : container.querySelectorAll('button, [role="button"]');
+            let matched = false;
+            for (const button of controls) {
+                if (!isVisiblyRendered(button) || !isEnabled(button)) continue;
+                const labels = [button.getAttribute("aria-label"), button.getAttribute("title"),
+                    button.textContent].filter(Boolean).map(value =>
+                    String(value).trim().toLowerCase().replace(/\s+/g, " "));
+                const label = labels.find(value =>
+                    /^(?:leave(?: (?:the |this )?raid)?|cancel raid|opt[ -]?out|don't join|do not join|stay here|raid verlassen|raid abbrechen|verlassen|nicht teilnehmen)(?: \(.*\))?$/.test(value));
+                if (!label) continue;
+                matched = true;
+                if (!clickOnce(button, 3000)) continue;
+                raidGuardMetrics.optOutAttempts++;
+                raidGuardMetrics.lastOptOutAt = Date.now();
+                raidGuardMetrics.lastOptOutLabel = label.slice(0, 80);
+                raidGuardMetrics.lastResult = "opt-out-clicked";
+                raidGuardCooldownUntil = Date.now() + 3000;
+                return;
             }
-
-            // UI-only raid cancellation: NEVER arm a URL rollback. A Twitch
-            // channel switch can be deliberate even while a stale raid surface
-            // is still shown by Twitch's SPA/hydration.
-            raidGuardCooldownUntil = Date.now() + 12000;
-            break;
+            raidGuardMetrics.lastResult = matched ? "opt-out-not-clickable" : "raid-banner-no-opt-out";
+            // Unlike the old implementation, absence of a usable button does
+            // not impose a 12-second cooldown that misses the real countdown.
         }
     }
 
@@ -656,10 +680,6 @@
     function scan() {
         if (!automationStarted || !automationEnabled()) return;
         twitchRuntimeMetrics.lastAutomationScanAt = Date.now();
-        const stable = currentChannelUrl();
-        if (stable && Date.now() >= raidGuardCooldownUntil) {
-            lastStableChannelUrl = stable;
-        }
         claimChannelPoints();
         claimDrops();
         preventRaid();
@@ -672,6 +692,7 @@
             pendingJoin: marblesPendingTimer !== null,
             uniquePlayUsersInBurst: new Set(marblesPlayEvents.map(event => event.userKey)).size,
             triggerCount: marblesTriggerCount, observedChannel: marblesObservedChannel,
+            raidGuard: { ...raidGuardMetrics, enabled: raidProtectionEnabled },
             lastSuccessfulJoinAt: marblesLastAutoPlayAt,
             hydrationGuardUntil: marblesHydrationGuardUntil,
             chatEpochStartedAt: marblesChatEpochStartedAt,
@@ -688,8 +709,13 @@
     }
     function syncFallbackTimer() {
         if (fallbackTimer) clearInterval(fallbackTimer);
+        if (raidGuardTimer) clearInterval(raidGuardTimer);
         fallbackTimer = automationStarted && automationEnabled()
             ? setInterval(scan, MARBLES_CONFIG.fallbackScanMs) : null;
+        // The 30s general automation fallback can miss the entire raid banner.
+        // Small, targeted 1.5s raid scans do not run Drops/Marbles work.
+        raidGuardTimer = automationStarted && raidProtectionEnabled
+            ? setInterval(preventRaid, 1500) : null;
     }
 
     async function start() {
@@ -750,6 +776,7 @@
         automationDocumentAlive = false;
         automationStarted = false;
         if (fallbackTimer) clearInterval(fallbackTimer);
+        if (raidGuardTimer) clearInterval(raidGuardTimer);
         if (scanTimer !== null) clearTimeout(scanTimer);
         cancelPendingMarblesJoin();
         observer?.disconnect();

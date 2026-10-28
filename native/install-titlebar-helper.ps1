@@ -242,6 +242,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $IconSourceRoot "prime.png") -Destination $IconInstallRoot -Force
     Copy-Item -LiteralPath (Join-Path $IconSourceRoot "disney.png") -Destination $IconInstallRoot -Force
     Copy-Item -LiteralPath (Join-Path $IconSourceRoot "crunchyroll.png") -Destination $IconInstallRoot -Force
+    Copy-Item -LiteralPath (Join-Path $IconSourceRoot "mangayomi.png") -Destination $IconInstallRoot -Force
     Copy-Item -LiteralPath (Join-Path $IconSourceRoot "dashboard.png") -Destination $IconInstallRoot -Force
     Copy-Item -LiteralPath (Join-Path $IconSourceRoot "settings.png") -Destination $IconInstallRoot -Force
     Copy-Item -LiteralPath (Join-Path $IconSourceRoot "discord.png") -Destination $IconInstallRoot -Force

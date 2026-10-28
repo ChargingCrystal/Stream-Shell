@@ -138,6 +138,7 @@
         syncGenericSubtitleMarker(provider);
         ensureSubtitleAnarchyTimers(provider);
         syncDvdAnarchy(provider);
+        syncVisualAnarchy(provider);
     }
 
 
@@ -348,7 +349,7 @@
 
         document.addEventListener(
             "play",
-            () => syncPlaybackRate(provider),
+            () => { syncPlaybackRate(provider); syncVisualAnarchy(provider); },
             true
         );
 

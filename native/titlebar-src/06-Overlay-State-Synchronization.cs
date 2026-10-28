@@ -80,6 +80,16 @@ internal static partial class StreamShellTitlebarHost
             ? FindCompactSurfaceTarget(left, currentLeftMode)
             : FindWideSurfaceTarget(left, "left", currentLeftMode);
 
+        // Mangayomi is an external Flutter HWND. Wide keeps its independently
+        // claimed Opera Landing window visible beneath it as the Win32 owner.
+        // Use only that proven Landing HWND for chrome geometry/identity; never
+        // treat an arbitrary external application as a trusted shell surface.
+        if (!compactLayout &&
+            String.Equals(currentLeftMode, "mangayomi", StringComparison.OrdinalIgnoreCase))
+        {
+            leftTarget = FindWideSurfaceTarget(left, "left", "landing");
+        }
+
         bool rightBrowserSurface =
             String.Equals(currentRightMode, "dashboard", StringComparison.OrdinalIgnoreCase) ||
             String.Equals(currentRightMode, "twitch", StringComparison.OrdinalIgnoreCase);
@@ -159,6 +169,12 @@ internal static partial class StreamShellTitlebarHost
         {
             SyncAltTabIntegration(effectiveVisibility, leftTarget, rightTarget, currentRightMode, left, right);
         }
+
+        // Unlike Discord (RIGHT), Mangayomi is a LEFT Flutter HWND. Adopt it
+        // temporarily into Landing's owner graph when selected so an ordinary
+        // RIGHT Dashboard click cannot reorder Landing over it. The native
+        // timer reconciles ownership even when Chromium sends no focus event.
+        SyncMangayomiWideOwner(compactLayout, currentLeftMode, leftTarget);
 
         // Alt+Tab ownership can itself change sibling HWND z-order. Audit only
         // AFTER owner reconciliation; doing it earlier would be immediately

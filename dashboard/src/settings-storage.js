@@ -51,6 +51,8 @@ function streamShellSettingValidationRule(key) {
     if (/^streamShellVolumeBoost_(twitch|youtube|netflix|prime|disney|crunchyroll)$/.test(base)) {
         return { bounds: [100, 600, 10] };
     }
+    if (base === "streamShellVisualIntensity") return { bounds: [0, 100, 5] };
+    if (base === "streamShellVisualFrequency") return { choices: ["occasional", "chaotic", "absolute"] };
     if (STREAM_SHELL_SETTING_BOUNDS[base]) return { bounds: STREAM_SHELL_SETTING_BOUNDS[base] };
     if (STREAM_SHELL_SETTING_CHOICES[base]) return { choices: STREAM_SHELL_SETTING_CHOICES[base] };
     if (/^streamShellPlaybackSpeed_(youtube|netflix|prime|disney|crunchyroll)$/.test(base)) {
@@ -72,6 +74,7 @@ function streamShellSettingValidationRule(key) {
 }
 
 function streamShellNormalizeSettingValue(key, value) {
+
     if (!SETTINGS_STORAGE_KEY_SET.has(key)) {
         throw new Error(`Unknown Stream Shell setting: ${key}`);
     }

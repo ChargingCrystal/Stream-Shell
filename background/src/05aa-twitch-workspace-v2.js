@@ -1361,6 +1361,18 @@ async function getTwitchWorkspaceV2Context(windowId) {
     };
 }
 
+// Explicit raid marker fallback: a tagged Twitch raid is not equivalent to
+// an ordinary user-selected channel switch. This is the ONLY case where the
+// background may restore a former workspace URL; no 45s generic URL guard.
+const twitchWorkspaceV2RaidRedirectRecoveries = new Map();
+function isExplicitTwitchRaidReferral(url) {
+    try {
+        const parsed = new URL(url);
+        return /(^|\.)twitch\.tv$/i.test(parsed.hostname) &&
+            String(parsed.searchParams.get("referrer") || "").toLowerCase() === "raid";
+    } catch { return false; }
+}
+
 async function syncTwitchWorkspaceV2Location(tab) {
     if (!tab?.id || !Number.isInteger(tab.windowId)) return false;
     const url = String(tab.url || tab.pendingUrl || "");
@@ -1372,6 +1384,31 @@ async function syncTwitchWorkspaceV2Location(tab) {
     if (!slotId) return false;
     const slot = record.slots[slotId];
     if (!slot) return false;
+
+    // Twitch annotates some automatic raid destinations with ?referrer=raid.
+    // Only that positive signal may trigger restoration of the pre-raid slot.
+    // Unmarked Twitch links, UI navigation, and explicit slot edits remain free.
+    if (slot.raidProtectionEnabled === true &&
+        isExplicitTwitchRaidReferral(url) &&
+        isTwitchUrl(slot.url) && !isExplicitTwitchRaidReferral(slot.url) &&
+        twitchWorkspaceV2ChannelFromUrl(slot.url) &&
+        twitchWorkspaceV2ChannelFromUrl(slot.url) !== twitchWorkspaceV2ChannelFromUrl(url)) {
+        const previous = twitchWorkspaceV2RaidRedirectRecoveries.get(tab.id);
+        if (previous?.url === url && Date.now() - previous.at < 10000) return true;
+        twitchWorkspaceV2RaidRedirectRecoveries.set(tab.id, { url, at: Date.now() });
+        try {
+            await chrome.tabs.update(tab.id, { url: slot.url });
+            void recordFlightEvent({
+                source: "background", category: "twitch-raid-guard",
+                action: "tagged-raid-redirect-recovered", provider: "twitch",
+                detail: { slotId, evidence: "referrer=raid" }
+            }).catch(() => {});
+            return true;
+        } catch {
+            twitchWorkspaceV2RaidRedirectRecoveries.delete(tab.id);
+            return false;
+        }
+    }
 
     const kind = slot.kindSource === "explicit" && (slot.kind === "stream" || slot.kind === "page")
         ? slot.kind

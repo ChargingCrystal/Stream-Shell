@@ -1,3 +1,234 @@
+## 0.22.1 — Visual Anarchy rendering reliability (2026-10-27)
+- Correct four visual effects that could be ineffective in real player layouts: Zoom, Gravity and Aspect Ratio now use Chromium's individual `scale`/`rotate` properties instead of modifying the provider-owned CSS `transform`; their random values cannot silently land near the identity at normal intensity.
+- VHS uses stronger visible scanlines plus a video-level filter and jitter fallback. Overlays are inserted inside a non-video fullscreen element so they appear in the browser's fullscreen top layer; native fullscreen `<video>` falls back to the video-level effect only.
+- Boss Fight selection now picks 2–3 distinct enabled effects through one event timer (12% event chance); scale/rotate/translate compose and never spawn separate effect loops.
+- Expanded the simulated player test to exercise every individual effect, native/container fullscreen VHS, Boss Fight, exact style restoration, and timer teardown. These tests do not replace live Opera GX playback testing.
+- No changes to the already validated Mangayomi hard-kill, native helpers, Twitch, titlebar, Compact layout, or Seven Seas gating. No background artwork is packaged.
+
+## 0.22.0 — Native process kill and Visual Anarchy Director (2026-10-27)
+- Explicit **Kill Mangayomi (process)** under General → Providers. Unlike the existing `hide`, this invokes a dedicated Native Messaging `kill` action that targets only the exactly configured Mangayomi.exe, uses Windows taskkill /PID /T /F for child processes, and verifies no matching process remains. Requires direct user confirmation. Available in both Wide and Compact settings; when active, returns the shell to YouTube. The global skull Kill also issues this action. Never automatically terminates the app on ordinary provider switching.
+- The runtime command is limited to managed Dashboard senders; `kill` remains possible with Seven Seas disabled (necessary for cleanup) while starts, lookups and navigation remain gated. Stremio is a future integration, not a kill target yet.
+- Add **Visual Anarchy Director** under General → Anarchy: six optional effects (Zoom, Deep Fry, VHS, Color, Gravity, Aspect), frequency 60–120s / 20–60s / 5–15s, intensity and Boss Fight stacking. Defaults off. Single scheduled timer per player document; active/visible/playing provider only; restores original inline style properties and removes VHS overlay when turned off or inactive. Existing Playback/Subtitle/DVD Anarchy remain separately configurable.
+- Add source contract tests and a simulated player timer/style regression. C# native code must still pass Windows Add-Type compilation and live Opera integration tests; node source tests cannot prove this. Retain Seven Seas runtime gates, Compact/Wide layouts, wallpapers and existing watchlist data unchanged.
+- TitlebarNativeHost exit-on-Opera-termination and Twitch-related all-window freeze diagnosis remain separate follow-ups; no changes to either native titlebar or Twitch in this release.
+
+## 0.21.31 — Compact search polish, unified TMDB + AniList, and Seven Seas runtime gate (2026-10-26)
+- Reflow the Compact search header into separate rows for source tabs, summary and responsive filter chips in **16:9 and 16:10**. Prevent FMHY's horizontal scrollbar, clipped text and miniaturized filters; keep existing exterior panel geometry, provider rail and gutters.
+- Replace the TMDB and AniList source tabs with **Media · TMDB + AniList**. A single query searches both catalogs and displays grouped, clearly attributed results in the same panel; five combined multi-select filters (Movies, Series, Anime, Manga, Novels) filter cached entries without extra requests. TMDB remains first; AniList entries retain their independent local Library saving and native Mangayomi action (when unlocked). Failures and missing TMDB credentials don't suppress AniList results.
+- Introduce **General → Seven Seas** (off by default) with the wording “I acknowledge the existence of the seven seas” and a clear third-party-content responsibility disclaimer. Until explicitly enabled, FMHY's search tab is disabled and its index requests are refused before HTTP; Mangayomi's provider controls are disabled and native show/search/open commands are rejected in the background process. Clean-up `hide` remains available; revocation while active switches away. The native Titlebar synchronizes its provider buttons to the gate. Existing provider configuration persists for later opt-in; this is not a copyright or content-availability guarantee.
+- Prepare this shared gate for optional future Stremio integration; Stremio itself is not integrated in this version. No new permissions, C# modifications, Flutter builds or background image files.
+- Add tests for gate enforcement on actual host/network actions and unified search when TMDB is not configured. Opera GX Compact visual and Windows native window lifecycle verification remain pending. The previously reported TitlebarNativeHost-after-Opera-exit issue remains deferred to a separately tested native patch.
+
+## 0.21.30 — Compact Home layout parity (2026-10-26)
+- Remove the Subscriptions card from the Compact Dashboard HTML for both **16:9** and **16:10**. Wide Landing subscriptions and stored account data remain unchanged; the shared Landing runtime tolerates an absent compact subscription UI and makes no Compact subscription storage reads.
+- Extend Compact Watchlist/Search and the left provider rail to **exactly the former subscriptions card bottom edge**. Preserve each aspect ratio's previous outside margins, controls gap and horizontal column separation. Grow provider rail widths from 270→306 CSS px (16:10) and 304→352 CSS px (16:9), moving media to the right without sacrificing its existing right inset.
+- Change Compact's fixed five-row provider geometry to a **1–7-pin adaptive single-column grid**. Row heights and gaps follow the available rail height; provider data/order/visibility are still read from the existing shared Wide provider registry. Handle an empty rail safely.
+- Native Titlebar already honors the shared provider order/visibility/colors and works in Compact through `ComposeLeftButtons(compact, DynamicProviderButtons, …)`; no second titlebar config or native C# change introduced. Changes to either surface still propagate from the same General → Providers settings.
+- Keep the performance blackbox, Mangayomi, Discord, Twitch, background artwork and Wide Dashboard untouched. Browser-level visual verification on a 16:9 and a 16:10 machine remains pending; Node regression coverage validates shared registry counts 1–7, missing subscription nodes and geometry contracts. No native installer required.
+
+## 0.21.29 — Persistent performance black box (2026-10-25)
+- Record renderer timer stalls, long tasks, delayed background heartbeat callbacks and native overlay stalls as low-volume performance incidents. Only visible Landing/Dashboard pages are sampled; no extra polling of provider tabs.
+- Add an independent native heartbeat-gap detector to capture >30s missed worker heartbeats even while a browser renderer cannot report its own freeze. This is a hint rather than proof of a UI hang; sleep/background suspension can look similar.
+- Append JSONL to `%LOCALAPPDATA%\StreamShell\Logs\performance-YYYY-MM-DD.jsonl` via the native titlebar helper, with UTC timestamp, source, kind, duration and PID; avoid URLs, titles and private content. File survives restarts; daily log rotates at 4 MiB and 14-day retention is enforced at helper startup.
+- Keep a bounded fallback of 240 incidents in `chrome.storage.local` if the native helper is unavailable. Retain existing flight recorder behavior and add the log location to Dashboard Diagnostics.
+- **Requires updating/reinstalling the existing titlebar native helper**; use `native/tests/compile-titlebar-host.ps1` as a no-install compiler check first. No Mangayomi/Flutter rebuild, new permissions or background image files.
+
+## 0.21.28 — FMHY category-first discovery (2026-10-23)
+- FMHY Area chips now initiate browsing without any text query. Choosing Gaming shows resource suggestions immediately, clears stale text from a previous source search, and typing afterward narrows the current categories.
+- Add one **Gaming** chip indexing both upstream `gaming.md` and `gaming-tools.md`, while preserving all nine existing areas, native link safety and the small marked offline fallback (which now also includes a few Gaming entries).
+- Promote resources explicitly marked ⭐ by FMHY in category browsing; do not present these community picks as objective ratings or guarantees. Text searches still prioritize title relevance.
+- Area and Kind selections combine as before (OR within a group, AND between groups). Result browsing is now paginated in 60-item increments with **Show more** instead of silently truncating categories.
+- Correct loaded-area counts for Gaming's two source documents. Cache directory results locally, preserve external opening and Direct saving, and leave TMDB, AniList, Mangayomi and native helpers unchanged. Wide and Compact parity plus dedicated category browse regression coverage.
+
+## 0.21.27 — FMHY Discovery 2.0 and search multi-select (2026-10-23)
+- Reorder the Search panel tabs to TMDB → AniList → FMHY across Wide and Compact, retaining TMDB as the default.
+- Add always-visible, independent multi-select search filters for TMDB Movies/Series and AniList Anime/Manga/Novels. Empty selection means all types; multiple chips combine with OR; toggles render from cached results without another API request.
+- Expand FMHY's live curated Markdown index from 4 to 9 media-relevant areas (Video, Reading, Audio, Video tools, International, Downloads, Torrenting, Learning, Web tools). Preserve document isolation, HTTPS-only links and the packaged limited offline excerpt.
+- Introduce FMHY Discovery facets (Area and Kind), derived site-type classification, title-first relevance scoring and community-star indicators. Show the number of successfully loaded FMHY documents; never represent individual websites as confirmed availability for a media title.
+- Continue opening FMHY links in Opera or saving them under Direct; no change to Mangayomi, native helper, Titlebar or Dashboard overlays. All background artwork remains local.
+- Add regression tests for FMHY category/type multi-choice, cached TMDB filter changes, and source ordering.
+
+## 0.21.26 — Mangayomi delayed window acknowledgement (2026-10-23)
+- Restore clipboard copying for Shift+left-click before switching to the native Mangayomi app; a normal click still searches installed sources inside Stream Shell without touching the clipboard.
+- Prevent misleading errors when `/v1/open` has already accepted a selected result but Flutter has not yet created its main HWND. Show "opening" status, poll the non-launching native `status` action, and reveal the existing fork when a valid window becomes available. Cancel delayed reveal if the user changes providers.
+- Remove the unverified "Update both the fork and native helper" suggestion from all result-opening errors.
+- Added delayed-window, failure and cancellation regression coverage. No native C#/Flutter binary changes in this release.
+
+## 0.21.25 — Mangayomi first-click background lookup (2026-10-23)
+- Fix `MANGAYOMI_DIRECT_SEARCH_UNAVAILABLE` when no Mangayomi process was running: Native Messaging helper now starts exactly the configured patched EXE minimized and waits up to 40 seconds for its server to become ready, without requiring a Flutter HWND.
+- Bind HTTP bridge access to the PID of the actual running fork, instead of trusting an old `mangayomi-bridge.json` left behind by a terminated application.
+- Local search no longer depends on the URI association used for the legacy global-search route, and never silently falls back to the stock installation.
+- Propagate precise bridge startup errors into the Stream Shell UI; the former generic manual-start prompt was misleading. Normal/Shift click semantics and result-opening flow unchanged.
+- Added regression for cold lookup, process identity and background-only behavior. Windows C# Add-Type compilation and real Flutter startup remain subject to an on-device validation.
+
+## 0.21.24 — Mangayomi Native Messaging C# scope-isolation fix (2026-10-23)
+- Fix the further PowerShell `Add-Type` C# compiler failure: `CS0136`, `positioned` redeclared in the nested `open-result` branch and later in the enclosing `Main()` scope. The earlier v0.21.23 rename was incomplete.
+- Move selected-result navigation into its own `HandleOpenResult` method so the specialized result placement locals cannot clash with generic show/search positioning locals, including on the older compiler used by Windows PowerShell.
+- Tighten the regression guard to demand full method isolation instead of checking a subset of conflicting variable names. The staged installer is unchanged, so failed compilation cannot replace a working executable.
+- Source-only JS/structural checks are not equivalent to running Windows C# compilation; the Windows compile smoke test is still required. No Flutter/fork rebuild required for this host-only change; no backgrounds shipped.
+
+## 0.21.23 — Mangayomi native host C# compilation hotfix (2026-10-23)
+- Fix a C# variable-shadowing error in the `open-result` branch of `StreamShellMangayomiHost.cs` that prevented PowerShell `Add-Type` compilation (`left`/`top`/`width`/`height` local declarations in nested and enclosing blocks).
+- Give selected-result positioning distinct local variable names; preserve the existing `show`, `lookup`, `open-result`, `hide` and `status` behavior.
+- Keep the staged native host installation and failure-safe checks from v0.21.22. On compilation failure, no new host EXE is installed and registry entries may still point to a missing EXE.
+- No Flutter/Mangayomi fork rebuild required for this host-only fix; an older incomplete fork build for exact result navigation is an independent task.
+- No local wallpapers/backgrounds shipped; JS extension UI and dashboard/diagnostics unchanged.
+
+## 0.21.22 — Mangayomi Native Messaging host installation recovery (2026-10-23)
+- Repair the installer failure mode in which the existing StreamShellMangayomiHost.exe was deleted before the updated C# host successfully compiled; Chrome/Opera then reported "Specified native messaging host not found" with a valid registry key and manifest but no executable.
+- Compile the Mangayomi host to a temporary EXE first, verify that it exists, then install it. Preserve/restore the previous executable on a failed replacement, verify the final EXE/registration, and surface build errors in the invoking terminal.
+- Install in HKCU/LOCALAPPDATA without UAC (no HKLM write required), preserve the registered extension ID unless explicitly overridden, and write a BOM-free UTF-8 host manifest.
+- No Flutter rebuild, no new provider UI changes, no modifications to the shared Titlebar/Discord helpers, and no local backgrounds shipped.
+
+## 0.21.21 — Mangayomi magnifier click mapping and safe fork rebuild (2026-10-23)
+- Swap the Mangayomi card magnifier actions: ordinary LMB searches sources via the opt-in bridge and renders results in the existing LEFT Search panel; Shift+LMB only switches to native Mangayomi. Neither action performs an implicit clipboard copy.
+- Preserve selected-result navigation (requires a successfully rebuilt v0.21.20+ fork and updated native helper), per-source results UI, and single-panel ownership.
+- Prevent another wasted Flutter build when its own Windows Release exe is still running: the build script detects the exact patched EXE path and exits with the PID before expensive code generation or DLL copy. Leave other Mangayomi installs untouched.
+- Rebuild Landing and Compact JS bundles; keep Dashboard/Diagnostics on the right and omit personal wallpapers from ZIP.
+
+## 0.21.20 — Multi-select Library and exact Mangayomi source opening (2026-10-23)
+- Replace the Library's expanding "All types" menu with permanently visible, multi-select Movies/Series/Anime/Manga/Novels chips in the contextual header. Selecting none means show all; selecting multiple combines the chosen types. Preserve TMDB/AniList paired cards and single-type manual Add.
+- Eliminate the transient legacy "Saved locally…" subtitle by drawing filters before awaiting Library cache refresh. Remove obsolete filter-toggle styling.
+- Source-search bridge now retains the genuine MManga objects (per-source) for a bounded 15-minute lookup window, issues opaque random result IDs, and accepts authenticated POST /v1/open; its callback calls Mangayomi's existing pushToMangaReaderDetail instead of reopening Global Search. No caller-provided website URL is opened.
+- Stream Shell supports landing-mangayomi-open-result -> native host open-result -> authenticated fork callback. On a successful selected hit, the Windows app is brought to the LEFT pane; older patched builds receive an explicit compatibility/error message.
+- Upgrade the source-patch installer to support existing v0.21.17-v0.21.19 checkouts idempotently, and recover the VS Build Tools 2026 CMake install-prefix problem using an incremental INSTALL in the user's build directory.
+- Fork recompilation and native-helper reinstallation are required to test exact in-app navigation. Source-level tests have run; Flutter/Windows builds must run on Windows.
+- No wallpapers/backgrounds in the ZIP, no Direct/watchlist record migration, no Discord/Twitch/Titlebar changes.
+
+## 0.21.19 — Search & Library UI consistency
+- Library media-type filter moved to the contextual header line below Library / Continue / Recent / Direct; categories expand horizontally to the right.
+- Mangayomi source results and selected details restyled to use the existing media-panel visual language.
+- Direct navigation to an individual source result is not yet supported by the current native bridge.
+
+## [0.21.18] — 2026-10-23 — Mangayomi results in Search panel (phase 1)
+- Render native source-lookup responses directly in the left Landing search/watchlist panel, not full-screen fixed dialogs.
+- Stop broadcasting duplicate result dialogs to the Wide Dashboard; Settings and Diagnostics intentionally remain on the right Dashboard.
+- Stop the JS lookup path from switching to Mangayomi before requesting results. Preserve normal-click clipboard handoff.
+- Present searchable source groups, relevant title sorting, optional art and selected-hit details. Exact result navigation is pending a bridge API and is intentionally not falsely claimed.
+- Remove the fork's automatic Flutter global-search navigation after lookup (requires a new patched Mangayomi build for this change to take effect).
+- Do not modify native executable host or provider asset directories.
+
+## [0.21.17] — 2026-10-22 — Mangayomi optional source-search fork bridge
+- Added opt-in authenticated localhost Dart search service for the user-installed Mangayomi extensions and a separate Windows Flutter build kit.
+- Added native-message broker to return per-source search result JSON to Stream Shell; stock Mangayomi keeps clipboard fallback.
+- Explicit per-user bridge activation, bounded search concurrency, per-source empty/error states and no automatic source linking.
+- No bundled Mangayomi binary and no changes to Windows titlebar, Discord or Twitch.
+
+## [0.21.16] — 2026-10-22 — Guard unregistered Mangayomi deep links
+- Fix experimental Shift+click opening the Windows "Get an app" / Microsoft Store dialog when the `mangayomi://` protocol has not been registered by a patched Windows application.
+- Require both a verified per-user protocol handler for the running Mangayomi.exe and a separate explicit patched-build opt-in marker before sending an external URI to Windows ShellExecute.
+- Fall back to the working title-copy + open-Mangayomi handoff when direct search is unavailable; do not report the fallback as a completed direct search. Add opt-in setup instructions and focused regression coverage.
+- Preserve normal click, owner/Z-order and Titlebar, right Discord/Twitch, metadata/library and wallpapers. No Mangayomi fork binary is shipped.
+
+## [0.21.15] — 2026-10-22 — Experimental Mangayomi Global Search Deep Link
+- Shift+click Mangayomi search to use patched app native `mangayomi://global-search` URI; stock-app normal click unchanged.
+- Added upstream Dart source patch and exact limitations. No results are returned to Stream Shell yet.
+
+## [0.21.14] — 2026-10-22 — Mangayomi Global Search handoff (bridge stage 1)
+
+- Add a one-click, source-aware title-to-clipboard handoff from AniList search results and combined/manual Anime/Manga/Novel Library entries, then open the existing Mangayomi left pane. Users paste into Mangayomi Global Search; no UI automation or fabricated source results.
+- Document that upstream Mangayomi currently lacks an external Global Search deep link/API and that automatic source results require a Mangayomi-side bridge/fork first.
+- Preserve linked TMDB/AniList records, Native helpers, Titlebar/Twitch/Discord, wallpapers and Custom Provider assets. No new permissions or data schema.
+
+## [0.21.13] — 2026-10-22 — Automatic AniList/TMDB cross-source pairing on save
+
+- On a TMDB watchlist save, optionally look up a unique matching anime on AniList and append its cover, rating, episodes and metadata as an independent linked source record.
+- On an AniList anime save, optionally look up the matching TMDB TV/movie ID and add it to the Watchlist to expose the existing JustWatch/DE provider availability; requires the already-configured TMDB token.
+- Do not slow or undo the initial save, do not auto-merge uncertain titles, do not scan manga/novels for TMDB results, and check that the primary entry is still saved before writing the secondary one.
+- Preserve existing 0.21.12 linked-card layout, all source records, imports/exports, Windows native window helpers and personal wallpapers.
+
+## [0.21.12] — 2026-10-22 — TMDB + AniList unified Library cards
+- Link uniquely matched Anime/TMDB records by normalized title, compatible format and exact release year into one Library row without modifying either saved database.
+- Keep TMDB provider availability and selection while showing AniList covers, metadata, and Mangayomi launch on the same card. Suppress duplicate counts and keep linked titles discoverable through both Series and Anime filters.
+- Avoid guessing when years or titles do not match, ambiguous links exist or a manga/novel differs from an anime adaptation. Import/export and both source records remain intact.
+- Add cross-store identity/linking regression coverage; no titlebar, native helper, streaming, or background changes.
+
+## [0.21.11] — 2026-10-22 — AniList metadata, enriched Library and unified sorting
+- Add a third built-in Landing search tab for AniList alongside TMDB and FMHY in Wide/Compact with public, bounded GraphQL lookups (no account).
+- Show cover/title/year/score/episode/chapter metadata, optional detail and local save. Detail lookup is best-effort; no streaming availability is inferred from AniList.
+- Enrich independent local Anime/Manga/Novel records by AniList ID; upgrade matching manual records in place, suppress duplicates and sanitize image URLs. Extend existing v4 `externalMedia` export/import compatibly; untouched TMDB watchlist and native Mangayomi processes.
+- Display cover and metadata in Library cards; share sorting across TMDB and external entries. Retain four top-level Library tabs and neutral Stream Shell controls.
+- Add focused AniList API, library-migration, and Wide/Compact wiring tests. Do not modify Twitch/Discord/Titlebar or include personal backgrounds.
+
+## [0.21.10] — 2026-10-22 — Mangayomi native IconCache preload and wordmark sizing
+- Fix the root cause of the missing Titlebar artwork: preload Mangayomi's installed monochrome PNG on native startup, like all five original providers. The dynamic built-in's C# icon definition was present, but its bitmap had never been registered in `ButtonIcons`.
+- Leave the static Titlebar button array unchanged to preserve positional indexes and existing Twitch/Discord/window behavior.
+- Tighten the Mangayomi Dashboard wordmark viewbox and make the icon self-contained when loaded as an SVG image; standalone traced logo remains unchanged.
+- Add a regression that follows the actual native PNG load -> Bitmap cache -> painter path.
+
+## [0.21.9] — 2026-10-22 — Mangayomi titlebar monochrome icon and repo-font wordmark
+- Replaced the temporary Mangayomi provider art with the user-supplied converted SVG logo.
+- Rebuilt the native Titlebar PNG from the existing red Mangayomi logo as a monochrome icon and kept it wired through the built-in provider path.
+- Refreshed the Mangayomi wordmark to use the repo font family naming (OpenDyslexic) in the SVG asset.
+
+## [0.21.8] — 2026-10-22 — Mangayomi official branding assets
+- Replaced the temporary Mangayomi provider art with a repo-inspired SVG logo, updated SVG wordmark and refreshed monochrome Titlebar PNG icon.
+- Kept the existing provider-state wiring so Dashboard and Titlebar continue to treat Mangayomi like the built-in providers.
+
+## [0.21.7] — 2026-10-22 — Mangayomi branded Dashboard and native Titlebar states
+
+- Replace the initial Mangayomi placeholder M icon with a Torii-style Mangayomi identity (provider SVG, monochrome native icon, Dashboard wordmark) and add the subdued red app accent. In Wide, selected native LEFT Mangayomi drives the Dashboard's visual theme/wordmark rather than displaying the stale previously selected web provider; preserve `activeProvider` and all five browser adapters.
+- Make native `IsActionActive()` include `mangayomi`, which enables the existing standard Titlebar active fill/icon opacity. Hover remains the exact same existing pipeline, now with a dedicated Mangayomi chrome palette (user override still respected). No special focus/Z-order/owner or Discord/Twitch changes.
+- Add focused branding/theme/asset regression, rebuild dashboard bundle, update release docs. Reinstall common Titlebar helper only. Do not bundle wallpapers or custom artwork; no GitHub push.
+
+## [0.21.6] — 2026-10-22 — Mangayomi exit/hide handoff and Titlebar native button pinning
+
+- Fix native Titlebar button pinning: the background already serializes `mangayomi` but the C# `TryApplyProviderConfig()` allowed-ID regex rejected the entire payload. Add this one known native-app identity to the native allowlist and a matching built-in icon/button. Ship `native/titlebar-icons/mangayomi.png` (rasterized from the existing bundled SVG), and install it alongside the other Titlebar icons. No generic arbitrary native action support.
+- Fix Mangayomi remaining visibly detached when switching **from** it using a Titlebar left-provider button: `SW_MINIMIZE` alone does not reliably park an owned Flutter HWND during owner-graph release. Hide the identified real HWND with `SW_HIDE` plus a bounded Win32 hide fallback and report failure instead of pretending it disappeared. Keep the Mangayomi process alive and **reacquire the hidden top-level Flutter HWND by exact process ID** on the next open, since `Process.MainWindowHandle` may become zero when hidden. Do not alter Discord, Twitch, the right Dashboard, the native Win32 owner graph or other provider transitions.
+- Log successful/failed Mangayomi park attempts in the flight recorder. Add regression checks for the native Titlebar ID contract, installed PNG, payload and hidden Flutter window discovery. Rebuild background bundle, update docs and packaging; no GitHub push; live Windows test still required. Reinstall **both** Titlebar and Mangayomi integration helpers for changed C# binaries.
+
+## [0.21.5] — 2026-10-22 — Native LEFT owner graph for Mangayomi; search clear-X
+
+- Replace the unreliable *one-shot focus raise only* as primary integration with a native Window OWNER relationship while **Wide LEFT Mangayomi** is selected. TitlebarHost detects a real pane-filling `Mangayomi` HWND and temporarily associates it with the explicitly claimed Opera Landing anchor. Windows reorders the app with the Stream Shell owner group when the user clicks RIGHT Dashboard, as it does for Discord. The original HWND owner is restored when Mangayomi is deselected, its window changes, or the TitlebarHost shuts down. No global `HWND_TOPMOST`, no forced input focus, no change to Discord/Twitch/Compact. Existing focus `raise` stays as a bounded fallback. Requires reinstalling shared Titlebar Helper; real Windows acceptance remains essential.
+- Adjust the managed Mangayomi Wide top inset from 3 to **6 px**, with corresponding height reduction so the bottom boundary is unchanged. The Mangayomi integration helper executable does not change because JS sends geometry.
+- Restore reliable clear-X visibility in the TMDB/FMHy search field independently of source tabs: JS keeps the hidden state and ARIA updated, and CSS value-based fallback enforces Wide/Compact visibility without overlapping the panel tabs.
+- Add owner-graph scope/restoration, clear-X and geometry regression checks; rebuild generated bundles; update architecture, TODO and release notes. Backgrounds/custom artwork excluded, no GitHub push.
+
+## [0.21.4] — 2026-10-22 — Mangayomi focus parity, caption alignment, Landing search tabs
+
+- Fix Wide LEFT Mangayomi falling beneath Landing when the user clicks RIGHT Dashboard: use native `raise` command (`HWND_TOP`, `SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE`) on a debounced, current-state-validated right Dashboard focus/activation. Do not steal focus, restore minimized windows or affect Discord/Twitch. Keep the v0.21.3 Mangayomi-only titlebar Z-order exception.
+- Adjust Mangayomi's managed Wide window geometry by 3 px down and 3 px shorter to avoid losing top content pixels under the Stream Shell overlay. Live Win32/Flutter verification required.
+- Replace search-field TMDB/FMHy selector with native Stream Shell `library-tab` controls within the SEARCH PANEL header (Wide + Compact). The clear-X is unobstructed. Header widgets persist through results, empty states and TMDB token setup.
+- Collapse Library's secondary media type chips under a single `All types` filter disclosure, preserving Movies/Series/Anime/Manga/Novels, sorting, manual add and Watchlist data. No additional source selection dropdown.
+- Add focus/host and Wide/Compact panel regression tests; update manifest, README, structure contract, TODO and release notes. Reinstall Mangayomi integration helper only; no change to shared Titlebar or Discord binaries. No wallpapers/custom artwork included.
+
+## [0.21.3] — 2026-10-22 — FMHY card alignment, unified Library controls, Mangayomi chrome Z-order
+
+- Fix FMHY resource cards: use the same three-column DOM contract as Direct Links rather than squeezing the title into the 34px launch-icon column. Restore full-width titles, readable hosts/descriptions, consistent launch/save buttons and Stream Shell styling in Wide and Compact. Exclude section-jump links from site results.
+- Simplify Library: the category chips are the only media-type choice. Select Anime/Manga/Novels to add a manually saved title of that type; remove duplicate OS-native type dropdown and purple control theme. TMDB/movie/TV storage, search, sort and export remain unchanged.
+- Mangayomi native Titlebar: v0.21.2 exempted the app from foreign-occlusion suppression but did not reassert chrome above an already raised native window. Add wide-only, process- and geometry-scoped Z-order repair for left backdrop and left titlebar without reordering Discord/right pane/other applications. Requires reinstall of shared Titlebar Helper and real Windows verification.
+- Update version, release notes, architecture/decision log and regressions. No change to Mangayomi/Discord integration host installers, Twitch or Raid Guard, wallpapers or custom artwork.
+
+## [0.21.2] — 2026-10-22 — FMHY Search, Mangayomi Titlebar Exception, Integration Layout
+
+- Move application-specific Discord and Mangayomi Windows C# helpers, installer/uninstaller scripts and compile smoke tests from `native/` to dedicated `integrations/discord/` and `integrations/mangayomi/` folders. Shared Windows Titlebar infrastructure stays under `native/`. Uninstallers now remove only their own helper files, not the common `NativeHost` folder.
+- FMHY: search descriptions from FMHY Markdown list items, not only site names/headings; render result descriptions. Add small source-grounded fallback directory if GitHub Markdown cannot be reached, clearly labeled as an offline excerpt. No title-level TMDB matching implied.
+- Mangayomi: only in Wide `leftMode=mangayomi`, reuse the existing explicitly claimed Landing HWND as left chrome anchor and exempt a matching pane-sized Mangayomi Win32 process window from the foreign-window suppression check. Discord and unrelated foreign windows keep the previous suppression behavior. Windows visual test required.
+- Update helper paths, Windows CI compile paths, README, structure contract and regressions. Native Titlebar helper must be recompiled/reinstalled for the C# overlay change.
+
+## [0.21.1] — 2026-10-22 — Mangayomi: keep Wide Shell visible when native LEFT app activates
+
+- **Windows live report:** Mangayomi launches successfully, but the Stream Shell Dashboard minimizes alongside the previous LEFT Landing. Root cause in `showMangayomi()`: minimizing Landing also minimizes Windows owner-dependent shell windows because Wide Landing is the native Alt+Tab anchor.
+- Keep the Wide Landing window in its **normal state behind Mangayomi**, rather than minimizing it; restore an anchor left minimized by v0.21.0. After native activation, restore only the right Dashboard (unfocused) if Dashboard remains the selected right-hand mode. **Do not touch right Discord/Twitch, provider registry, Twitch player audio or raid guard.** Compact does not create a Wide Landing.
+- Regression VM tests cover old collapsed owner state, Wide dashboard visibility, right Discord/Twitch isolation, Compact behavior and native-helper failure. `background.js` rebuilt from source; bundle parity and project checks rerun. **Windows native owner/focus behavior remains live-test pending.**
+- Planned file organization: move Discord/Mangayomi-specific Windows helpers and installers out of `native/` and into `integrations/` in a separate future structure change; no installer/messaging path changes in this hotfix.
+
+## [0.21.0] — 2026-10-21 — FMHY discovery, Mangayomi LEFT native app, mixed Library foundations
+
+- **New minor line** for opt-in external projects. v0.20.40 Twitch Raid Guard remains unchanged; no experimental Twitch player audio restored. Existing Netflix/YouTube/Prime/Disney/Crunchyroll adapters, Discord right pane and Twitch A-D stay isolated.
+- Landing and Compact Home add **TMDB/FMHy search source selector**. FMHY parses a bounded set of `fmhy/edit` source Markdown catalogs at search-time, caches six hours per page lifetime, indexes safe HTTPS links under headings, shows resource/host/category entries, opens in Opera and saves to existing **Direct** links. Does not infer movie-specific availability from directory entries; keeps TMDB token/search behavior intact.
+- Provider Registry v3 adds `kind:native` / `id:mangayomi` with migration from v2. Mangayomi can be enabled, pinned in the up-to-seven Dashboard slots and independently shown in native titlebar; default both off. Adds a bundled lightweight Mangayomi SVG icon.
+- **Left Native Helper** (separate `com.streamshell.mangayomi` host): launch/restore/position/hide/status using a strict `Mangayomi.exe` path or running process, optional configured executable path, Windows installation/uninstallation scripts. Native left activation parks Opera left providers/Landing, retains right mode; switching back from the left hides native app. No Discord helper rework.
+- Rename `Official` watchlist tab to `Library`, add `All, Movies, Series, Anime, Manga, Novels` filters without adding main tabs. Keep legacy TMDB numeric watchlist untouched; new `StreamShellExternalLibrary` stores manually entered Anime/Manga/Novel titles in independent local storage. Button opens Mangayomi (not per-title deep link). Watchlist export format v4 includes `externalMedia`, import remains tolerant of v3/legacy formats.
+- Tests: updated registry/dashboard layout expectations, FMHY parser / external library / native window isolation tests, Windows-native compile CI for Mangayomi, manifest/HTML and all five bundle parity. **Windows live Mangayomi HWND and titlebar overlay not proven.** Automated Mangayomi DB/API sync and exact chapter playback are future work.
+
+## [0.20.40] — 2026-10-21 — Viewer raid banner opt-out; explicit raid-referral safety net
+
+- Live Opera GX check: previous no-snapback Raid Guard stopped blocking deliberate channel navigation, but the existing UI-only handler missed an actual viewer raid. Primary cause: UI matching required an entire visible raid-labelled container AND labels like `Leave Raid`, while Twitch viewer banners can expose a simple `Leave` button; 12s cooldown ran even when nothing was clicked, and the generic fallback checked only every 30s.
+- Rework deferred `providers/player/twitch-automation.js` with positively identified, visible raid banners (raid identity/text + visible actionable viewer opt-out); accept `Leave`, `Opt Out`, `Don't Join`, `Stay Here`, localized labels or existing `Leave Raid`/`Cancel Raid`; cooldown only on successful click. Targeted 1.5s fallback scans do not rerun heavy Marbles/Drops work. Include per-slot raid detection/opt-out Diagnostics.
+- Narrow `background/src/05aa-twitch-workspace-v2.js` safety net: if and only if a protected slot switches to another channel with explicit `?referrer=raid`, restore its saved pre-raid URL once with 10s deduplication and emit a focused Flight Recorder event. Ordinary, unmarked Twitch link navigation is never redirected back, even immediately after a raid banner.
+- Regression test `background/tests/twitch-raid-optout-positive-evidence.test.js` drives viewer Leave, unrelated Leave, hidden raids, cooldown and no-button cases; background VM confirms tag-only recovery, duplicate suppression, deliberate normal navigation and disabled guard. All other Twitch features untouched, particularly v0.20.39's full player-unmute rollback, automatic Chromium tab muting and Native.
+
 ## [0.20.39] — 2026-10-21 — Twitch player-audio rollback; Raid Guard fix preserved
 
 - User accepts Twitch/Opera cold-start player muting as a Stream Shell quirk; fully revert experimental Twitch **in-page player-audio auto-unmute, UI/button clicking, first-playback probes, trusted-gesture recovery, periodic audit and Diagnostics** from v0.20.36–v0.20.38. Restore `providers/player/twitch-utility.js` **byte-for-byte to v0.20.35**. No replacement polling or speculative browser policy work.

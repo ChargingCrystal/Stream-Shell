@@ -468,6 +468,12 @@ function reconcileShellWideFocusFast(focusedWindowId) {
         shellWideLastSelectedSlot = null;
     }
     notifyShellWideProviderFocus(state, focusedWindowId);
+    // A RIGHT Dashboard focus can bring its owned Opera Landing HWND above
+    // Mangayomi on LEFT. Reassert the native app without focusing it.
+    if (state.leftMode === 'mangayomi' && state.rightMode === 'dashboard' &&
+        focusedWindowId === state.dashboardWindowId) {
+        scheduleMangayomiWideReassert();
+    }
     // Only notify native when the visibility actually changes. The full
     // state sender also deduplicates identical payloads.
     if (visibility !== shellWideFocusVisibility) {

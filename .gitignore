@@ -16,3 +16,20 @@ Desktop.ini
 .idea/
 *.tmp
 *.bak
+
+# Locally compiled executable outputs / credential-like artifacts
+*.pdb
+*.ilk
+*.obj
+*.user
+*.suo
+*diagnostics*.jsonl
+performance-*.jsonl
+mangayomi-bridge.json
+mangayomi-bridge.enabled
+
+# Personal files must stay outside Git; already tracked files require git rm --cached
+/assets/backgrounds/**/*.png
+
+# Local planning scratchpad; keep outside public repo
+/docs/TODO_RULED_OUT.txt

@@ -7,7 +7,7 @@ const path = require('node:path');
 const root = path.join(__dirname, '../..');
 function element(tag = 'div') {
     return {
-        tag, children: [], dataset: {}, className: '', textContent: '',
+        tag, children: [], dataset: {}, style: { properties: {}, setProperty(name, value) { this.properties[name] = value; } }, className: '', textContent: '',
         classList: { toggle() {}, add() {} },
         addEventListener() {}, remove() {},
         setAttribute(name, value) { this[name] = value; },
@@ -37,11 +37,14 @@ for (const rel of ['shared/provider-registry-core.js','dashboard/src/provider-re
 const exec = expression => vm.runInContext(expression, ctx);
 const plain = expr => JSON.parse(JSON.stringify(exec(expr)));
 assert.deepEqual(plain('streamShellPinnedProviders(defaultStreamShellProviderRegistry()).map(p => p.id)'), ['youtube','netflix','prime','disney','crunchyroll']);
+assert.equal(exec('defaultStreamShellProviderRegistry().providers.find(p => p.id === "mangayomi").kind'), 'native');
+assert.equal(exec('defaultStreamShellProviderRegistry().providers.find(p => p.id === "mangayomi").showOnDashboard'), false);
+assert.equal(exec('defaultStreamShellProviderRegistry().providers.find(p => p.id === "mangayomi").showInTitlebar'), false);
 assert.deepEqual(plain('STREAM_SHELL_PROVIDER_GRID_PATTERNS'), {
     1: [1], 2: [2], 3: [3], 4: [1,2,1], 5: [1,3,1], 6: [2,2,2], 7: [2,3,2]
 });
 const clean = plain('normalizeStreamShellProviderRegistry({dashboardOrder:["disney","disney","prime","bogus"],providers:[{id:"prime",showOnDashboard:false}]})');
-assert.equal(clean.dashboardOrder.length, 5);
+assert.equal(clean.dashboardOrder.length, 6);
 assert.equal(clean.dashboardOrder[0], 'disney');
 assert.equal(clean.providers.find(p => p.id === 'prime').showOnDashboard, false);
 assert.equal(plain('streamShellPinnedProviders(normalizeStreamShellProviderRegistry({providers:[{id:"youtube",showOnDashboard:false},{id:"netflix",showOnDashboard:false},{id:"prime",showOnDashboard:false},{id:"disney",showOnDashboard:false},{id:"crunchyroll",showOnDashboard:false}]})).length'), 1);
@@ -62,11 +65,11 @@ ctx.custom = custom;
 const norm = plain('normalizeStreamShellProviderRegistry({providers: custom, dashboardOrder: custom.map(p=>p.id)})');
 const branded = plain('normalizeStreamShellProviderRegistry({providers:[{id:"custom-aabbccdd",kind:"custom",name:"Example",url:"https://example.com/",artKey:"CuStom_Art"}]})');
 assert.equal(branded.providers.find(p => p.id === 'custom-aabbccdd').artKey, 'custom_art');
-assert.equal(norm.providers.length,14);
+assert.equal(norm.providers.length,15);
 assert.equal(norm.providers.filter(p=>p.enabled && p.showOnDashboard).length,7);
-assert.equal(norm.titlebarOrder.length,14);
+assert.equal(norm.titlebarOrder.length,15);
 const bad = plain('normalizeStreamShellProviderRegistry({ providers: [...custom,{id:"custom-aaaaaaa1",kind:"custom",name:"X",url:"https://duplicate.com"},{id:"custom-evil000",kind:"custom",name:"X",url:"javascript:foo"}]})');
-assert.equal(bad.providers.length,14);
+assert.equal(bad.providers.length,15);
 ctx.registry = norm;
 exec('settingsValues[STREAM_SHELL_PROVIDER_REGISTRY_KEY] = registry; syncDashboardProviderIdentities();');
 assert.equal(exec('PROVIDERS.has("custom-aaaaaaa1")'), true);
@@ -76,6 +79,8 @@ for (let count=1;count<=7;count++) {
     exec(`streamShellPinnedProviders = () => registry.providers.slice(0,count); renderProviderSelector()`);
     assert.deepEqual(selector.children.map(row=>row.children.length), plain(`STREAM_SHELL_PROVIDER_GRID_PATTERNS[${count}]`));
     assert.equal(Number(selector.dataset.providerCount), count);
+    assert.equal(selector.style.properties["--compact-provider-count"], String(count));
+    assert.equal(Number(selector.style.properties["--compact-provider-gap-factor"]), Math.min(1.8, Math.max(0.7, 5 / count)));
     assert.equal(selector.children.flatMap(row=>row.children).length, count);
 }
 console.log('Shared registry + custom URL validation + all Dashboard layouts: PASS');

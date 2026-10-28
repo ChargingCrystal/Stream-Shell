@@ -21,6 +21,17 @@ function renderSettingsContent() {
         html = renderProviderRegistrySettings();
     }
 
+    if (settingsProvider === "general" && settingsSection === "seven-seas") {
+        html = settingsPage("The Seven Seas", settingsSubgroup("Optional third-party integrations",
+            settingSwitch("streamShellSevenSeasAcknowledged",
+                "I acknowledge the existence of the seven seas",
+                "Unlock optional FMHY discovery and Mangayomi integration. Future integrations such as Stremio can use this same gate.") +
+            `<p class="ss-seven-seas-disclaimer">Third-party tools and sources may contain material shared without permission. Stream Shell neither verifies nor endorses such content. By enabling this option you acknowledge that you are responsible for the sources and content you choose to access, and for complying with applicable rules. This switch does not itself grant permission to use any content.</p>` +
+            `<p class="ss-seven-seas-status">${settingValue("streamShellSevenSeasAcknowledged") === true
+                ? "Unlocked: FMHY and Mangayomi can be enabled in their respective controls."
+                : "Locked: FMHY searches and Mangayomi actions are disabled, even if previously configured."}</p>`));
+    }
+
     if (settingsProvider === "general" && settingsSection === "twitch") {
         html = renderTwitchUtilitySettings();
     }
@@ -586,6 +597,30 @@ function handleSettingsClick(event) {
         return true;
     }
 
+    if (button.id === "settings-mangayomi-kill") {
+        event.preventDefault();
+        if (!window.confirm("Force-kill Mangayomi and its child processes? Unsaved changes in Mangayomi will be lost.")) return true;
+        const status = document.getElementById("settings-mangayomi-status");
+        if (status) status.textContent = "Terminating Mangayomi process...";
+        chrome.runtime.sendMessage({type:"dashboard-kill-mangayomi"}).then(reply => {
+            if (status) status.textContent = reply?.ok ? "Mangayomi process stopped (not hidden)." : (reply?.error || "Kill failed.");
+        }).catch(error => { if (status) status.textContent = String(error?.message || error); });
+        return true;
+    }
+    if (button.id === "settings-mangayomi-save") {
+        event.preventDefault();
+        const path = document.getElementById("settings-mangayomi-path")?.value.trim() || "";
+        const status = document.getElementById("settings-mangayomi-status");
+        if (path && (!/^[a-z]:\\/i.test(path) || !/\\mangayomi\.exe$/i.test(path))) {
+            if (status) status.textContent = "Choose a full Windows path ending in Mangayomi.exe.";
+            return true;
+        }
+        chrome.storage.local.set({ streamShellMangayomiExecutable: path }).then(() => {
+            settingsValues.streamShellMangayomiExecutable = path;
+            if (status) status.textContent = "Path saved locally.";
+        }).catch(error => { if (status) status.textContent = String(error); });
+        return true;
+    }
     if (button.id === "settings-custom-provider-save") {
         event.preventDefault();
         saveStreamShellCustomProvider();
@@ -734,6 +769,12 @@ async function persistSettingInput(input) {
     }
 
     settingsValues[normalized.key] = normalized.value;
+    if (normalized.key === "streamShellSevenSeasAcknowledged") {
+        // Repaint actual provider controls immediately; runtime gating lives in
+        // background + search handlers, not just in these checkboxes.
+        renderProviderSelector();
+        if (!settingsCenter.hidden) renderSettingsContent();
+    }
     // Flight Recorder failure must not turn a successful settings save into an error.
     try {
         chrome.runtime.sendMessage({
@@ -950,7 +991,7 @@ chrome.storage.onChanged.addListener(
             relevant = true;
         }
 
-        if (changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]) {
+        if (changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY] || changes.streamShellSevenSeasAcknowledged) {
             syncDashboardProviderIdentities();
             renderProviderSelector();
             // Apply newly selected custom art to the currently visible backdrop

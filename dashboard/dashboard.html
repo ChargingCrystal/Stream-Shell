@@ -93,82 +93,8 @@
         <section class="provider-selector" aria-label="Providers"></section>
 
         <section id="compact-home-runtime-root" class="compact-home-runtime-root" aria-label="Compact Shell Home">
-        <section
-            id="subscription-panel"
-            class="subscription-panel"
-            aria-label="Subscription status"
-        >
-
-            <header class="subscription-panel-header">
-
-                <div>
-                    <div class="subscription-panel-title">Subscriptions</div>
-                    <div id="subscription-sync-meta" class="subscription-sync-meta">Never synced</div>
-                </div>
-
-                <button
-                    type="button"
-                    id="subscription-sync"
-                    class="subscription-sync"
-                    title="Sync subscriptions"
-                    aria-label="Sync subscriptions"
-                >
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path d="M20 7V3.5L17.2 6.3A8 8 0 1 0 19.3 14"></path>
-                        <path d="M20 3.5H16.5"></path>
-                    </svg>
-                </button>
-
-            </header>
-
-            <div class="subscription-grid">
-
-                <div class="subscription-item" data-subscription-provider="youtube">
-                    <img src="../assets/providers/icons/youtube.svg" alt="" aria-hidden="true">
-                    <span class="subscription-name">YouTube</span>
-                    <span class="subscription-status">UNKNOWN</span>
-                    <span class="subscription-renewal">—</span>
-                </div>
-
-                <div class="subscription-item" data-subscription-provider="netflix">
-                    <img src="../assets/providers/icons/netflix.svg" alt="" aria-hidden="true">
-                    <span class="subscription-name">Netflix</span>
-                    <span class="subscription-status">UNKNOWN</span>
-                    <span class="subscription-renewal">—</span>
-                </div>
-
-                <div class="subscription-item" data-subscription-provider="prime">
-                    <img src="../assets/providers/icons/prime.svg" alt="" aria-hidden="true">
-                    <span class="subscription-name">Prime</span>
-                    <span class="subscription-status">UNKNOWN</span>
-                    <span class="subscription-renewal">—</span>
-                </div>
-
-                <div class="subscription-item" data-subscription-provider="disney">
-                    <img src="../assets/providers/icons/disney.svg" alt="" aria-hidden="true">
-                    <span class="subscription-name">Disney+</span>
-                    <span class="subscription-status">UNKNOWN</span>
-                    <span class="subscription-renewal">—</span>
-                </div>
-
-                <div class="subscription-item" data-subscription-provider="crunchyroll">
-                    <img src="../assets/providers/icons/crunchyroll.svg" alt="" aria-hidden="true">
-                    <span class="subscription-name">Crunchyroll</span>
-                    <span class="subscription-status">UNKNOWN</span>
-                    <span class="subscription-renewal">—</span>
-                </div>
-
-                <div class="subscription-item" data-subscription-provider="discord">
-                    <img src="../assets/providers/icons/discord.svg" alt="" aria-hidden="true">
-                    <span class="subscription-name">Discord</span>
-                    <span class="subscription-status">UNKNOWN</span>
-                    <span class="subscription-renewal">—</span>
-                </div>
-
-            </div>
-
-        </section>
-
+        <!-- Compact uses the complete former subscription area for the media hub.
+             Wide subscriptions remain in Landing and are unaffected. -->
         <section
             id="media-hub"
             class="media-hub"
@@ -249,6 +175,8 @@
                         aria-label="Search movies and TV shows"
                     >
 
+                    <input type="hidden" id="media-search-source" value="tmdb">
+
                     <button
                         type="button"
                         id="media-search-clear"
@@ -285,7 +213,7 @@
                                 id="watchlist-tab"
                                 class="library-tab active"
                             >
-                                Official
+                                Library
                             </button>
 
 
@@ -371,7 +299,10 @@
                             class="search-header-title"
                             hidden
                         >
-                            Search Results
+                            <div class="library-header-controls ss-search-source-tabs" role="tablist" aria-label="Search source">
+                                <button type="button" class="library-tab active" id="media-search-tmdb-tab" role="tab" aria-selected="true">Media · TMDB + AniList</button>
+                                <button type="button" class="library-tab" id="media-search-fmhy-tab" role="tab" aria-selected="false" disabled title="Enable Seven Seas acknowledgement in General settings">FMHY</button>
+                            </div>
                         </div>
 
 
@@ -999,6 +930,7 @@
 
     <script src="../media/history.js"></script>
     <script src="../media/media-api.js"></script>
+    <script src="../shared/performance-watchdog.js"></script>
     <script src="dashboard.js"></script>
 
 </body>

@@ -44,7 +44,8 @@ const ctx=vm.createContext({
     claimFocusedTitlebarSurface: async id => events.push(['claim',id]),
     scheduleTitlebarClaimRetries: () => {},
     scheduleWideRightPaneReassert: mode => events.push(['right-reassert',mode]),
-    broadcastState: async () => {}
+    broadcastState: async () => {},
+    hideMangayomiIfActive: async () => {}
 });
 for (const file of ['shared/provider-registry-core.js','background/src/00-config-home.js','background/src/02-providers.js']) {
     vm.runInContext(fs.readFileSync(path.join(root,file), 'utf8'),ctx);

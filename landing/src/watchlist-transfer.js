@@ -22,7 +22,8 @@ async function exportWatchlist() {
     const [
         items,
         directLinks,
-        continueWatching
+        continueWatching,
+        externalMedia
     ] =
         await Promise.all([
             window
@@ -33,7 +34,8 @@ async function exportWatchlist() {
                 .getAll(),
             window
                 .StreamShellContinueWatching
-                .getAll()
+                .getAll(),
+            window.StreamShellExternalLibrary.getAll()
         ]);
 
 
@@ -42,7 +44,7 @@ async function exportWatchlist() {
             "stream-shell-watchlist",
 
         version:
-            3,
+            4,
 
         exportedAt:
             new Date()
@@ -51,6 +53,8 @@ async function exportWatchlist() {
         items,
 
         directLinks,
+
+        externalMedia,
 
         continueWatching
     };
@@ -147,6 +151,8 @@ async function importWatchlistFile(
             : [];
 
 
+    const externalMedia = Array.isArray(parsed?.externalMedia) ? parsed.externalMedia : [];
+
     const continueWatching =
         Array.isArray(
             parsed?.continueWatching
@@ -162,7 +168,7 @@ async function importWatchlistFile(
         directLinks.length ===
             0 &&
         continueWatching.length ===
-            0
+            0 && externalMedia.length === 0
     ) {
         throw new Error(
             "The selected file does not contain a Stream Shell Watchlist."
@@ -207,7 +213,8 @@ async function importWatchlistFile(
             .StreamShellContinueWatching
             .merge(
                 continueWatching
-            )
+            ),
+        window.StreamShellExternalLibrary.merge(externalMedia)
     ]);
 
 

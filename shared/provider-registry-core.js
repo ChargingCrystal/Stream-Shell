@@ -8,6 +8,11 @@ const STREAM_SHELL_PROVIDER_BUILTINS = Object.freeze([
     { id: "disney", name: "Disney+", url: "https://www.disneyplus.com/" },
     { id: "crunchyroll", name: "Crunchyroll", url: "https://www.crunchyroll.com/" }
 ]);
+const STREAM_SHELL_NATIVE_APPS = Object.freeze([
+    { id: "mangayomi", name: "Mangayomi", kind: "native", enabled: true,
+      showOnDashboard: false, showInTitlebar: false }
+]);
+const STREAM_SHELL_NATIVE_APP_IDS = new Set(STREAM_SHELL_NATIVE_APPS.map(p => p.id));
 const STREAM_SHELL_PROVIDER_GRID_PATTERNS = Object.freeze({
     1: [1], 2: [2], 3: [3], 4: [1, 2, 1],
     5: [1, 3, 1], 6: [2, 2, 2], 7: [2, 3, 2]
@@ -56,13 +61,16 @@ function streamShellCustomArtworkPath(key, kind) {
 function defaultStreamShellProviderRegistry() {
     const ids = STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id);
     return {
-        version: 2,
-        providers: STREAM_SHELL_PROVIDER_BUILTINS.map(p => ({
-            ...p, kind: "builtin", enabled: true, showOnDashboard: true,
-            showInTitlebar: true
-        })),
-        dashboardOrder: [...ids],
-        titlebarOrder: [...ids]
+        version: 3,
+        providers: [
+            ...STREAM_SHELL_PROVIDER_BUILTINS.map(p => ({
+                ...p, kind: "builtin", enabled: true, showOnDashboard: true,
+                showInTitlebar: true
+            })),
+            ...STREAM_SHELL_NATIVE_APPS
+        ],
+        dashboardOrder: [...ids, ...STREAM_SHELL_NATIVE_APP_IDS],
+        titlebarOrder: [...ids, ...STREAM_SHELL_NATIVE_APP_IDS]
     };
 }
 
@@ -80,7 +88,16 @@ function normalizeStreamShellProviderRegistry(value) {
             titlebarColor: streamShellValidatedTitlebarColor(incoming?.titlebarColor)
         };
     });
-    const seen = new Set(STREAM_SHELL_BUILTIN_IDS);
+    for (const native of STREAM_SHELL_NATIVE_APPS) {
+        const incoming = supplied.find(p => p && p.id === native.id);
+        providers.push({ ...native,
+            enabled: incoming?.enabled !== false,
+            showOnDashboard: incoming?.showOnDashboard === true,
+            showInTitlebar: incoming?.showInTitlebar === true,
+            titlebarColor: streamShellValidatedTitlebarColor(incoming?.titlebarColor)
+        });
+    }
+    const seen = new Set([...STREAM_SHELL_BUILTIN_IDS, ...STREAM_SHELL_NATIVE_APP_IDS]);
     for (const item of supplied) {
         if (!item || typeof item !== "object" || item.kind !== "custom") continue;
         const id = String(item.id || "");
@@ -122,5 +139,5 @@ function normalizeStreamShellProviderRegistry(value) {
         const kept = new Set(dashboardOrder.filter(id => pinned.some(p => p.id === id)).slice(0, 7));
         for (const provider of pinned) if (!kept.has(provider.id)) provider.showOnDashboard = false;
     }
-    return { version: 2, providers, dashboardOrder, titlebarOrder };
+    return { version: 3, providers, dashboardOrder, titlebarOrder };
 }

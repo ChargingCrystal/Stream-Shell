@@ -52,6 +52,8 @@ function formatSubscriptionSyncTime(
 function renderSubscriptionState(
     state
 ) {
+    // Compact intentionally has no subscription UI. Wide Landing still does.
+    if (!subscriptionSyncMeta) return;
     const items =
         state?.items ||
         {};
@@ -192,6 +194,7 @@ function renderSubscriptionState(
 
 
 async function loadSubscriptionState() {
+    if (!subscriptionSyncMeta) return;
     const stored =
         await chrome.storage.local.get(
             SUBSCRIPTION_STORAGE_KEY
@@ -207,6 +210,7 @@ async function loadSubscriptionState() {
 
 
 async function syncSubscriptions() {
+    if (!subscriptionSyncButton || !subscriptionSyncMeta) return;
     subscriptionSyncButton.disabled =
         true;
 

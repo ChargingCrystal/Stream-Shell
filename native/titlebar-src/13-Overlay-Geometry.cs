@@ -50,8 +50,11 @@ internal static partial class StreamShellTitlebarHost
         bool compactZOrderRepair =
             compactLayout &&
             NeedsCompactZOrderRepair(leftChromeOverlay, target, IntPtr.Zero);
+        bool mangayomiZOrderRepair =
+            !compactLayout &&
+            NeedsMangayomiWideChromeZOrderRepair(leftChromeOverlay, target, IntPtr.Zero);
 
-        if (!visible || placementChanged || ownershipChanged || compactZOrderRepair)
+        if (!visible || placementChanged || ownershipChanged || compactZOrderRepair || mangayomiZOrderRepair)
         {
             bool positioned = SetWindowPos(
                 leftChromeOverlay,
@@ -63,6 +66,10 @@ internal static partial class StreamShellTitlebarHost
                 SWP_NOACTIVATE | SWP_SHOWWINDOW
             );
             int positionError = positioned ? 0 : Marshal.GetLastWin32Error();
+            if (positioned && mangayomiZOrderRepair)
+            {
+                Interlocked.Increment(ref mangayomiWideChromeRepairs);
+            }
 
             ShowWindow(leftChromeOverlay, SW_SHOWNOACTIVATE);
 
@@ -438,8 +445,11 @@ internal static partial class StreamShellTitlebarHost
                 target,
                 isLeft ? leftChromeOverlay : IntPtr.Zero
             );
+        bool mangayomiZOrderRepair =
+            isLeft && !compactLayout &&
+            NeedsMangayomiWideChromeZOrderRepair(overlay, target, leftChromeOverlay);
 
-        if (!visible || placementChanged || ownershipChanged || compactZOrderRepair)
+        if (!visible || placementChanged || ownershipChanged || compactZOrderRepair || mangayomiZOrderRepair)
         {
             IntPtr insertAfter = HWND_TOPMOST;
 

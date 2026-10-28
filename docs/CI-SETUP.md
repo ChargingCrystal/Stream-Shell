@@ -1,31 +1,34 @@
-# Stream Shell CI – setup and operation
+# Stream Shell – GitHub Actions setup (0.22.1)
 
-GitHub Actions workflows are in `.github/workflows/`:
+The workflows live under `.github/workflows/`:
 
-- `project-quality.yml`: push / pull request / manual, Ubuntu, Node 22 and Python 3. Runs `node tools/check-project.mjs` for JS syntax, bundle parity, Manifest/HTML references, critical behavior tests, native **source** parity, and repository layout.
-- `native-windows.yml`: push / pull request when Native C# or its build tooling changes, plus manual runs. Uses Windows to compile the C# Titlebar Host **without installing or launching** it.
+- **`project-quality.yml`:** on push, pull request and manual dispatch; Ubuntu / Node 22 / Python 3; runs `node tools/check-project.mjs` for bundle parity, JS regression tests, manifest/HTML paths, layout checks and native source contracts.
+- **`native-windows.yml`:** runs for relevant native source/build changes and can be started manually; compiles the shared Windows Titlebar host, **without installing or launching** it.
 
-## Setup
+No npm dependencies, GitHub Actions secrets, authentication tokens or workflow administrator permissions are required for these basic checks.
 
-Both workflows are committed alongside source; no setup script or npm dependencies needed. Push your local tree to GitHub and inspect the [Actions tab](https://github.com/ChargingCrystal/Stream-Shell/actions). Workflow permissions are read-only. No tokens or secrets need to be configured.
+## Local quality and native smoke tests
 
-## Local test
+From the repository/extension root:
 
-From extension/repository root:
-
-```sh
+```powershell
 node tools/check-project.mjs
 ```
 
-Requires Node 22+ and Python 3. On Windows use the PowerShell builds adjacent to the four source trees when changing source fragments; CI validates outputs but does not rewrite bundles.
+For changed Windows native code:
 
-On native changes you can also invoke `native/tests/compile-titlebar-host.ps1` on Windows. It does not install the helper.
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\native\tests\compile-titlebar-host.ps1
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\integrations\mangayomi\tests\compile-mangayomi-host.ps1
+```
 
-## Interpreting failures
+The second command is for the **optional Mangayomi host**; it is not automatically covered by the titlebar workflow. Source-only changes should still be checked for safe staging, active extension ID and native process identity on the actual Windows machine.
 
-- **Bundle parity**: generated file did not match its ordered source fragments; use the adjacent `build-*.ps1` and commit both source and bundle.
-- **Regression missing/failed**: a behavior contract disappeared or changed; do not just delete tests to get green.
-- **Project layout**: docs and tests should live in their designated area; consult [PROJECT-STRUCTURE.md](PROJECT-STRUCTURE.md).
-- **Windows Native compile**: compile failure; installing the running helper should wait until the source is corrected.
+## Push checklist
 
-These checks cannot establish Opera GX or background renderer long-session stability by themselves.
+1. Ensure source files and their generated bundles agree, and `manifest.json` displays the intended version.
+2. Preserve the default-off **Seven Seas** gating for FMHY/Mangayomi; avoid publishing personal tokens or a pre-enabled user configuration.
+3. Exclude user backgrounds/custom artwork, runtime logs and local native binaries. If files were already tracked in Git, remove those *index entries* before pushing without deleting local files.
+4. Check `git status`, run the quality suite, commit, push, and confirm both workflows on the GitHub Actions tab.
+
+A green check is **not** a substitute for real Opera GX, Flutter or multi-hour Windows testing. See [CI Quality](CI-QUALITY.md) for coverage and limitations.

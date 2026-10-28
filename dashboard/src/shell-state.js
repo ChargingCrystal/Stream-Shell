@@ -174,12 +174,16 @@ function renderState(
     }
 
 
+    // A native LEFT app is a visual Dashboard identity, not a web player.
+    // Keep activeProvider intact for the next browser-provider transition.
     let provider =
-        state.activeProvider ||
-        "netflix";
+        state.leftMode === "mangayomi"
+            ? "mangayomi"
+            : (state.activeProvider || "netflix");
 
 
     if (
+        provider !== "mangayomi" &&
         !PROVIDERS.has(
             provider
         )
@@ -353,7 +357,7 @@ function renderState(
                 button.classList.toggle(
                     "active",
                     button.dataset.provider ===
-                        provider
+                        (leftMode === "mangayomi" ? "mangayomi" : provider)
                 );
             }
         );

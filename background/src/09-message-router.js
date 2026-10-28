@@ -292,6 +292,22 @@ chrome.runtime.onMessage.addListener(
         }
 
 
+        if (message.type === 'stream-shell-performance-event') {
+            if (!isShellHomeUiSender(sender)) {
+                sendResponse({ok: false});
+                return;
+            }
+            const origin = isDashboardSender(sender) ? 'dashboard' : 'landing';
+            const raw = message.incident || {};
+            return streamShellRespondAsync(sendResponse, () =>
+                recordStreamShellPerformanceIncident({
+                    source: origin, kind: raw.kind,
+                    durationMs: raw.durationMs,
+                    visible: raw.visible
+                }), { success: () => ({ok: true}), failure: () => ({ok: false}) }
+            );
+        }
+
         if (message.type === "dashboard-flight-event") {
             if (!isDashboardSender(sender)) {
                 sendResponse({ ok: false });
@@ -1544,6 +1560,46 @@ chrome.runtime.onMessage.addListener(
         }
 
 
+        if (message.type === "dashboard-kill-mangayomi") {
+            if (!isDashboardSender(sender)) {
+                sendResponse({ok:false,error:"Only Stream Shell Dashboard can terminate Mangayomi."});
+                return false;
+            }
+            killMangayomiByUserRequest()
+                .then(() => sendResponse({ok:true}))
+                .catch(error => sendResponse({ok:false,error:String(error?.message || error)}));
+            return true;
+        }
+        if (message.type === "landing-mangayomi-open-result") {
+            if (!isShellHomeUiSender(sender)) {
+                sendResponse({ok:false,error:"Only Stream Shell may open Mangayomi results."});
+                return false;
+            }
+            streamShellMangayomiOpenSourceResult(message.resultId)
+                .then(result => sendResponse({ok:true, ...result}))
+                .catch(error => sendResponse({ok:false,error:String(error?.message || error)}));
+            return true;
+        }
+        if (message.type === "landing-mangayomi-direct-search") {
+            if (!isShellHomeUiSender(sender)) {
+                sendResponse({ok:false,error:"Only the managed Stream Shell UI may search Mangayomi."});
+                return false;
+            }
+            streamShellMangayomiDirectSearch(message.query, message.itemType)
+                .then(result => sendResponse({ok:true, dispatched:result.dispatched, fallback:result.fallback === true, reason:result.reason || null, searchResults:result.searchResults || null}))
+                .catch(error => sendResponse({ok:false,error:String(error?.message || error)}));
+            return true;
+        }
+        if (message.type === "landing-show-mangayomi") {
+            if (!isShellHomeUiSender(sender)) {
+                sendResponse({ok:false,error:"Only a managed Landing/Dashboard may launch Mangayomi."});
+                return false;
+            }
+            switchProvider("mangayomi")
+                .then(() => sendResponse({ok:true}))
+                .catch(error => sendResponse({ok:false,error:error.message}));
+            return true;
+        }
         if (
             message.type ===
             "landing-show-discord"

@@ -12,16 +12,16 @@ const PROVIDER_NAMES = {
         "Disney+",
 
     crunchyroll:
-        "Crunchyroll"
+        "Crunchyroll",
+
+    mangayomi:
+        "Mangayomi"
 };
 
 
+// Only the five browser adapters use provider playback / reload controls.
 const PROVIDERS =
-    new Set(
-        Object.keys(
-            PROVIDER_NAMES
-        )
-    );
+    new Set(["youtube", "netflix", "prime", "disney", "crunchyroll"]);
 
 
 const WORDMARKS = {
@@ -38,7 +38,10 @@ const WORDMARKS = {
         "assets/providers/wordmarks/disney.svg",
 
     crunchyroll:
-        "assets/providers/wordmarks/crunchyroll.svg"
+        "assets/providers/wordmarks/crunchyroll.svg",
+
+    mangayomi:
+        "assets/providers/wordmarks/mangayomi.svg"
 };
 
 

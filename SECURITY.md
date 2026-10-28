@@ -1,23 +1,24 @@
 # Security Policy
 
-Stream Shell is a personal project, maintained on a best-effort basis. There is no bug-bounty program, guaranteed response time or long-term security-support matrix. Security-relevant fixes target the latest published version / current `main` branch.
+**Stream Shell 0.22.1** is a personal, best-effort project. Security fixes target the current branch; there is no guaranteed response SLA, bug bounty or long-term supported-version matrix.
 
-## Private reports
+## Reporting vulnerabilities
 
-Please do not publish exploit instructions, credentials, browser data or full private diagnostics in an open issue. If GitHub **Private vulnerability reporting** is enabled, use it. Otherwise open a minimal public issue asking for a private reporting channel, without describing the exploit or including secrets.
+Please do **not** post proof-of-concept exploits, private browser data, secrets or full Diagnostics exports in public issues. Use GitHub private vulnerability reporting if enabled. Otherwise open a minimal issue requesting a private reporting route without publishing exploit details.
 
-A useful report specifies the version/commit, browser and Windows versions, affected provider/URL or Native Messaging component, reproduction steps, impact and suggested fix if known.
+Include the affected version/commit, browser/Windows version, affected extension or native component, prerequisites, reproduction, impact and minimal sanitized evidence.
 
-## Sensitive boundaries
+## Security boundaries
 
-Pay particular attention to:
+- **Explicit Seven Seas opt-in:** FMHY and Mangayomi actions are blocked by default at runtime; hiding a button alone is insufficient. Turning the opt-in off prevents new gated operations. It does not certify or authorize third-party content. New integrations must preserve the execution-path guard.
+- **Native Messaging:** validate extension sender identity and message schemas. Titlebar, Discord and Mangayomi helpers have separate responsibilities and installations. Window ownership, process path and native app targeting must remain narrow and explicit.
+- **Mangayomi bridge:** the optional patched desktop app exposes an authenticated loopback interface; descriptors and credentials are local user data. Never expose the bridge publicly, bundle its tokens, or accept arbitrary URLs as an exact result-open instruction. The process-kill action targets the configured executable; avoid extending it to arbitrary processes.
+- **Custom providers:** HTTPS only; they must not silently gain built-in script injections, host permissions or privileged native actions.
+- **Browser/player code:** respect content-script/MAIN-world boundaries, MV3 permissions, incoming message validation and local storage handling. External provider DOM content is untrusted.
+- **Sensitive data:** local settings and TMDB tokens, Diagnostics JSON, playback activity, performance JSONL files, source descriptors, custom-provider URLs and external API responses can contain private details. Inspect and redact before sharing.
 
-- Browser permissions, page/content-script/MAIN-world boundaries and message validation.
-- The custom-provider registry: only HTTPS URLs should be accepted; custom sites must not automatically gain built-in provider injections or expanded host permissions.
-- The C# Native Messaging titlebar and Discord helpers, explicit HWND ownership, provider synchronization and bounded local custom PNG handling.
-- Local settings, TMDB tokens and any account/subscription metadata.
-- Offscreen capture/audio, optional external metadata services and exported Diagnostics.
+No project-operated telemetry collection service is bundled. Optional features contact external services or installed desktop applications, according to their separate functionality. Do not add unexpected network destinations or persistent sensitive logging without explicit justification and documentation.
 
-**Full Diagnostics exports may include URLs, Twitch channel names, playback state and settings.** Review/redact them before public submission. No project-operated telemetry service is bundled, but optional integrations make requests to their respective external services. Avoid new network destinations or data collection without explicit feature rationale and documentation.
+## Disclosure
 
-Please allow a reasonable opportunity to investigate and prepare a fix before public disclosure.
+Allow a reasonable opportunity to investigate and prepare a fix before publishing vulnerability details. Updates are provided on a best-effort basis.

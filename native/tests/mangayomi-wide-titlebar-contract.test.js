@@ -1,0 +1,23 @@
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const dir=path.resolve(__dirname,'..','titlebar-src');
+const visibility=fs.readFileSync(path.join(dir,'05-Foreground-Visibility-And-Pruning.cs'),'utf8');
+const geometry=fs.readFileSync(path.join(dir,'13-Overlay-Geometry.cs'),'utf8');
+const sync=fs.readFileSync(path.join(dir,'06-Overlay-State-Synchronization.cs'),'utf8');
+assert.match(sync,/FindWideSurfaceTarget\(left, "left", "landing"\)/,'Landing anchor still selected');
+assert.match(visibility,/private static IntPtr FindSelectedMangayomiOccluder\(/);
+const section=visibility.match(/private static IntPtr FindSelectedMangayomiOccluder\([\s\S]*?\n    }/)[0];
+assert.match(section,/leftMode, "mangayomi"/);
+assert.match(section,/layoutProfile, "wide"/);
+assert.match(section,/IsHeartbeatFresh\(\)/);
+assert.match(section,/IsSelectedMangayomiLeftWindow/);
+assert.match(visibility,/GetProcessName\(hWnd\), "Mangayomi"/);
+assert.match(visibility,/containedInLeftPane/);
+assert.match(geometry,/!compactLayout\s*&&\s*NeedsMangayomiWideChromeZOrderRepair\(leftChromeOverlay/);
+assert.match(geometry,/isLeft && !compactLayout &&\s*NeedsMangayomiWideChromeZOrderRepair\(overlay, target, leftChromeOverlay\)/);
+assert.match(geometry,/compactZOrderRepair \|\| mangayomiZOrderRepair/g);
+const status=fs.readFileSync(path.join(dir,'15-Native-ReadLoop-And-Status.cs'),'utf8');
+for(const field of ['leftMode','leftChromeVisible','leftToolbarVisible','mangayomiWideChromeRepairs'])
+  assert.ok(status.includes(field),`native diagnostics must expose ${field}`);
+console.log('PASS Mangayomi-only Wide Z-order repair compiled source contract (not Win32 live test)');

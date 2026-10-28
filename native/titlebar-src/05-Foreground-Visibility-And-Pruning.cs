@@ -177,7 +177,89 @@ internal static partial class StreamShellTitlebarHost
             overlapHeight > verticalTolerance;
     }
 
-    private static bool HasForeignWindowAboveWideLeftChrome(TargetInfo leftTarget)
+    private static bool IsSelectedMangayomiLeftWindow(IntPtr hWnd, TargetInfo anchor)
+    {
+        if (anchor == null || hWnd == IntPtr.Zero)
+            return false;
+
+        // Only the application window in the LEFT pane is exempt. A Mangayomi
+        // window moved to another monitor, or a different foreign program, must
+        // not allow a TOPMOST Stream Shell bar to leak over desktop windows.
+        RECT windowRect;
+        if (!GetWindowRect(hWnd, out windowRect)) return false;
+        int paneWidth = Math.Max(1, anchor.Rect.Right - anchor.Rect.Left);
+        int paneHeight = Math.Max(1, anchor.Rect.Bottom - anchor.Rect.Top);
+        int overlapWidth = Math.Max(0, Math.Min(windowRect.Right, anchor.Rect.Right) -
+            Math.Max(windowRect.Left, anchor.Rect.Left));
+        int overlapHeight = Math.Max(0, Math.Min(windowRect.Bottom, anchor.Rect.Bottom) -
+            Math.Max(windowRect.Top, anchor.Rect.Top));
+        int edgeTolerance = Math.Max(24, Scale(36, anchor.Dpi));
+        bool containedInLeftPane =
+            windowRect.Left >= anchor.Rect.Left - edgeTolerance &&
+            windowRect.Top >= anchor.Rect.Top - edgeTolerance &&
+            windowRect.Right <= anchor.Rect.Right + edgeTolerance &&
+            windowRect.Bottom <= anchor.Rect.Bottom + edgeTolerance;
+        // Check geometry before querying a foreign process; enumeration hits
+        // many irrelevant desktop windows on every native refresh tick.
+        return containedInLeftPane &&
+            overlapWidth >= paneWidth * 85 / 100 &&
+            overlapHeight >= paneHeight * 80 / 100 &&
+            String.Equals(GetProcessName(hWnd), "Mangayomi", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static int mangayomiWideChromeRepairs = 0;
+
+    // A native Flutter window may enter a higher Z-band *after* our chrome was
+    // positioned. Wide used to repair only on visibility/geometry changes, so
+    // Mangayomi could keep covering the toolbar until another provider forced
+    // a re-layout. This is the one deliberately scoped native-app exception.
+    private static IntPtr FindSelectedMangayomiOccluder(TargetInfo leftTarget)
+    {
+        if (leftTarget == null || leftTarget.Handle == IntPtr.Zero ||
+            !IsWindow(leftTarget.Handle) || !IsHeartbeatFresh())
+            return IntPtr.Zero;
+
+        lock (StateLock)
+        {
+            if (!String.Equals(leftMode, "mangayomi", StringComparison.OrdinalIgnoreCase) ||
+                !String.Equals(layoutProfile, "wide", StringComparison.OrdinalIgnoreCase))
+                return IntPtr.Zero;
+        }
+
+        IntPtr match = IntPtr.Zero;
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            if (IsWindowVisible(hWnd) && !IsIconic(hWnd) &&
+                IsSelectedMangayomiLeftWindow(hWnd, leftTarget) &&
+                IsWindowAboveInZOrder(hWnd, leftTarget.Handle))
+            {
+                match = hWnd;
+                return false;
+            }
+            return true;
+        }, IntPtr.Zero);
+        return match;
+    }
+
+    private static bool NeedsMangayomiWideChromeZOrderRepair(
+        IntPtr chromeWindow, TargetInfo leftTarget, IntPtr alsoAbove)
+    {
+        if (chromeWindow == IntPtr.Zero || !IsWindow(chromeWindow) ||
+            !IsWindowVisible(chromeWindow))
+            return false;
+
+        IntPtr mangayomi = FindSelectedMangayomiOccluder(leftTarget);
+        if (mangayomi == IntPtr.Zero) return false;
+
+        // Keep the left caption backdrop, buttons and Mangayomi in a stable
+        // order without applying any TOPMOST exception to Discord or others.
+        return !IsWindowAboveInZOrder(chromeWindow, mangayomi) ||
+            (alsoAbove != IntPtr.Zero && IsWindow(alsoAbove) &&
+             IsWindowVisible(alsoAbove) &&
+             !IsWindowAboveInZOrder(chromeWindow, alsoAbove));
+    }
+
+    private static bool HasForeignWindowAboveWideLeftChrome(TargetInfo leftTarget, bool allowMangayomi)
     {
         if (leftTarget == null || leftTarget.Handle == IntPtr.Zero || !IsWindow(leftTarget.Handle))
         {
@@ -201,7 +283,8 @@ internal static partial class StreamShellTitlebarHost
                 return true;
             }
 
-            if (MeaningfullyOverlapsWideLeftChrome(hWnd, leftTarget))
+            if (MeaningfullyOverlapsWideLeftChrome(hWnd, leftTarget) &&
+                !(allowMangayomi && IsSelectedMangayomiLeftWindow(hWnd, leftTarget)))
             {
                 occluded = true;
                 return false;
@@ -234,7 +317,13 @@ internal static partial class StreamShellTitlebarHost
          * stale TOPMOST bar from resurfacing over any foreign window that still
          * sits above Stream Shell on the left.
          */
-        return !HasForeignWindowAboveWideLeftChrome(leftTarget);
+        bool allowMangayomi;
+        lock (StateLock)
+        {
+            allowMangayomi = String.Equals(leftMode, "mangayomi", StringComparison.OrdinalIgnoreCase) &&
+                String.Equals(layoutProfile, "wide", StringComparison.OrdinalIgnoreCase);
+        }
+        return !HasForeignWindowAboveWideLeftChrome(leftTarget, allowMangayomi);
     }
 
     private static bool IsKnownNormalOperaWindow(IntPtr hWnd)

@@ -184,6 +184,8 @@ const POPUP_URL =
     );
 
 
+const MANGAYOMI_NATIVE_HOST = "com.streamshell.mangayomi";
+const MANGAYOMI_PATH_KEY = "streamShellMangayomiExecutable";
 const DISCORD_NATIVE_HOST =
     "com.streamshell.discord";
 

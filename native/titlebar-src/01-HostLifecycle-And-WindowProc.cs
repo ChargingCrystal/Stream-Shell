@@ -103,6 +103,7 @@ internal static partial class StreamShellTitlebarHost
             reader.IsBackground = true;
             reader.Name = "StreamShellTitlebarNativeReader";
             reader.Start();
+            StartPerformanceHeartbeatWatchdog();
 
             Thread controlBridge = new Thread(ControlBridgeLoop);
             controlBridge.IsBackground = true;

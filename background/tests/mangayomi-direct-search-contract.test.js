@@ -1,0 +1,27 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '../..');
+const read = p => fs.readFileSync(path.join(root,p),'utf8');
+const native = read('integrations/mangayomi/StreamShellMangayomiHost.cs');
+const bg = read('background/src/05-mangayomi.js');
+const router = read('background/src/09-message-router.js');
+assert.match(native,/action == "search"/);
+assert.match(native,/mangayomi:\/\/global-search\?type=/);
+assert.match(native,/Uri\.EscapeDataString\(title\)/);
+assert.match(native,/UseShellExecute = true/);
+assert.match(native,/CanDispatchDirectSearch\(process, GetString\(json, "executablePath"\)\)/);
+assert.match(native,/Software\\Classes\\mangayomi/);
+assert.match(native,/GetValue\("URL Protocol"\)/);
+assert.match(native,/DirectSearchEnabled/);
+assert.ok(native.indexOf('CanDispatchDirectSearch(process, GetString(json, "executablePath"))') < native.indexOf('Process.Start(new ProcessStartInfo(searchUri)'),
+  'Win32 URI dispatch must be guarded before ShellExecute');
+assert.match(bg,/async function streamShellMangayomiDirectSearch/);
+assert.match(bg,/MANGAYOMI_DIRECT_SEARCH_UNAVAILABLE/);
+assert.match(bg,/dispatched:false, fallback:true/);
+assert.match(router,/landing-mangayomi-direct-search/);
+assert.match(router,/isShellHomeUiSender\(sender\)/);
+assert.doesNotMatch(bg,/http:\/\/127\.0\.0\.1/);
+assert.match(read('landing/src/mangayomi-search-handoff.js'),/dispatched:!switchOnly && result.dispatched === true/);
+assert.match(read('integrations/mangayomi/enable-patched-search.ps1'),/IInstalledPatchedBuild/);
+console.log('Mangayomi experimental deep-link search dispatch and trust guard: PASS');

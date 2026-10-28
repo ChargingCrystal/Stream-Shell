@@ -35,6 +35,7 @@ function baseSettingKeyForStorageKey(storageKey) {
 
 const SETTINGS_DEFAULTS = {
     streamShellDisplayMode: "auto",
+    streamShellSevenSeasAcknowledged: false,
     streamShellProviderRegistry: defaultStreamShellProviderRegistry(),
 
     streamShellTwitchKeepActive: true,
@@ -90,6 +91,16 @@ const SETTINGS_DEFAULTS = {
     streamShellPlaybackAnarchy: false,
     streamShellSubtitleAnarchy: false,
     streamShellDvdAnarchy: false,
+    streamShellVisualAnarchy: false,
+    streamShellVisualFrequency: "occasional",
+    streamShellVisualIntensity: 75,
+    streamShellVisualZoom: true,
+    streamShellVisualDeepFry: true,
+    streamShellVisualVhs: true,
+    streamShellVisualColor: true,
+    streamShellVisualGravity: true,
+    streamShellVisualAspect: true,
+    streamShellVisualBoss: false,
 
 
     streamShellDoubleClickWindowed_youtube: false,
@@ -182,6 +193,7 @@ const SETTINGS_SECTIONS = {
     general: [
         ["display", "Display"],
         ["providers", "Providers"],
+        ["seven-seas", "Seven Seas"],
         ["anarchy", "Anarchy"],
         ["twitch", "Twitch"]
     ],

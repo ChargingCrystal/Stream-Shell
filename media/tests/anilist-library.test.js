@@ -1,0 +1,21 @@
+const assert=require('node:assert/strict'), fs=require('node:fs'), path=require('node:path'),vm=require('node:vm');
+const store={streamShellExternalLibrary:[{id:'11111111-1111-4111-8111-111111111111',source:'mangayomi',mediaType:'manga',title:'Solo Leveling',addedAt:12345}]};
+let serial=0;
+const ctx=vm.createContext({Date,console,crypto:{randomUUID:()=>`aaaaaaaa-aaaa-4aaa-8aaa-${String(++serial).padStart(12,'0')}`},window:{},chrome:{storage:{local:{get:async key=>({[key]:store[key]}),set:async obj=>Object.assign(store,obj)}}}});
+vm.runInContext(fs.readFileSync(path.join(__dirname,'../external-library.js'),'utf8'),ctx);
+(async()=>{const lib=ctx.window.StreamShellExternalLibrary;
+assert.equal((await lib.getAll())[0].source,'mangayomi');
+const saved=await lib.upsertAniList({anilistId:1471,mediaType:'manga',title:'Solo Leveling',coverUrl:'https://s4.anilist.co/file/manga.webp',description:'<b>Summon</b> the hero',score:85,year:2022,genres:['Action']});
+assert.equal(saved.id,'11111111-1111-4111-8111-111111111111','manual title upgraded in place');
+assert.equal(saved.addedAt,12345);
+assert.equal(saved.description,'Summon the hero');
+assert.equal((await lib.getAll()).length,1);
+await lib.upsertAniList({...saved,title:'Solo Leveling updated'});
+assert.equal((await lib.getAll()).length,1,'duplicate AniList ID blocked');
+await lib.merge([{id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',source:'anilist',anilistId:1471,mediaType:'manga',title:'Imported duplicate'},
+    {id:'cccccccc-cccc-4ccc-8ccc-cccccccccccc',source:'anilist',anilistId:123,mediaType:'anime',title:'Good',coverUrl:'javascript:bad'}]);
+assert.equal((await lib.getAll()).length,2,'dedupe including imported AniList IDs');
+assert.equal((await lib.getAll()).find(x=>x.title==='Good').coverUrl,'');
+assert.ok(JSON.stringify(store.streamShellExternalLibrary).includes('anilistId'), 'export uses same externalMedia data');
+console.log('AniList Library: manual upgrade, stable IDs, dedupe, import sanitization: PASS');
+})().catch(e=>{console.error(e);process.exitCode=1});

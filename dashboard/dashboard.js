@@ -8,6 +8,11 @@ const STREAM_SHELL_PROVIDER_BUILTINS = Object.freeze([
     { id: "disney", name: "Disney+", url: "https://www.disneyplus.com/" },
     { id: "crunchyroll", name: "Crunchyroll", url: "https://www.crunchyroll.com/" }
 ]);
+const STREAM_SHELL_NATIVE_APPS = Object.freeze([
+    { id: "mangayomi", name: "Mangayomi", kind: "native", enabled: true,
+      showOnDashboard: false, showInTitlebar: false }
+]);
+const STREAM_SHELL_NATIVE_APP_IDS = new Set(STREAM_SHELL_NATIVE_APPS.map(p => p.id));
 const STREAM_SHELL_PROVIDER_GRID_PATTERNS = Object.freeze({
     1: [1], 2: [2], 3: [3], 4: [1, 2, 1],
     5: [1, 3, 1], 6: [2, 2, 2], 7: [2, 3, 2]
@@ -56,13 +61,16 @@ function streamShellCustomArtworkPath(key, kind) {
 function defaultStreamShellProviderRegistry() {
     const ids = STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id);
     return {
-        version: 2,
-        providers: STREAM_SHELL_PROVIDER_BUILTINS.map(p => ({
-            ...p, kind: "builtin", enabled: true, showOnDashboard: true,
-            showInTitlebar: true
-        })),
-        dashboardOrder: [...ids],
-        titlebarOrder: [...ids]
+        version: 3,
+        providers: [
+            ...STREAM_SHELL_PROVIDER_BUILTINS.map(p => ({
+                ...p, kind: "builtin", enabled: true, showOnDashboard: true,
+                showInTitlebar: true
+            })),
+            ...STREAM_SHELL_NATIVE_APPS
+        ],
+        dashboardOrder: [...ids, ...STREAM_SHELL_NATIVE_APP_IDS],
+        titlebarOrder: [...ids, ...STREAM_SHELL_NATIVE_APP_IDS]
     };
 }
 
@@ -80,7 +88,16 @@ function normalizeStreamShellProviderRegistry(value) {
             titlebarColor: streamShellValidatedTitlebarColor(incoming?.titlebarColor)
         };
     });
-    const seen = new Set(STREAM_SHELL_BUILTIN_IDS);
+    for (const native of STREAM_SHELL_NATIVE_APPS) {
+        const incoming = supplied.find(p => p && p.id === native.id);
+        providers.push({ ...native,
+            enabled: incoming?.enabled !== false,
+            showOnDashboard: incoming?.showOnDashboard === true,
+            showInTitlebar: incoming?.showInTitlebar === true,
+            titlebarColor: streamShellValidatedTitlebarColor(incoming?.titlebarColor)
+        });
+    }
+    const seen = new Set([...STREAM_SHELL_BUILTIN_IDS, ...STREAM_SHELL_NATIVE_APP_IDS]);
     for (const item of supplied) {
         if (!item || typeof item !== "object" || item.kind !== "custom") continue;
         const id = String(item.id || "");
@@ -122,7 +139,7 @@ function normalizeStreamShellProviderRegistry(value) {
         const kept = new Set(dashboardOrder.filter(id => pinned.some(p => p.id === id)).slice(0, 7));
         for (const provider of pinned) if (!kept.has(provider.id)) provider.showOnDashboard = false;
     }
-    return { version: 2, providers, dashboardOrder, titlebarOrder };
+    return { version: 3, providers, dashboardOrder, titlebarOrder };
 }
 const PROVIDER_NAMES = {
     youtube:
@@ -138,16 +155,16 @@ const PROVIDER_NAMES = {
         "Disney+",
 
     crunchyroll:
-        "Crunchyroll"
+        "Crunchyroll",
+
+    mangayomi:
+        "Mangayomi"
 };
 
 
+// Only the five browser adapters use provider playback / reload controls.
 const PROVIDERS =
-    new Set(
-        Object.keys(
-            PROVIDER_NAMES
-        )
-    );
+    new Set(["youtube", "netflix", "prime", "disney", "crunchyroll"]);
 
 
 const WORDMARKS = {
@@ -164,7 +181,10 @@ const WORDMARKS = {
         "assets/providers/wordmarks/disney.svg",
 
     crunchyroll:
-        "assets/providers/wordmarks/crunchyroll.svg"
+        "assets/providers/wordmarks/crunchyroll.svg",
+
+    mangayomi:
+        "assets/providers/wordmarks/mangayomi.svg"
 };
 
 
@@ -420,7 +440,8 @@ function streamShellPinnedProviders(registry = getStreamShellProviderRegistry())
     const lookup = new Map(registry.providers.map(p => [p.id, p]));
     return registry.dashboardOrder
         .map(id => lookup.get(id))
-        .filter(p => p?.enabled && p?.showOnDashboard)
+        .filter(p => p?.enabled && p?.showOnDashboard &&
+            (p.id !== "mangayomi" || settingsValues.streamShellSevenSeasAcknowledged === true))
         .slice(0, 7);
 }
 
@@ -429,9 +450,14 @@ function renderProviderSelector() {
     if (!root) return;
 
     const pinned = streamShellPinnedProviders();
-    const layout = STREAM_SHELL_PROVIDER_GRID_PATTERNS[pinned.length];
+    const layout = STREAM_SHELL_PROVIDER_GRID_PATTERNS[pinned.length] || [];
     root.replaceChildren();
     root.dataset.providerCount = String(pinned.length);
+    root.style.setProperty("--compact-provider-count", String(Math.max(1, pinned.length)));
+    // Keep the Compact rail fluid: fewer pins get more air, seven pins fit
+    // comfortably without changing the fixed outer or media-column gutters.
+    root.style.setProperty("--compact-provider-gap-factor",
+        String(Math.min(1.8, Math.max(0.7, 5 / Math.max(1, pinned.length)))));
     let index = 0;
 
     for (const size of layout) {
@@ -488,6 +514,10 @@ function updateStreamShellProviderRegistry(mutator) {
     const nextWrite = streamShellProviderRegistryWriteQueue.catch(() => {}).then(async () => {
         const current = getStreamShellProviderRegistry();
         const proposed = mutator(current);
+        if (settingsValues.streamShellSevenSeasAcknowledged !== true) {
+            const native = proposed.providers.find(p => p.id === "mangayomi");
+            if (native) { native.enabled = false; native.showOnDashboard = false; native.showInTitlebar = false; }
+        }
         const next = normalizeStreamShellProviderRegistry(proposed);
         await chrome.storage.local.set({ [STREAM_SHELL_PROVIDER_REGISTRY_KEY]: next });
         settingsValues[STREAM_SHELL_PROVIDER_REGISTRY_KEY] = next;
@@ -580,22 +610,31 @@ function updateStreamShellLocalArtworkHints(rawKey) {
 }
 
 function renderProviderRegistrySettings() {
+    if (typeof chrome !== "undefined" && chrome.storage?.local?.get) chrome.storage.local.get("streamShellMangayomiExecutable").then(stored => {
+        const input = document.getElementById("settings-mangayomi-path");
+        if (input && document.activeElement !== input) {
+            input.value = stored.streamShellMangayomiExecutable || "";
+        }
+        settingsValues.streamShellMangayomiExecutable = stored.streamShellMangayomiExecutable || "";
+    }).catch(() => {});
     const registry = getStreamShellProviderRegistry();
+    const sevenSeas = settingsValues.streamShellSevenSeasAcknowledged === true;
     const byId = new Map(registry.providers.map(p => [p.id, p]));
     const visible = streamShellPinnedProviders(registry).length;
     const rows = registry.dashboardOrder.map((id, index) => {
         const p = byId.get(id);
-        const pinned = p.enabled && p.showOnDashboard;
+        const locked = p.id === "mangayomi" && !sevenSeas;
+        const pinned = !locked && p.enabled && p.showOnDashboard;
         const label = escapeSettingsHtml(p.name);
         return `<div class="setting-row settings-provider-registry-row">
             <span class="setting-copy"><strong>${label}</strong>
-            <span>${p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}${p.kind === "custom" ? " · " + escapeSettingsHtml(p.url) : ""}</span></span>
+            <span>${p.kind === "native" ? "Native Windows app · optional helper" : p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}${p.kind === "custom" ? " · " + escapeSettingsHtml(p.url) : ""}</span></span>
             <label class="settings-provider-registry-toggle">
-                <input type="checkbox" data-registry-enabled="${id}" ${p.enabled ? "checked" : ""}>
+                <input type="checkbox" data-registry-enabled="${id}" ${p.enabled && !locked ? "checked" : ""} ${locked ? "disabled" : ""}>
                 <span>Enabled</span>
             </label>
             <label class="settings-provider-registry-toggle">
-                <input type="checkbox" data-registry-visibility="${id}" ${pinned ? "checked" : ""} ${p.enabled ? "" : "disabled"}>
+                <input type="checkbox" data-registry-visibility="${id}" ${pinned ? "checked" : ""} ${p.enabled && !locked ? "" : "disabled"}>
                 <span>Dashboard</span>
             </label>
             <button type="button" class="settings-provider-registry-move" data-registry-move="${id}" data-registry-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${label} up">↑</button>
@@ -607,11 +646,12 @@ function renderProviderRegistrySettings() {
     const titlebarRows = registry.titlebarOrder.map((id, index) => {
         const p = byId.get(id);
         if (!p) return "";
+        const locked = p.id === "mangayomi" && !sevenSeas;
         return `<div class="setting-row settings-provider-registry-row">
             <span class="setting-copy"><strong>${escapeSettingsHtml(p.name)}</strong>
-                <span>${p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}</span></span>
+                <span>${p.kind === "native" ? "Native Windows app" : p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}</span></span>
             <label class="settings-provider-registry-toggle">
-                <input type="checkbox" data-registry-titlebar-visible="${id}" ${p.showInTitlebar && p.enabled ? "checked" : ""} ${p.enabled ? "" : "disabled"}>
+                <input type="checkbox" data-registry-titlebar-visible="${id}" ${p.showInTitlebar && p.enabled && !locked ? "checked" : ""} ${p.enabled && !locked ? "" : "disabled"}>
                 <span>Titlebar</span>
             </label>
             <label class="settings-provider-titlebar-color" title="Titlebar theme / active-state background color; icons always stay neutral monochrome">
@@ -651,13 +691,23 @@ function renderProviderRegistrySettings() {
         <span id="settings-custom-provider-error" role="status"></span>
         <div class="settings-custom-provider-artwork" aria-label="Local artwork paths">${artworkHints}</div>
     </div>`;
+    const nativeSetup = `<div class="settings-custom-provider-form">
+        <div class="settings-custom-provider-fields"><label>Mangayomi.exe path (optional)
+        <input id="settings-mangayomi-path" placeholder="C:\\Apps\\Mangayomi\\Mangayomi.exe" spellcheck="false" value="${escapeSettingsHtml(settingsValues.streamShellMangayomiExecutable || '')}">
+        </label></div><div class="settings-custom-provider-actions">
+        <button type="button" id="settings-mangayomi-save" class="settings-provider-registry-move">Save path</button>
+        <button type="button" id="settings-mangayomi-kill" class="settings-provider-registry-move" title="Force-close the configured Mangayomi process and its child processes">Kill Mangayomi (process)</button></div>
+        <span id="settings-mangayomi-status" role="status">Install integrations/mangayomi/install-mangayomi-helper.ps1 once. Enable the button above when ready.</span>
+    </div>`;
     return settingsPage("Providers",
+        `<p class="ss-seven-seas-status">${sevenSeas ? "Third-party integrations unlocked." : "Mangayomi is locked. Enable General → Seven Seas to unlock it."}</p>` +
         `<div class="settings-provider-registry-columns">` +
             settingsSubgroup(`Dashboard (${visible}/7)`, rows,
                 "Up to seven pinned providers; independent of the native titlebar.") +
             settingsSubgroup("Native titlebar (unlimited)", titlebarRows,
                 "Independent order and colors; extra buttons appear under … .") +
         `</div>` +
+        settingsSubgroup("Mangayomi · native integration", nativeSetup) +
         settingsSubgroup(editing ? "Edit custom provider" : "Add custom provider", form)
     );
 }
@@ -3112,6 +3162,67 @@ async function navigateProviderToSelectedMedia(
 }
 
 
+/* Mangayomi bridge results arrive asynchronously after a native source scan.
+ * This listener is specifically for the WIDE right-side Dashboard bundle. */
+function streamShellDashboardMangayomiResults(data) {
+    if (document.body?.dataset?.layoutProfile !== "compact") return;
+    if (!data || !Array.isArray(data.sources)) return;
+    const existing = document.getElementById("ss-mangayomi-source-results");
+    existing?.remove();
+    const panel = document.createElement("section");
+    panel.id = "ss-mangayomi-source-results";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-label", "Mangayomi source search results");
+    Object.assign(panel.style, {
+        position:"fixed", top:"12%", left:"8%", right:"8%", bottom:"10%", zIndex:"2147483647",
+        overflow:"auto", color:"#eee", background:"#111116", border:"1px solid #34343c",
+        borderRadius:"18px", padding:"22px", boxShadow:"0 15px 70px #000a", fontSize:"14px"
+    });
+    const heading = document.createElement("h2");
+    heading.textContent = `Mangayomi · ${data.query} · ${data.scannedCount}/${data.sourceCount} sources`;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "×";
+    close.title = "Close source results";
+    close.style.cssText = "float:right;padding:4px 12px;color:inherit;background:transparent;border:1px solid #34343c;border-radius:9px;cursor:pointer";
+    close.addEventListener("click", () => panel.remove());
+    panel.append(close, heading);
+    for (const source of data.sources) {
+        const section = document.createElement("section");
+        section.style.cssText = "padding:10px 0;border-top:1px solid #272730";
+        const name = document.createElement("h3");
+        const hits = Array.isArray(source.hits) ? source.hits : [];
+        name.textContent = `${source.name || "Unknown source"} (${source.lang || "?"}) · ${source.status || "unknown"} · ${hits.length} hits`;
+        section.append(name);
+        for (const hit of hits) {
+            const item = document.createElement("div");
+            item.style.cssText = "padding:5px 10px;color:#d4d0d8";
+            item.textContent = hit.title || "Untitled result";
+            // Return source link as text only; search results do not verify a stream.
+            if (hit.url) item.title = String(hit.url).slice(0, 1024);
+            section.append(item);
+        }
+        panel.append(section);
+    }
+    if (data.truncatedSources) {
+        const note = document.createElement("p");
+        note.textContent = "Some sources were skipped by the bridge safety limit.";
+        panel.append(note);
+    }
+    document.body.append(panel);
+}
+
+
+if (typeof chrome !== "undefined" && chrome.runtime?.onMessage?.addListener) {
+    chrome.runtime.onMessage.addListener((message, sender) => {
+        if (message?.type !== "stream-shell-mangayomi-source-results" ||
+            sender?.id !== chrome.runtime.id) return;
+        const data = message.data;
+        if (!data?.ok || !Array.isArray(data.sources) || data.sources.length > 18 ||
+            typeof data.query !== "string" || data.query.length > 200) return;
+        streamShellDashboardMangayomiResults(data);
+    });
+}
 /*
  * ============================================================
  * OPEN PROVIDER + ADD TO RECENT
@@ -3131,6 +3242,10 @@ async function openProvider(
             });
 
 
+        if (provider === "mangayomi" && response?.ok === false) {
+            window.alert(response.error || "Mangayomi is unavailable. Install its optional native helper and check the executable path in General → Providers.");
+            return;
+        }
         if (
             !response?.ok ||
             !selectedMedia ||
@@ -3339,6 +3454,7 @@ function baseSettingKeyForStorageKey(storageKey) {
 
 const SETTINGS_DEFAULTS = {
     streamShellDisplayMode: "auto",
+    streamShellSevenSeasAcknowledged: false,
     streamShellProviderRegistry: defaultStreamShellProviderRegistry(),
 
     streamShellTwitchKeepActive: true,
@@ -3394,6 +3510,16 @@ const SETTINGS_DEFAULTS = {
     streamShellPlaybackAnarchy: false,
     streamShellSubtitleAnarchy: false,
     streamShellDvdAnarchy: false,
+    streamShellVisualAnarchy: false,
+    streamShellVisualFrequency: "occasional",
+    streamShellVisualIntensity: 75,
+    streamShellVisualZoom: true,
+    streamShellVisualDeepFry: true,
+    streamShellVisualVhs: true,
+    streamShellVisualColor: true,
+    streamShellVisualGravity: true,
+    streamShellVisualAspect: true,
+    streamShellVisualBoss: false,
 
 
     streamShellDoubleClickWindowed_youtube: false,
@@ -3486,6 +3612,7 @@ const SETTINGS_SECTIONS = {
     general: [
         ["display", "Display"],
         ["providers", "Providers"],
+        ["seven-seas", "Seven Seas"],
         ["anarchy", "Anarchy"],
         ["twitch", "Twitch"]
     ],
@@ -3806,6 +3933,8 @@ function streamShellSettingValidationRule(key) {
     if (/^streamShellVolumeBoost_(twitch|youtube|netflix|prime|disney|crunchyroll)$/.test(base)) {
         return { bounds: [100, 600, 10] };
     }
+    if (base === "streamShellVisualIntensity") return { bounds: [0, 100, 5] };
+    if (base === "streamShellVisualFrequency") return { choices: ["occasional", "chaotic", "absolute"] };
     if (STREAM_SHELL_SETTING_BOUNDS[base]) return { bounds: STREAM_SHELL_SETTING_BOUNDS[base] };
     if (STREAM_SHELL_SETTING_CHOICES[base]) return { choices: STREAM_SHELL_SETTING_CHOICES[base] };
     if (/^streamShellPlaybackSpeed_(youtube|netflix|prime|disney|crunchyroll)$/.test(base)) {
@@ -3827,6 +3956,7 @@ function streamShellSettingValidationRule(key) {
 }
 
 function streamShellNormalizeSettingValue(key, value) {
+
     if (!SETTINGS_STORAGE_KEY_SET.has(key)) {
         throw new Error(`Unknown Stream Shell setting: ${key}`);
     }
@@ -4435,7 +4565,22 @@ function renderAnarchySettings() {
                 "streamShellDvdAnarchy",
                 "DVD Anarchy",
                 "Bounce a DVD logo around whichever supported provider occupies the active left surface, randomly changing speed and color on collisions."
-            )
+            ) +
+            settingSwitch("streamShellVisualAnarchy", "Visual Anarchy Director",
+                "One event timer for random visual disasters. Active, playing video only; restores all video styles when disabled.") +
+            settingSelect("streamShellVisualFrequency", "Chaos frequency", "Average interval between visual events.", [
+                ["occasional","Occasional · 60–120 s"],
+                ["chaotic","Chaotic · 20–60 s"],
+                ["absolute","Absolute Anarchy · 5–15 s"]
+            ]) +
+            settingRange("streamShellVisualIntensity", "Chaos intensity", "Visual effect strength (GPU-intensive at high values).", 0, 100, 5) +
+            settingSwitch("streamShellVisualZoom", "Zoom Anarchy", "Random zoom and off-center focus.") +
+            settingSwitch("streamShellVisualDeepFry", "Deep Fry Roulette", "Brief contrast and saturation overload.") +
+            settingSwitch("streamShellVisualVhs", "VHS Meltdown", "Scanlines, color fringing and visual jitter.") +
+            settingSwitch("streamShellVisualColor", "Colorblind Roulette", "Color inversion, sepia, grayscale and hue rotation.") +
+            settingSwitch("streamShellVisualGravity", "Gravity.exe", "Tilt or rotate the video.") +
+            settingSwitch("streamShellVisualAspect", "Aspect Ratio Crimes", "Stretch, squash and mirror the video.") +
+            settingSwitch("streamShellVisualBoss", "Boss Fight Events", "Occasionally stack multiple enabled effects in one event.")
         ),
         "Global chaos controls. Provider Safe Mode still suppresses Anarchy locally without changing these saved global settings.",
         "three"
@@ -5556,6 +5701,8 @@ function renderSettingsDiagnostics(snapshot) {
         diagnosticsRow("Snapshot mode", snapshot.mode === "full" ? "Deep · live probes" : "Panel · cached health", "neutral") +
         diagnosticsRow("Generated", generatedAt, "neutral") +
         diagnosticsRow("Flight events", `${Number(flightRecorder.count) || 0}/${Number(flightRecorder.maxEvents) || 200}`, "neutral") +
+        diagnosticsRow("Performance black box", "Daily JSONL · native titlebar helper", "neutral") +
+        diagnosticsRow("Performance log folder", "%LOCALAPPDATA%\\StreamShell\\Logs", "neutral") +
         diagnosticsRow("Export", "Runtime (fast) / Deep (optional)", "good");
 
     settingsDiagnosticsContent.innerHTML =
@@ -5608,7 +5755,7 @@ function renderSettingsDiagnostics(snapshot) {
         diagnosticsSection(
             "05",
             "Event timeline",
-            "The session flight recorder shows the event chain that led to the current state.",
+            "Session timeline plus permanent performance incidents (when the native titlebar helper is updated). Files: %LOCALAPPDATA%\\StreamShell\\Logs.",
             diagnosticsTimelineCard(flightRecorder),
             "timeline"
         ) +
@@ -6267,6 +6414,17 @@ function renderSettingsContent() {
         html = renderProviderRegistrySettings();
     }
 
+    if (settingsProvider === "general" && settingsSection === "seven-seas") {
+        html = settingsPage("The Seven Seas", settingsSubgroup("Optional third-party integrations",
+            settingSwitch("streamShellSevenSeasAcknowledged",
+                "I acknowledge the existence of the seven seas",
+                "Unlock optional FMHY discovery and Mangayomi integration. Future integrations such as Stremio can use this same gate.") +
+            `<p class="ss-seven-seas-disclaimer">Third-party tools and sources may contain material shared without permission. Stream Shell neither verifies nor endorses such content. By enabling this option you acknowledge that you are responsible for the sources and content you choose to access, and for complying with applicable rules. This switch does not itself grant permission to use any content.</p>` +
+            `<p class="ss-seven-seas-status">${settingValue("streamShellSevenSeasAcknowledged") === true
+                ? "Unlocked: FMHY and Mangayomi can be enabled in their respective controls."
+                : "Locked: FMHY searches and Mangayomi actions are disabled, even if previously configured."}</p>`));
+    }
+
     if (settingsProvider === "general" && settingsSection === "twitch") {
         html = renderTwitchUtilitySettings();
     }
@@ -6832,6 +6990,30 @@ function handleSettingsClick(event) {
         return true;
     }
 
+    if (button.id === "settings-mangayomi-kill") {
+        event.preventDefault();
+        if (!window.confirm("Force-kill Mangayomi and its child processes? Unsaved changes in Mangayomi will be lost.")) return true;
+        const status = document.getElementById("settings-mangayomi-status");
+        if (status) status.textContent = "Terminating Mangayomi process...";
+        chrome.runtime.sendMessage({type:"dashboard-kill-mangayomi"}).then(reply => {
+            if (status) status.textContent = reply?.ok ? "Mangayomi process stopped (not hidden)." : (reply?.error || "Kill failed.");
+        }).catch(error => { if (status) status.textContent = String(error?.message || error); });
+        return true;
+    }
+    if (button.id === "settings-mangayomi-save") {
+        event.preventDefault();
+        const path = document.getElementById("settings-mangayomi-path")?.value.trim() || "";
+        const status = document.getElementById("settings-mangayomi-status");
+        if (path && (!/^[a-z]:\\/i.test(path) || !/\\mangayomi\.exe$/i.test(path))) {
+            if (status) status.textContent = "Choose a full Windows path ending in Mangayomi.exe.";
+            return true;
+        }
+        chrome.storage.local.set({ streamShellMangayomiExecutable: path }).then(() => {
+            settingsValues.streamShellMangayomiExecutable = path;
+            if (status) status.textContent = "Path saved locally.";
+        }).catch(error => { if (status) status.textContent = String(error); });
+        return true;
+    }
     if (button.id === "settings-custom-provider-save") {
         event.preventDefault();
         saveStreamShellCustomProvider();
@@ -6980,6 +7162,12 @@ async function persistSettingInput(input) {
     }
 
     settingsValues[normalized.key] = normalized.value;
+    if (normalized.key === "streamShellSevenSeasAcknowledged") {
+        // Repaint actual provider controls immediately; runtime gating lives in
+        // background + search handlers, not just in these checkboxes.
+        renderProviderSelector();
+        if (!settingsCenter.hidden) renderSettingsContent();
+    }
     // Flight Recorder failure must not turn a successful settings save into an error.
     try {
         chrome.runtime.sendMessage({
@@ -7196,7 +7384,7 @@ chrome.storage.onChanged.addListener(
             relevant = true;
         }
 
-        if (changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]) {
+        if (changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY] || changes.streamShellSevenSeasAcknowledged) {
             syncDashboardProviderIdentities();
             renderProviderSelector();
             // Apply newly selected custom art to the currently visible backdrop
@@ -7634,12 +7822,16 @@ function renderState(
     }
 
 
+    // A native LEFT app is a visual Dashboard identity, not a web player.
+    // Keep activeProvider intact for the next browser-provider transition.
     let provider =
-        state.activeProvider ||
-        "netflix";
+        state.leftMode === "mangayomi"
+            ? "mangayomi"
+            : (state.activeProvider || "netflix");
 
 
     if (
+        provider !== "mangayomi" &&
         !PROVIDERS.has(
             provider
         )
@@ -7813,7 +8005,7 @@ function renderState(
                 button.classList.toggle(
                     "active",
                     button.dataset.provider ===
-                        provider
+                        (leftMode === "mangayomi" ? "mangayomi" : provider)
                 );
             }
         );

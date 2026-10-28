@@ -35,7 +35,9 @@ vm.runInContext(src('settings-storage.js'), ctx);
 const expr = code => vm.runInContext(code, ctx);
 const plain = code => JSON.parse(JSON.stringify(expr(code)));
 
-assert.equal(expr('SETTINGS_STORAGE_KEYS.length'), 128);
+assert.equal(expr('SETTINGS_STORAGE_KEYS.length'), 139);
+assert.equal(expr('streamShellNormalizeSettingValue("streamShellVisualIntensity", 175)'), 100);
+assert.throws(() => expr('streamShellNormalizeSettingValue("streamShellVisualFrequency", "bad")'), /Invalid option/);
 assert.equal(expr('streamShellHydrateSettings({streamShellTwitchAutoMute:false,extraneous:"ignore"}).streamShellTwitchAutoMute'),false);
 assert.equal(expr('Object.hasOwn(streamShellHydrateSettings({extraneous:"ignore"}),"extraneous")'),false);
 assert.equal(expr('streamShellHydrateSettings(null).streamShellTwitchKeepActive'),true);

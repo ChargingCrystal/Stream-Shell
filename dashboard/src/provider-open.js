@@ -17,6 +17,10 @@ async function openProvider(
             });
 
 
+        if (provider === "mangayomi" && response?.ok === false) {
+            window.alert(response.error || "Mangayomi is unavailable. Install its optional native helper and check the executable path in General → Providers.");
+            return;
+        }
         if (
             !response?.ok ||
             !selectedMedia ||

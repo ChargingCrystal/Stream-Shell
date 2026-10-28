@@ -136,6 +136,91 @@ internal static partial class StreamShellTitlebarHost
         }
     }
 
+    // Durable, low-volume performance black box. Not reset when the native
+    // host restarts; incidents survive Opera crashes and session boundaries.
+    private static readonly object PerformanceFileLock = new object();
+    private static readonly string PerformanceLogDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "StreamShell", "Logs"
+    );
+    private static System.Threading.Timer PerformanceHeartbeatTimer;
+    private static int PerformanceLastHeartbeatTick = Environment.TickCount;
+    private static int PerformanceGapAlreadyLogged = 0;
+
+    private static void WritePerformanceIncident(string origin, string kind, int durationMs, bool visible)
+    {
+        try
+        {
+            // Fixed allowed values only: no browsing history, titles, URLs,
+            // access tokens or extension payloads are ever written here.
+            string source = origin == "landing" || origin == "dashboard" ||
+                origin == "background" ? origin : "native";
+            string category = kind == "renderer-timer-gap" ||
+                kind == "renderer-long-task" ||
+                kind == "background-timer-gap" ||
+                kind == "native-heartbeat-gap" ||
+                kind == "native-overlay-stall" ||
+                kind == "native-start" ? kind : "unknown";
+            int safeMs = Math.Max(0, Math.Min(86400000, durationMs));
+            lock (PerformanceFileLock)
+            {
+                Directory.CreateDirectory(PerformanceLogDirectory);
+                string path = Path.Combine(PerformanceLogDirectory,
+                    "performance-" + DateTime.Now.ToString("yyyy-MM-dd") + ".jsonl");
+                // 4 MiB/day cap; rotate rather than indefinitely growing one file.
+                if (File.Exists(path) && new FileInfo(path).Length >= 4 * 1024 * 1024)
+                {
+                    string old = path + ".1";
+                    if (File.Exists(old)) File.Delete(old);
+                    File.Move(path, old);
+                }
+                string line = "{\"at\":\"" + DateTime.UtcNow.ToString("o") +
+                    "\",\"source\":\"" + source +
+                    "\",\"kind\":\"" + category +
+                    "\",\"durationMs\":" + safeMs.ToString() +
+                    ",\"visible\":" + (visible ? "true" : "false") +
+                    ",\"nativePid\":" + Process.GetCurrentProcess().Id.ToString() + "}";
+                File.AppendAllText(path, line + Environment.NewLine, new UTF8Encoding(false));
+            }
+        }
+        catch (Exception ex)
+        {
+            // Logging is best-effort; NEVER break the native messaging port.
+            if (NativeHealth.ShouldLogFault("performance-file"))
+                LogDiagnostic("performance-file: " + ex.GetType().Name);
+        }
+    }
+
+    private static void StartPerformanceHeartbeatWatchdog()
+    {
+        Interlocked.Exchange(ref PerformanceLastHeartbeatTick, Environment.TickCount);
+        WritePerformanceIncident("native", "native-start", 0, false);
+        PerformanceHeartbeatTimer = new System.Threading.Timer(delegate(object state)
+        {
+            int then = Interlocked.CompareExchange(ref PerformanceLastHeartbeatTick, 0, 0);
+            uint gap = unchecked((uint)(Environment.TickCount - then));
+            if (gap >= 30000 && Interlocked.CompareExchange(ref PerformanceGapAlreadyLogged, 1, 0) == 0)
+                WritePerformanceIncident("native", "native-heartbeat-gap",
+                    (int)Math.Min(gap, 86400000u), false);
+        }, null, 15000, 15000);
+        // Prune old daily files at startup only, not on the hot path.
+        try
+        {
+            foreach (string path in Directory.GetFiles(PerformanceLogDirectory, "performance-*.jsonl*"))
+            {
+                if (File.GetLastWriteTimeUtc(path) < DateTime.UtcNow.AddDays(-14))
+                    File.Delete(path);
+            }
+        }
+        catch { }
+    }
+
+    private static void MarkPerformanceHeartbeat()
+    {
+        Interlocked.Exchange(ref PerformanceLastHeartbeatTick, Environment.TickCount);
+        Interlocked.Exchange(ref PerformanceGapAlreadyLogged, 0);
+    }
+
     private static void CleanupWindows()
     {
         lock (StateLock)

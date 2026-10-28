@@ -16,7 +16,9 @@ let focusedClaims = 0;
 const timers = [];
 const native = { postMessage(message) { assert.equal(message.type,'heartbeat'); heartbeat++; } };
 const context = vm.createContext({
-    Date, Promise, console, setInterval(cb, ms) { timers.push({ cb, ms }); return timers.length; },
+    Date, Promise, console, performance: {now: () => Date.now()},
+    recordStreamShellPerformanceIncident: () => Promise.resolve(true),
+    setInterval(cb, ms) { timers.push({ cb, ms }); return timers.length; },
     clearInterval() {},
     titlebarPort: native, titlebarProtocolReady: true, shuttingDown: false,
     titlebarReconcileTimer: null, TITLEBAR_RECONCILE_INTERVAL_MS: 2500, TITLEBAR_PROTOCOL_VERSION: 9,

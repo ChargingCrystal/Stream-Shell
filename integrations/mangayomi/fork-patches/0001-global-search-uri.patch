@@ -1,0 +1,28 @@
+diff --git a/lib/main.dart b/lib/main.dart
+--- a/lib/main.dart
++++ b/lib/main.dart
+@@ -496,5 +496,24 @@
+       if (uri == lastUri) return; // Debouncing Deep Links
+       lastUri = uri;
+       switch (uri.host) {
++        // Stream Shell opt-in. Search executes through the existing GlobalSearchScreen
++        // and installed extensions; the URI itself never installs extensions.
++        case "global-search":
++          if (uri.scheme != "mangayomi") break;
++          final title = uri.queryParameters["query"]?.trim();
++          final typeName = uri.queryParameters["type"];
++          final ItemType? itemType = switch (typeName) {
++            "anime" => ItemType.anime,
++            "manga" => ItemType.manga,
++            "novel" => ItemType.novel,
++            _ => null,
++          };
++          if (itemType == null || title == null ||
++              title.isEmpty || title.length > 200 ||
++              title.contains("\n") || title.contains("\r")) break;
++          final context = navigatorKey.currentContext;
++          if (context == null || !context.mounted) break;
++          context.push('/globalSearch', extra: (title, itemType));
++          break;
+         case "add-repo":
+           final repoName = uri.queryParameters["repo_name"];

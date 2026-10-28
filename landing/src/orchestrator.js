@@ -4,7 +4,7 @@
  * ============================================================
  */
 
-subscriptionSyncButton.addEventListener(
+subscriptionSyncButton?.addEventListener(
     "click",
     () => {
         syncSubscriptions()

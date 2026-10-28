@@ -1,7 +1,7 @@
-Stream Shell - Native Windows Titlebar Host (current: v0.20.14)
+Stream Shell - Native Windows Titlebar Host (Stream Shell v0.22.1)
 ================================================================
 
-Source modules (v0.20.14)
+Current source and modules (partial-class layout)
 -------------------------
 - native/StreamShellTitlebarHost.cs holds all constants, state, models and Win32/COM interop, preserving the original static initializer ordering.
 - native/titlebar-src/01-*.cs through 19-*.cs hold the native host methods in their original order as members of the same static partial class, plus the new guard module.
@@ -10,6 +10,14 @@ Source modules (v0.20.14)
 - Native message/Win32 exception containment, bounded Opera window messages, foreign-fullscreen idle gating; protocol remains v9.
 - The installer now compiles a new helper before shutting down/replacing the old binary and preserves a backup.
 - Native health counters appear in the protocol v9 status payload: callbackFailures, commandFailures, fullscreenIdleSkips, slowOverlaySyncs.
+
+Current behavior / maintenance notes (v0.22.1)
+------------------------------------------------
+- Wide (32:9) and Compact (16:9/16:10) both use the configurable provider registry and native titlebar buttons; Compact has dynamic provider layout.
+- Performance Blackbox (v0.21.29) writes incident JSONL under %LOCALAPPDATA%\StreamShell\Logs. A v0.21.29+ native helper must be compiled/installed for on-disk logging.
+- The TitlebarNativeHost has sometimes remained running after Opera GX exits. Exit lifecycle cleanup is still pending; do not claim that it is fixed.
+- Manga desktop app startup/lookup and explicit process kill use the separate integrations/mangayomi helper. Never treat a normal provider switch as a process kill.
+- Legacy implementation notes below are historical, not a statement that the old release is current.
 
 Purpose
 -------

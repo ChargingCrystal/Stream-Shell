@@ -24,7 +24,7 @@ let titlebarProviderLastAckAt = null;
 let titlebarProviderLastRejectedIconCount = 0;
 
 const STREAM_SHELL_TITLEBAR_BUILTIN_LABELS = Object.freeze({
-    youtube: "YT", netflix: "N", prime: "P", disney: "D+", crunchyroll: "CR"
+    youtube: "YT", netflix: "N", prime: "P", disney: "D+", crunchyroll: "CR", mangayomi: "MY"
 });
 
 // Load primary PNG bytes directly in the extension worker: the native helper handles
@@ -33,11 +33,12 @@ const STREAM_SHELL_TITLEBAR_BUILTIN_LABELS = Object.freeze({
 const streamShellTitlebarRasterCache = new Map();
 const streamShellTitlebarArtworkStatus = new Map();
 
-function streamShellTitlebarButtons(registryValue) {
+function streamShellTitlebarButtons(registryValue, sevenSeas = false) {
     const registry = normalizeStreamShellProviderRegistry(registryValue);
     const byId = new Map(registry.providers.map(provider => [provider.id, provider]));
     return registry.titlebarOrder.map(id => byId.get(id))
-        .filter(provider => provider?.enabled && provider?.showInTitlebar)
+        .filter(provider => provider?.enabled && provider?.showInTitlebar &&
+            (provider.id !== "mangayomi" || sevenSeas))
         .map(provider => {
             const name = provider.name.replace(/[\r\n\t]/g, " ").slice(0, 48).trim() || provider.id;
             const icon = (STREAM_SHELL_TITLEBAR_BUILTIN_LABELS[provider.id] || provider.icon ||
@@ -151,7 +152,7 @@ async function streamShellTitlebarIconData(button) {
 }
 
 async function streamShellTitlebarPayload(registryValue, options = {}) {
-    const buttons = streamShellTitlebarButtons(registryValue);
+    const buttons = streamShellTitlebarButtons(registryValue, options.sevenSeas === true);
     const withArtwork = options.includeArtwork !== false;
     const rows = await Promise.all(buttons.map(async button => {
         const image = withArtwork ? await streamShellTitlebarIconData(button) : "";
@@ -198,7 +199,9 @@ async function syncTitlebarProviderRegistry(registryValue = undefined) {
         if (expectedEpoch !== titlebarProviderStorageEpoch) return;
         registryValue = stored[STREAM_SHELL_PROVIDER_REGISTRY_KEY];
     }
-    const configSignature = JSON.stringify(streamShellTitlebarButtons(registryValue));
+    const gateValue = await chrome.storage.local.get("streamShellSevenSeasAcknowledged");
+    const sevenSeas = gateValue.streamShellSevenSeasAcknowledged === true;
+    const configSignature = JSON.stringify(streamShellTitlebarButtons(registryValue, sevenSeas));
     // A heartbeat or repeated init must not replace loaded icons with placeholders.
     if (configSignature === titlebarProviderConfigSignature && titlebarProviderPayloadB64 !== null) {
         if (titlebarProviderAckGeneration !== titlebarProviderGeneration) sendTitlebarProviderPayload();
@@ -209,21 +212,21 @@ async function syncTitlebarProviderRegistry(registryValue = undefined) {
     titlebarProviderConfigSignature = configSignature;
     titlebarProviderLastError = null;
     streamShellTitlebarArtworkStatus.clear();
-    for (const button of streamShellTitlebarButtons(registryValue)) {
+    for (const button of streamShellTitlebarButtons(registryValue, sevenSeas)) {
         if (button.kind === "custom")
             streamShellTitlebarArtworkStatus.set(button.id, {source:"pending",reason:"artwork-loading"});
     }
 
     // Phase 1: send ALL buttons immediately, with text/initials. This has no
     // dependency on PNG/SVG decoding or on the offscreen audio document.
-    const textPayload = await streamShellTitlebarPayload(registryValue, {includeArtwork:false});
+    const textPayload = await streamShellTitlebarPayload(registryValue, {includeArtwork:false, sevenSeas});
     if (shuttingDown || renderEpoch !== titlebarProviderStorageEpoch ||
         sequence !== titlebarProviderRenderSequence) return;
     streamShellApplyTitlebarPayload(textPayload,"buttons-ready");
 
     // Phase 2: enhance the same buttons with icons. If rasterization fails,
     // the native helper keeps the valid text-only list instead of losing a provider.
-    void streamShellTitlebarPayload(registryValue).then(payload => {
+    void streamShellTitlebarPayload(registryValue, {sevenSeas}).then(payload => {
         if (shuttingDown || renderEpoch !== titlebarProviderStorageEpoch ||
             sequence !== titlebarProviderRenderSequence) return;
         streamShellApplyTitlebarPayload(payload,"artwork-ready");
@@ -237,9 +240,9 @@ async function syncTitlebarProviderRegistry(registryValue = undefined) {
 // Provider changes affect only the LEFT titlebar buttons. No focus, restore,
 // native claims, pane reassert or rightMode updates occur on this path.
 chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]) return;
+    if (area !== "local" || (!changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY] && !changes.streamShellSevenSeasAcknowledged)) return;
     titlebarProviderStorageEpoch++;
-    void syncTitlebarProviderRegistry(changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY].newValue)
+    void syncTitlebarProviderRegistry(changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]?.newValue)
         .catch(error => console.warn("Native provider sync failed:", error));
 });
 
@@ -1162,6 +1165,7 @@ function startTitlebarReconcileLoop() {
     }
 
     let titlebarReconcileTick = 0;
+    let lastPerformanceTick = performance.now();
 
     titlebarReconcileTimer =
         setInterval(
@@ -1173,6 +1177,19 @@ function startTitlebarReconcileLoop() {
                 ) {
                     stopTitlebarReconcileLoop();
                     return;
+                }
+
+                // Measure callback delay before any native/browser work.
+                // Delayed service-worker callbacks are evidence of a stall,
+                // though browser power management can cause similar gaps.
+                const tickNow = performance.now();
+                const lag = tickNow - lastPerformanceTick - TITLEBAR_RECONCILE_INTERVAL_MS;
+                lastPerformanceTick = tickNow;
+                if (lag >= 2000 && lag < 86400000) {
+                    void recordStreamShellPerformanceIncident({
+                        source: 'background', kind: 'background-timer-gap',
+                        durationMs: lag, visible: true
+                    });
                 }
 
                 try {
@@ -1488,6 +1505,10 @@ function handleTitlebarNativeMessage(
 
                 if (typeof action === "string" && action.startsWith("custom-") && !PROVIDERS[action]) {
                     await refreshStreamShellProviderTargets();
+                }
+                if (action === "mangayomi") {
+                    await switchProvider("mangayomi");
+                    return;
                 }
                 if (
                     PROVIDERS[

@@ -14,6 +14,7 @@ $Chunks = @(
   "src/03-landing-window.js"
   "src/04-dashboard-window.js"
   "src/05-discord.js"
+  "src/05-mangayomi.js"
   "src/05a-twitch.js"
   "src/05aa-twitch-workspace-v2.js"
   "src/06-titlebar.js"

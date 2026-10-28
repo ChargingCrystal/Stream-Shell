@@ -13,7 +13,11 @@ $Order = @(
     "token.js",
     "availability.js",
     "media-items.js",
+    "mangayomi-search-handoff.js"
     "library.js",
+    "cross-source.js",
+    "fmhy.js"
+    "anilist.js"
     "search.js",
     "selection.js",
     "watchlist-transfer.js",

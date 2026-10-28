@@ -112,6 +112,11 @@ internal static partial class StreamShellTitlebarHost
             );
         }
 
+        // Mangayomi uses the same hover/active drawing pipeline as every other
+        // provider, with its subdued red app accent. User overrides above win.
+        if (String.Equals(mode, "mangayomi", StringComparison.OrdinalIgnoreCase))
+            return CustomChromeTheme("#EF4444");
+
         // Landing / generic Stream Shell chrome keeps the original purple.
         return new ChromeTheme(
             Rgb(12, 2, 18),

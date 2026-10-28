@@ -62,6 +62,7 @@ internal static partial class StreamShellTitlebarHost
     {
         string profile;
         string nativeTwitchTarget;
+        string currentLeftMode;
         string browserVisibility;
         string compactMap;
         string wideMap;
@@ -74,10 +75,12 @@ internal static partial class StreamShellTitlebarHost
         int heartbeatTick;
         bool compatible;
         bool nativeFullscreenActive;
+        bool mangayomiIconLoaded;
         lock (StateLock)
         {
             profile = layoutProfile;
             nativeTwitchTarget = twitchTarget;
+            currentLeftMode = leftMode;
             browserVisibility = visibilityMode;
             compactCount = CompactSurfaceWindows.Count;
             wideCount = WideSurfaceWindows.Count;
@@ -86,6 +89,7 @@ internal static partial class StreamShellTitlebarHost
             heartbeatTick = lastHeartbeatTick;
             compatible = protocolCompatible;
             nativeFullscreenActive = fullscreenActive;
+            mangayomiIconLoaded = ButtonIcons.ContainsKey("mangayomi");
 
             List<string> compactEntries = new List<string>();
             foreach (KeyValuePair<string, IntPtr> pair in CompactSurfaceWindows)
@@ -129,6 +133,7 @@ internal static partial class StreamShellTitlebarHost
             ",\"protocolCompatible\":" + (compatible ? "true" : "false") +
             ",\"layoutProfile\":\"" + JsonEscape(profile ?? "unknown") +
             "\",\"twitchTarget\":\"" + JsonEscape(nativeTwitchTarget ?? "resume") +
+            "\",\"leftMode\":\"" + JsonEscape(currentLeftMode ?? "unknown") +
             "\",\"browserVisibility\":\"" + JsonEscape(browserVisibility ?? "none") +
             "\",\"effectiveVisibility\":\"" + JsonEscape(lastEffectiveVisibility ?? "none") +
             "\",\"fullscreenActive\":" + (nativeFullscreenActive ? "true" : "false") +
@@ -138,6 +143,12 @@ internal static partial class StreamShellTitlebarHost
             ",\"commandFailures\":" + NativeHealth.CommandFailures +
             ",\"fullscreenIdleSkips\":" + NativeHealth.FullCoverIdlePasses +
             ",\"slowOverlaySyncs\":" + NativeHealth.SlowSyncs +
+            ",\"mangayomiTitlebarIconLoaded\":" + (mangayomiIconLoaded ? "true" : "false") +
+            ",\"mangayomiWideChromeRepairs\":" + Interlocked.CompareExchange(ref mangayomiWideChromeRepairs, 0, 0) +
+            ",\"mangayomiWideOwnerAttached\":" + (mangayomiOwnedHwnd != IntPtr.Zero && IsWindow(mangayomiOwnedHwnd) ? "true" : "false") +
+            ",\"mangayomiWideOwnerAttaches\":" + Interlocked.CompareExchange(ref mangayomiWideOwnerAttaches, 0, 0) +
+            ",\"leftChromeVisible\":" + (leftChromeOverlay != IntPtr.Zero && IsWindowVisible(leftChromeOverlay) ? "true" : "false") +
+            ",\"leftToolbarVisible\":" + (leftOverlay != IntPtr.Zero && IsWindowVisible(leftOverlay) ? "true" : "false") +
             ",\"compactSurfaces\":" + compactCount +
             ",\"compactSurfaceMap\":\"" + JsonEscape(compactMap) +
             "\",\"wideSurfaces\":" + wideCount +

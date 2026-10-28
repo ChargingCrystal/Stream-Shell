@@ -145,6 +145,7 @@ async function showLanding(
         return;
     }
 
+    await hideMangayomiIfActive();
     await stopVolumeCaptureForProviderChange(
         "landing"
     );

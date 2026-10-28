@@ -179,3 +179,72 @@ async function getFlightRecorderSnapshot(limit = null) {
         events
     };
 }
+
+
+// Performance incidents have an independent durable fallback. The historical
+// flight recorder above is still session-scoped and intentionally unchanged.
+const STREAM_SHELL_PERFORMANCE_STORE_KEY = 'streamShellPerformanceIncidents';
+const STREAM_SHELL_PERFORMANCE_FALLBACK_LIMIT = 240;
+let streamShellPerformanceStoreQueue = Promise.resolve();
+let streamShellPerformanceLastNativeWarning = 0;
+
+function normalizeStreamShellPerformanceIncident(input = {}) {
+    const allowedSources = new Set(['landing', 'dashboard', 'background']);
+    const allowedKinds = new Set([
+        'renderer-timer-gap', 'renderer-long-task', 'background-timer-gap'
+    ]);
+    const source = String(input.source || 'background');
+    const kind = String(input.kind || 'background-timer-gap');
+    if (!allowedSources.has(source) || !allowedKinds.has(kind)) return null;
+    const durationMs = Math.round(Number(input.durationMs));
+    if (!Number.isFinite(durationMs) || durationMs < 0) return null;
+    return {
+        at: Date.now(), source, kind,
+        durationMs: Math.min(durationMs, 86400000),
+        visible: input.visible === true
+    };
+}
+
+function recordStreamShellPerformanceIncident(input = {}) {
+    const incident = normalizeStreamShellPerformanceIncident(input);
+    if (!incident) return Promise.resolve(false);
+
+    // The native titlebar process append-writes the dated JSONL file; its
+    // reader thread must never depend on file writes from a browser renderer.
+    const ready = typeof titlebarPort !== 'undefined' &&
+        titlebarPort && typeof titlebarProtocolReady !== 'undefined' &&
+        titlebarProtocolReady && !shuttingDown;
+    if (ready) {
+        try {
+            titlebarPort.postMessage({
+                type: 'performance-event',
+                protocolVersion: TITLEBAR_PROTOCOL_VERSION,
+                source: incident.source,
+                kind: incident.kind,
+                durationMs: incident.durationMs,
+                visible: incident.visible
+            });
+        } catch (_) { /* Storage fallback below always runs. */ }
+    }
+
+    // Never block UI work or queue unlimited incidents; a small local fallback
+    // remains after extension restarts if the titlebar helper is unavailable.
+    streamShellPerformanceStoreQueue = streamShellPerformanceStoreQueue
+        .catch(() => {})
+        .then(async () => {
+            const value = await chrome.storage.local.get(STREAM_SHELL_PERFORMANCE_STORE_KEY);
+            const events = Array.isArray(value[STREAM_SHELL_PERFORMANCE_STORE_KEY])
+                ? value[STREAM_SHELL_PERFORMANCE_STORE_KEY].slice(-(STREAM_SHELL_PERFORMANCE_FALLBACK_LIMIT - 1))
+                : [];
+            events.push(incident);
+            await chrome.storage.local.set({[STREAM_SHELL_PERFORMANCE_STORE_KEY]: events});
+        })
+        .catch(error => {
+            const now = Date.now();
+            if (now - streamShellPerformanceLastNativeWarning > 60000) {
+                streamShellPerformanceLastNativeWarning = now;
+                console.warn('Stream Shell performance fallback storage failed:', error);
+            }
+        });
+    return Promise.resolve(true);
+}

@@ -25,6 +25,7 @@ $Files = @(
     "windowed-player-sync.js"
     "playback-utilities-core.js"
     "playback-anarchy.js"
+    "visual-anarchy.js"
     "playback-utilities.js"
     "provider-adapter-disney.js"
     "netflix-enhancements.js"

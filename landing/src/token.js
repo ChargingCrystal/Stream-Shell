@@ -7,9 +7,6 @@
 async function renderTokenSetup(
     afterSave = null
 ) {
-    searchHeaderTitle.textContent =
-        "Connect TMDB";
-
 
     mediaPanelSubtitle.textContent =
         "Save your Read Access Token once";

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Stream Shell",
-  "version": "0.20.39",
+  "version": "0.22.1",
   "description": "Unified shell for Netflix, Prime Video, Crunchyroll, YouTube and Disney+, with Discord/Twitch utilities and remote control.",
   "author": "Sven Rieseler",
   "icons": {
@@ -35,7 +35,9 @@
     "*://*.amazon.de/*",
     "*://*.disney.com/*",
     "*://play.google.com/*",
-    "*://*.twitch.tv/*"
+    "*://*.twitch.tv/*",
+    "https://raw.githubusercontent.com/fmhy/edit/main/docs/*",
+    "https://graphql.anilist.co/*"
   ],
   "web_accessible_resources": [
     {

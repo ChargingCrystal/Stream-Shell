@@ -68,6 +68,12 @@ body[data-provider="crunchyroll"] {
         244, 117, 33;
 }
 
+/* Optional native LEFT app: muted red, not the previously active web brand. */
+body[data-provider="mangayomi"] {
+    --accent-rgb:
+        239, 68, 68;
+}
+
 
 /*
  * ============================================================
@@ -4187,9 +4193,9 @@ body[data-layout-profile="compact"] .dashboard {
     --compact-column-gap: 38px;
     --compact-section-gap: 22px;
     --compact-control-gap: 12px;
-    --compact-provider-width: 270px;
+    --compact-provider-width: 306px;
     --compact-provider-row-height: 72px;
-    --compact-main-height: 416px;       /* 5 x 72px + 4 x 14px */
+    --compact-main-height: calc(416px + var(--compact-section-gap) + var(--compact-bottom-height)); /* reclaim former subscriptions */
     --compact-main-top: 210px;
     --compact-bottom-height: 132px;
     --compact-media-right: var(--compact-edge-x);
@@ -4260,18 +4266,21 @@ body[data-layout-profile="compact"] .provider-wordmark {
     object-position: right center;
 }
 
-/* Five equal provider rows: YouTube -> Netflix -> Prime -> Disney -> CR. */
+/* The same registry-driven provider cards as Wide, in a single Compact column.
+ * 1–7 pins take their own row; card height and separation adapt to the count.
+ * The grid occupies the entire media area (including former subscriptions). */
 body[data-layout-profile="compact"] .provider-selector {
     top: var(--compact-main-top);
     left: var(--compact-edge-x);
     right: auto;
     width: var(--compact-provider-width);
     height: var(--compact-main-height);
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(var(--compact-provider-count, 5), minmax(0, 1fr));
     align-items: stretch;
-    justify-content: center; /* fewer than five cards stay vertically centered */
-    gap: var(--compact-gap);
+    justify-content: stretch;
+    gap: calc(var(--compact-gap) * var(--compact-provider-gap-factor, 1));
     transform: none;
 }
 
@@ -4282,9 +4291,10 @@ body[data-layout-profile="compact"] .provider-selector .provider-row {
 body[data-layout-profile="compact"] .provider-selector .provider-card {
     width: 100%;
     min-width: 0;
-    height: var(--compact-provider-row-height);
-    min-height: var(--compact-provider-row-height);
-    flex: 0 0 var(--compact-provider-row-height);
+    height: 100%;
+    min-height: 0;
+    max-height: 120px;
+    align-self: center;
     padding: 0 28px;
     justify-content: flex-start;
     gap: 14px;
@@ -4340,7 +4350,7 @@ body[data-layout-profile="compact"] .compact-runtime-placeholder {
     display: none !important;
 }
 
-/* Watchlist/Search share row-1 top and row-5 bottom with provider stack. */
+/* Watchlist/Search extend to the old subscriptions panel bottom edge. */
 body[data-layout-profile="compact"] .media-hub {
     top: var(--compact-main-top);
     left: calc(var(--compact-edge-x) + var(--compact-provider-width) + var(--compact-column-gap));
@@ -4516,111 +4526,6 @@ body[data-layout-profile="compact"] .media-item-title {
     font-size: 13px;
 }
 
-/*
- * Compact subscriptions are a bounded six-column table, not a full-width bar.
- * Existing subscription DOM/data stays canonical; CSS only changes its host.
- */
-body[data-layout-profile="compact"] .subscription-panel {
-    top: calc(var(--compact-main-top) + var(--compact-main-height) + var(--compact-section-gap));
-    left: var(--compact-edge-x);
-    right: var(--compact-media-right);
-    bottom: auto;
-    width: auto;
-    height: var(--compact-bottom-height);
-    padding: 10px 14px 11px;
-    border-radius: 11px;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    background: rgba(7,9,13,.76);
-}
-
-body[data-layout-profile="compact"] .subscription-panel-header {
-    min-height: 26px;
-    margin-bottom: 6px;
-}
-
-body[data-layout-profile="compact"] .subscription-panel-title {
-    font-size: 14px;
-}
-
-body[data-layout-profile="compact"] .subscription-sync-meta {
-    font-size: 11px;
-}
-
-body[data-layout-profile="compact"] .subscription-sync {
-    width: 26px;
-    height: 26px;
-    border-radius: 7px;
-}
-
-body[data-layout-profile="compact"] .subscription-sync svg {
-    width: 14px;
-    height: 14px;
-}
-
-body[data-layout-profile="compact"] .subscription-grid {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 0;
-    align-items: stretch;
-}
-
-body[data-layout-profile="compact"] .subscription-item {
-    min-width: 0;
-    display: grid;
-    grid-template-columns: 19px minmax(0, 1fr);
-    grid-template-rows: 24px 23px 23px;
-    align-items: center;
-    justify-items: start;
-    column-gap: 6px;
-    padding: 0 10px;
-    border-left: 1px solid rgba(255,255,255,.07);
-}
-
-body[data-layout-profile="compact"] .subscription-item:first-child {
-    border-left: 0;
-}
-
-body[data-layout-profile="compact"] .subscription-item img {
-    grid-column: 1;
-    grid-row: 1;
-    width: 17px;
-    height: 17px;
-}
-
-body[data-layout-profile="compact"] .subscription-name {
-    grid-column: 2;
-    grid-row: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-    font-weight: 680;
-    text-align: left;
-}
-
-body[data-layout-profile="compact"] .subscription-status,
-body[data-layout-profile="compact"] .subscription-renewal {
-    grid-column: 1 / 3;
-    justify-self: stretch;
-    min-width: 0;
-    text-align: left;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-body[data-layout-profile="compact"] .subscription-status {
-    grid-row: 2;
-    font-size: 11px;
-}
-
-body[data-layout-profile="compact"] .subscription-renewal {
-    grid-row: 3;
-    font-size: 11px;
-}
-
 /* Now Playing is intentionally Wide-only. Compact 16:9 and 16:10 use one
  * visible surface, so a persistent player card on Shell Home is redundant. */
 body[data-layout-profile="compact"] .dashboard-footer {
@@ -4720,7 +4625,7 @@ body[data-layout-profile="compact"].settings-open .provider-selector {
  * canvas but substantially more useful horizontal room, so the primary stack
  * grows slightly in both directions instead of leaving the lower half visually
  * under-weighted. The media panel still shares the provider stack's exact
- * bottom edge and the subscriptions panel follows that edge automatically.
+ * bottom edge: both consume the vertical space previously reserved for subscriptions.
  */
 body[data-layout-profile="compact"][data-compact-target="16:9"] .dashboard {
     --compact-edge-x: 34px;
@@ -4729,9 +4634,9 @@ body[data-layout-profile="compact"][data-compact-target="16:9"] .dashboard {
     --compact-column-gap: 48px;
     --compact-section-gap: 32px;
     --compact-control-gap: 14px;
-    --compact-provider-width: 304px;
+    --compact-provider-width: 352px;
     --compact-provider-row-height: 84px;
-    --compact-main-height: 484px;       /* 5 x 84px + 4 x 16px */
+    --compact-main-height: calc(484px + var(--compact-section-gap) + var(--compact-bottom-height));
     --compact-main-top: 222px;
     --compact-bottom-height: 188px;
     --compact-media-right: var(--compact-edge-x);
@@ -4879,89 +4784,13 @@ body[data-layout-profile="compact"][data-compact-target="16:9"] .panel-message-t
     line-height: 1.5;
 }
 
-body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-panel {
-    padding: 14px 18px 16px;
-}
-
-body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-grid {
-    height: calc(100% - 44px);
-    grid-template-rows: minmax(0, 1fr);
-    grid-auto-rows: auto;
-    align-items: stretch;
-}
-
-body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-item {
-    position: relative;
-    grid-template-columns: 31px minmax(0, 1fr);
-    grid-template-rows: 36px 34px 34px;
-    align-content: center;
-    column-gap: 10px;
-    padding: 0 14px;
-    border-left: 0;
-}
-
-body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-item:not(:first-child)::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 8px;
-    bottom: 8px;
-    width: 1px;
-    background: rgba(255,255,255,.10);
-}
-
-body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-item img {
-    width: 28px;
-    height: 28px;
-}
-
-body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-panel-header {
-    min-height: 34px;
-    margin-bottom: 10px;
-    align-items: flex-start;
-}
-
-body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-panel-title {
-    font-size: 20px;
-    line-height: 1.15;
-}
-
-body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-sync-meta {
-    margin-top: 2px;
-    font-size: 14px;
-    line-height: 1.25;
-}
-
-body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-sync {
-    width: 30px;
-    height: 30px;
-}
-
-body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-name {
-    font-size: 18px;
-    font-weight: 680;
-}
-
-body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-status {
-    height: 26px;
-    padding: 0 9px;
-    font-size: 15px;
-    line-height: 24px;
-    letter-spacing: .035em;
-}
-
-body[data-layout-profile="compact"][data-compact-target="16:9"] .subscription-renewal {
-    font-size: 16px;
-    line-height: 1.25;
-}
-
 @media (max-height: 760px) {
     body[data-layout-profile="compact"] .dashboard {
         --compact-edge-y: 22px;
         --compact-main-top: 170px;
         --compact-provider-row-height: 60px;
         --compact-gap: 12px;
-        --compact-main-height: 348px;
+        --compact-main-height: calc(348px + var(--compact-section-gap) + var(--compact-bottom-height));
         --compact-bottom-height: 118px;
         --compact-section-gap: 18px;
     }
@@ -5353,3 +5182,226 @@ body[data-layout-profile="compact"] .provider-card .provider-card-custom-icon {
 @keyframes ss-ts-pulse{50%{opacity:.45;transform:scale(.8);}}
 @media(prefers-reduced-motion:reduce){.ss-ts-shimmer,.ss-ts-dot{animation:none;}}
 body[data-layout-profile="compact"] .stream-shell-twitch-skeleton{display:none;}
+
+/* 0.21.4: TMDB / FMHY are native Stream Shell panel tabs; search clear stays unobstructed. */
+.ss-search-source-tabs { gap: 7px; }
+.ss-search-source-tabs .library-tab { white-space: nowrap; }
+.fmhy-result .media-item-main { cursor: default; }
+.fmhy-result .media-item-title { overflow: hidden; text-overflow: ellipsis; }
+.fmhy-result .media-item-type { max-width: 25%; overflow: hidden; text-overflow: ellipsis; }
+.fmhy-result-description {
+    margin-top: 8px;
+    color: rgba(255,255,255,.56);
+    font-size: 13px;
+    font-weight: 450;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+.fmhy-result .media-item-actions { align-self: center; }
+.ss-library-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 8px 14px 0;
+}
+.ss-library-filters { display:flex; flex-wrap:nowrap; gap:4px; overflow-x:auto; scrollbar-width:thin; }
+.ss-library-filter {
+    min-height: 34px;
+    padding: 0 11px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: transparent;
+    color: rgba(255,255,255,.50);
+    font: 620 14px system-ui, sans-serif;
+    cursor: pointer;
+    transition: background .12s ease, color .12s ease, border-color .12s ease;
+}
+.ss-library-filter:hover { background: rgba(255,255,255,.05); color: rgba(255,255,255,.83); }
+.ss-library-filter.selected {
+    color: rgba(255,255,255,.95);
+    background: rgba(255,255,255,.07);
+    border-color: rgba(255,255,255,.09);
+}
+.ss-library-add { display: flex; align-items: center; gap: 9px; }
+.ss-library-title {
+    min-width: 0;
+    flex: 1 1 auto;
+    height: 40px;
+    padding: 0 14px;
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 11px;
+    outline: none;
+    background: rgba(7,9,13,.52);
+    color: rgba(255,255,255,.93);
+    font: 500 13px system-ui, sans-serif;
+}
+.ss-library-title::placeholder { color: rgba(255,255,255,.38); }
+.ss-library-title:focus { border-color: rgba(255,255,255,.24); }
+.ss-library-add-button {
+    height: 40px;
+    min-width: 74px;
+    padding: 0 14px;
+    border: 1px solid rgba(255,255,255,.11);
+    border-radius: 11px;
+    background: rgba(255,255,255,.06);
+    color: rgba(255,255,255,.84);
+    font: 600 13px system-ui, sans-serif;
+    cursor: pointer;
+}
+.ss-library-add-button:hover { background: rgba(255,255,255,.12); color: #fff; }
+.ss-library-add-button:disabled { opacity: .55; cursor: default; }
+.ss-library-controls + .media-list { padding-top: 12px; }
+.ss-library-native-item { grid-template-columns: minmax(0,1fr) auto; }
+.ss-library-native-item .media-item-main { grid-column: 1; cursor: default; }
+.ss-library-native-item .media-item-actions { grid-column: 2; }
+
+
+
+/* AniList: follow the existing neutral library / search-card visual system. */
+.ss-anilist-row {
+    grid-template-columns: 58px minmax(0,1fr) auto;
+    gap: 13px;
+    align-items: start;
+}
+.ss-anilist-cover {
+    width: 58px;
+    height: 82px;
+    object-fit: cover;
+    object-position: center;
+    border-radius: 8px;
+    background: rgba(255,255,255,.045);
+    border: 1px solid rgba(255,255,255,.07);
+}
+.ss-anilist-cover-empty {
+    display: grid;
+    place-items: center;
+    color: rgba(255,255,255,.4);
+    font-size: 24px;
+}
+.ss-anilist-row .media-item-main,
+.ss-library-anilist .media-item-main { cursor: default; }
+.ss-anilist-row .media-item-actions,
+.ss-library-anilist .media-item-actions { align-self: center; }
+.ss-anilist-row .media-item-title,
+.ss-library-anilist .media-item-title { font-size: 17px; }
+.ss-anilist-details {
+    margin-top: 9px;
+    color: rgba(255,255,255,.63);
+    font-size: 12px;
+    line-height: 1.55;
+}
+.ss-anilist-details[hidden] { display:none; }
+.ss-anilist-row > .ss-anilist-details { grid-column: 2 / 4; margin: 0; }
+.ss-anilist-description { margin: 4px 0 6px; white-space: pre-wrap; }
+.ss-anilist-genres, .ss-anilist-alt { color: rgba(255,255,255,.42); margin: 4px 0; }
+.ss-library-native-item.ss-library-anilist {
+    grid-template-columns: 58px minmax(0,1fr) auto;
+}
+.ss-library-anilist > .ss-anilist-cover { grid-column: 1; }
+.ss-library-anilist > .media-item-main { grid-column: 2; }
+.ss-library-anilist > .media-item-actions { grid-column: 3; }
+.ss-library-find { white-space: nowrap; }
+@media (max-width: 760px) {
+    .ss-anilist-row, .ss-library-native-item.ss-library-anilist {
+        grid-template-columns: 48px minmax(0,1fr) auto;
+        gap: 9px;
+        padding-right: 10px;
+    }
+    .ss-anilist-cover { width: 48px; height: 69px; }
+    .ss-anilist-row .media-item-title, .ss-library-anilist .media-item-title { font-size: 15px; }
+    .ss-library-add { flex-wrap: wrap; width: 100%; }
+}
+
+/* v0.21.27 — Search facets: Library-style multi-select, no extra overlay. */
+.media-panel-header:has(.ss-search-filter-bar) { height:auto; min-height:103px; padding-top:12px; padding-bottom:12px; }
+.media-panel-heading:has(.ss-search-filter-bar) { flex:1 1 auto; overflow:hidden; }
+.media-panel-subtitle:has(.ss-search-filter-bar) { margin-top:6px; min-width:0; }
+.ss-search-filter-bar { display:grid; gap:5px; min-width:0; width:100%; }
+.ss-search-filter-summary { color:rgba(255,255,255,.45); font-size:11px; font-weight:500; line-height:1.35; }
+.ss-search-filter-line { display:flex; align-items:center; gap:8px; min-width:0; }
+.ss-search-filter-label { width:33px; flex:none; text-transform:uppercase; font-size:10px; font-weight:650; color:rgba(255,255,255,.4); }
+.ss-search-filter-chips { display:flex; flex-wrap:nowrap; align-items:center; gap:4px; overflow-x:auto; scrollbar-width:thin; max-width:100%; min-width:0; }
+.ss-search-filter-chips .ss-library-filter { min-height:25px; padding:0 8px; border-radius:8px; font-size:11px; white-space:nowrap; flex:none; }
+.ss-fmhy-facets .ss-search-filter-line { max-width:100%; }
+.fmhy-result .media-item-type { text-transform:none; }
+
+/* v0.21.28 — FMHY category discovery, shared Wide/Compact search panel. */
+.ss-fmhy-load-more { display:block; width:calc(100% - 24px); margin:11px 12px 14px;
+  border:1px solid rgba(255,255,255,.14); border-radius:10px; padding:11px 14px;
+  background:rgba(255,255,255,.045); color:rgba(255,255,255,.78); font-size:12px;
+  cursor:pointer; text-align:center; }
+.ss-fmhy-load-more:hover, .ss-fmhy-load-more:focus-visible {
+  background:rgba(255,255,255,.10); border-color:rgba(255,255,255,.23); }
+
+
+/* v0.21.31 — Unified media search and adaptive FMHY facet header.
+ * Preserve panel external dimensions/gutters; only its internal header reflows. */
+.ss-search-source-tabs { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
+.ss-search-source-tabs .library-tab[disabled] {
+    opacity:.33; cursor:not-allowed; filter:grayscale(1);
+}
+.media-panel-header:has(.ss-search-filter-bar) { align-items:flex-start; gap:14px; }
+.media-panel-heading:has(.ss-search-filter-bar) {
+    display:flex; flex-direction:column; align-items:stretch; gap:7px;
+    flex:1 1 0; min-width:0; overflow:visible;
+}
+.search-header-title:has(.ss-search-source-tabs) { min-width:0; }
+.media-panel-subtitle:has(.ss-search-filter-bar) {
+    max-width:none; width:100%; margin:0; overflow:visible;
+    white-space:normal; text-overflow:clip;
+}
+.ss-search-filter-bar { width:100%; min-width:0; }
+.ss-search-filter-summary { line-height:1.5; white-space:normal; }
+.ss-search-filter-line { min-width:0; flex-wrap:wrap; gap:6px 10px; }
+.ss-search-filter-label { flex:none; width:auto; min-width:35px; }
+.ss-search-filter-chips { display:flex; flex-wrap:wrap; width:100%; max-width:100%;
+    gap:6px; overflow-x:visible; overflow-y:visible; scrollbar-width:none; }
+.ss-search-filter-line .ss-search-filter-chips { width:auto; flex:1 1 320px; }
+.ss-search-filter-chips .ss-library-filter { flex:0 0 auto; }
+.ss-search-result-section { position:sticky; top:0; z-index:2; padding:11px 14px;
+    background:rgba(7,10,15,.95); border-bottom:1px solid rgba(255,255,255,.11);
+    color:rgba(255,255,255,.73); font-size:12px; font-weight:650; letter-spacing:.01em; }
+
+/* Compact-specific correction for both 16:9 and 16:10: source tabs and
+ * facets get separate rows. Body flexes to the remaining panel height. */
+body[data-layout-profile="compact"] .media-panel:has(.ss-search-filter-bar) {
+    display:flex; flex-direction:column; min-height:0;
+}
+body[data-layout-profile="compact"] .media-panel-header:has(.ss-search-filter-bar) {
+    flex:0 0 auto; height:auto; min-height:80px; padding:12px 14px;
+    display:flex; align-items:flex-start; gap:10px;
+}
+body[data-layout-profile="compact"] .media-panel-heading:has(.ss-search-filter-bar) {
+    flex:1 1 0; min-width:0; display:flex; flex-direction:column; align-items:stretch;
+    gap:8px; overflow:visible;
+}
+body[data-layout-profile="compact"] .search-header-title:has(.ss-search-source-tabs) { flex:0 1 auto; }
+body[data-layout-profile="compact"] .media-panel-subtitle:has(.ss-search-filter-bar) {
+    flex:0 1 auto; width:100%; max-width:100%; font-size:12px;
+    white-space:normal; overflow:visible; line-height:1.4;
+}
+body[data-layout-profile="compact"] .media-panel:has(.ss-search-filter-bar) .media-panel-body {
+    height:auto; flex:1 1 0; min-height:0; overflow:auto;
+}
+body[data-layout-profile="compact"] .ss-search-filter-summary { font-size:12px; }
+body[data-layout-profile="compact"] .ss-search-filter-label { font-size:11px; }
+body[data-layout-profile="compact"] .ss-search-filter-chips .ss-library-filter {
+    font-size:12px; min-height:28px; padding:3px 9px; white-space:nowrap;
+}
+body[data-layout-profile="compact"] .ss-fmhy-facets .ss-search-filter-line { align-items:flex-start; }
+body[data-layout-profile="compact"] .ss-search-source-tabs .library-tab { min-height:27px;
+    height:auto; font-size:12px; padding:5px 10px; }
+
+.ss-seven-seas-disclaimer { margin:12px 0 6px; padding:12px 14px;
+    border-left:2px solid rgba(255,255,255,.28); color:rgba(255,255,255,.68);
+    font-size:13px; line-height:1.6; }
+.ss-seven-seas-status { margin:12px 0; color:rgba(255,255,255,.57);
+    font-size:12px; line-height:1.5; }
+
+body[data-layout-profile="compact"] .media-panel[hidden]:has(.ss-search-filter-bar) { display:none; }

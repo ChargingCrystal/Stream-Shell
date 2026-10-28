@@ -138,6 +138,9 @@ const tests = all.filter(file => file.endsWith('.test.js')).sort();
 const requiredBehaviorTests = [
     'landing/tests/finance-entry.test.js',
     'landing/tests/provider-background.test.js',
+    'landing/tests/fmhy-discovery.test.js',
+    'media/tests/external-library.test.js',
+    'background/tests/mangayomi-native-app.test.js',
     'offscreen/tests/titlebar-svg.test.js',
     'background/tests/renderer-startup-admission.test.js',
     'background/tests/renderer-handoff-session-lease.test.js',
@@ -148,6 +151,7 @@ const requiredBehaviorTests = [
     'background/tests/twitch-automation-code-split.test.js',
     'background/tests/twitch-startup-reflow-and-navigation-audit.test.js',
     'background/tests/twitch-alarm-concurrent-admission.test.js',
+    'background/tests/twitch-raid-optout-positive-evidence.test.js',
     'background/tests/twitch-player-audio-raid-navigation.test.js',
     'background/tests/twitch-first-playback-autoplay-policy.test.js',
     'background/tests/native-idle-reconcile.test.js',
@@ -195,6 +199,20 @@ if (!python) {
 } else if (python.status !== 0) {
     errors.push(`C# native source contract FAIL: ${String(python.stderr || python.stdout).trim()}`);
 } else console.log('  Native C# source contract: OK (NOT Windows compilation)');
+// Unlike source-only regex guards, this uses the same classic C# Add-Type
+// compiler as the installer whenever the quality gate runs on Windows.
+// It does not register/replace the native messaging host.
+if (process.platform === 'win32') {
+    const compile = spawnSync('powershell.exe', [
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+        absolute('integrations/mangayomi/tests/compile-mangayomi-host.ps1')
+    ], { encoding: 'utf8', timeout: 120_000 });
+    if (compile.status !== 0) {
+        errors.push(`Mangayomi C# host Windows Add-Type compilation FAIL: ${String(compile.stderr || compile.stdout || `exit ${compile.status}`).trim().slice(0, 2000)}`);
+    } else console.log('  Mangayomi C# host Windows Add-Type compilation: PASS');
+} else {
+    console.log('  Mangayomi C# host Windows Add-Type compilation: pending (non-Windows environment)');
+}
 
 if (errors.length) {
     console.error(`\nFAIL: ${errors.length} project quality issue(s):`);

@@ -526,7 +526,22 @@ function renderAnarchySettings() {
                 "streamShellDvdAnarchy",
                 "DVD Anarchy",
                 "Bounce a DVD logo around whichever supported provider occupies the active left surface, randomly changing speed and color on collisions."
-            )
+            ) +
+            settingSwitch("streamShellVisualAnarchy", "Visual Anarchy Director",
+                "One event timer for random visual disasters. Active, playing video only; restores all video styles when disabled.") +
+            settingSelect("streamShellVisualFrequency", "Chaos frequency", "Average interval between visual events.", [
+                ["occasional","Occasional · 60–120 s"],
+                ["chaotic","Chaotic · 20–60 s"],
+                ["absolute","Absolute Anarchy · 5–15 s"]
+            ]) +
+            settingRange("streamShellVisualIntensity", "Chaos intensity", "Visual effect strength (GPU-intensive at high values).", 0, 100, 5) +
+            settingSwitch("streamShellVisualZoom", "Zoom Anarchy", "Random zoom and off-center focus.") +
+            settingSwitch("streamShellVisualDeepFry", "Deep Fry Roulette", "Brief contrast and saturation overload.") +
+            settingSwitch("streamShellVisualVhs", "VHS Meltdown", "Scanlines, color fringing and visual jitter.") +
+            settingSwitch("streamShellVisualColor", "Colorblind Roulette", "Color inversion, sepia, grayscale and hue rotation.") +
+            settingSwitch("streamShellVisualGravity", "Gravity.exe", "Tilt or rotate the video.") +
+            settingSwitch("streamShellVisualAspect", "Aspect Ratio Crimes", "Stretch, squash and mirror the video.") +
+            settingSwitch("streamShellVisualBoss", "Boss Fight Events", "Occasionally stack multiple enabled effects in one event.")
         ),
         "Global chaos controls. Provider Safe Mode still suppresses Anarchy locally without changing these saved global settings.",
         "three"

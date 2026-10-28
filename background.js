@@ -8,6 +8,11 @@ const STREAM_SHELL_PROVIDER_BUILTINS = Object.freeze([
     { id: "disney", name: "Disney+", url: "https://www.disneyplus.com/" },
     { id: "crunchyroll", name: "Crunchyroll", url: "https://www.crunchyroll.com/" }
 ]);
+const STREAM_SHELL_NATIVE_APPS = Object.freeze([
+    { id: "mangayomi", name: "Mangayomi", kind: "native", enabled: true,
+      showOnDashboard: false, showInTitlebar: false }
+]);
+const STREAM_SHELL_NATIVE_APP_IDS = new Set(STREAM_SHELL_NATIVE_APPS.map(p => p.id));
 const STREAM_SHELL_PROVIDER_GRID_PATTERNS = Object.freeze({
     1: [1], 2: [2], 3: [3], 4: [1, 2, 1],
     5: [1, 3, 1], 6: [2, 2, 2], 7: [2, 3, 2]
@@ -56,13 +61,16 @@ function streamShellCustomArtworkPath(key, kind) {
 function defaultStreamShellProviderRegistry() {
     const ids = STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id);
     return {
-        version: 2,
-        providers: STREAM_SHELL_PROVIDER_BUILTINS.map(p => ({
-            ...p, kind: "builtin", enabled: true, showOnDashboard: true,
-            showInTitlebar: true
-        })),
-        dashboardOrder: [...ids],
-        titlebarOrder: [...ids]
+        version: 3,
+        providers: [
+            ...STREAM_SHELL_PROVIDER_BUILTINS.map(p => ({
+                ...p, kind: "builtin", enabled: true, showOnDashboard: true,
+                showInTitlebar: true
+            })),
+            ...STREAM_SHELL_NATIVE_APPS
+        ],
+        dashboardOrder: [...ids, ...STREAM_SHELL_NATIVE_APP_IDS],
+        titlebarOrder: [...ids, ...STREAM_SHELL_NATIVE_APP_IDS]
     };
 }
 
@@ -80,7 +88,16 @@ function normalizeStreamShellProviderRegistry(value) {
             titlebarColor: streamShellValidatedTitlebarColor(incoming?.titlebarColor)
         };
     });
-    const seen = new Set(STREAM_SHELL_BUILTIN_IDS);
+    for (const native of STREAM_SHELL_NATIVE_APPS) {
+        const incoming = supplied.find(p => p && p.id === native.id);
+        providers.push({ ...native,
+            enabled: incoming?.enabled !== false,
+            showOnDashboard: incoming?.showOnDashboard === true,
+            showInTitlebar: incoming?.showInTitlebar === true,
+            titlebarColor: streamShellValidatedTitlebarColor(incoming?.titlebarColor)
+        });
+    }
+    const seen = new Set([...STREAM_SHELL_BUILTIN_IDS, ...STREAM_SHELL_NATIVE_APP_IDS]);
     for (const item of supplied) {
         if (!item || typeof item !== "object" || item.kind !== "custom") continue;
         const id = String(item.id || "");
@@ -122,7 +139,7 @@ function normalizeStreamShellProviderRegistry(value) {
         const kept = new Set(dashboardOrder.filter(id => pinned.some(p => p.id === id)).slice(0, 7));
         for (const provider of pinned) if (!kept.has(provider.id)) provider.showOnDashboard = false;
     }
-    return { version: 2, providers, dashboardOrder, titlebarOrder };
+    return { version: 3, providers, dashboardOrder, titlebarOrder };
 }
 /*
  * Shared provider resume URL canonicalization + stable media identity.
@@ -557,6 +574,8 @@ const POPUP_URL =
     );
 
 
+const MANGAYOMI_NATIVE_HOST = "com.streamshell.mangayomi";
+const MANGAYOMI_PATH_KEY = "streamShellMangayomiExecutable";
 const DISCORD_NATIVE_HOST =
     "com.streamshell.discord";
 
@@ -1250,6 +1269,75 @@ async function getFlightRecorderSnapshot(limit = null) {
         },
         events
     };
+}
+
+
+// Performance incidents have an independent durable fallback. The historical
+// flight recorder above is still session-scoped and intentionally unchanged.
+const STREAM_SHELL_PERFORMANCE_STORE_KEY = 'streamShellPerformanceIncidents';
+const STREAM_SHELL_PERFORMANCE_FALLBACK_LIMIT = 240;
+let streamShellPerformanceStoreQueue = Promise.resolve();
+let streamShellPerformanceLastNativeWarning = 0;
+
+function normalizeStreamShellPerformanceIncident(input = {}) {
+    const allowedSources = new Set(['landing', 'dashboard', 'background']);
+    const allowedKinds = new Set([
+        'renderer-timer-gap', 'renderer-long-task', 'background-timer-gap'
+    ]);
+    const source = String(input.source || 'background');
+    const kind = String(input.kind || 'background-timer-gap');
+    if (!allowedSources.has(source) || !allowedKinds.has(kind)) return null;
+    const durationMs = Math.round(Number(input.durationMs));
+    if (!Number.isFinite(durationMs) || durationMs < 0) return null;
+    return {
+        at: Date.now(), source, kind,
+        durationMs: Math.min(durationMs, 86400000),
+        visible: input.visible === true
+    };
+}
+
+function recordStreamShellPerformanceIncident(input = {}) {
+    const incident = normalizeStreamShellPerformanceIncident(input);
+    if (!incident) return Promise.resolve(false);
+
+    // The native titlebar process append-writes the dated JSONL file; its
+    // reader thread must never depend on file writes from a browser renderer.
+    const ready = typeof titlebarPort !== 'undefined' &&
+        titlebarPort && typeof titlebarProtocolReady !== 'undefined' &&
+        titlebarProtocolReady && !shuttingDown;
+    if (ready) {
+        try {
+            titlebarPort.postMessage({
+                type: 'performance-event',
+                protocolVersion: TITLEBAR_PROTOCOL_VERSION,
+                source: incident.source,
+                kind: incident.kind,
+                durationMs: incident.durationMs,
+                visible: incident.visible
+            });
+        } catch (_) { /* Storage fallback below always runs. */ }
+    }
+
+    // Never block UI work or queue unlimited incidents; a small local fallback
+    // remains after extension restarts if the titlebar helper is unavailable.
+    streamShellPerformanceStoreQueue = streamShellPerformanceStoreQueue
+        .catch(() => {})
+        .then(async () => {
+            const value = await chrome.storage.local.get(STREAM_SHELL_PERFORMANCE_STORE_KEY);
+            const events = Array.isArray(value[STREAM_SHELL_PERFORMANCE_STORE_KEY])
+                ? value[STREAM_SHELL_PERFORMANCE_STORE_KEY].slice(-(STREAM_SHELL_PERFORMANCE_FALLBACK_LIMIT - 1))
+                : [];
+            events.push(incident);
+            await chrome.storage.local.set({[STREAM_SHELL_PERFORMANCE_STORE_KEY]: events});
+        })
+        .catch(error => {
+            const now = Date.now();
+            if (now - streamShellPerformanceLastNativeWarning > 60000) {
+                streamShellPerformanceLastNativeWarning = now;
+                console.warn('Stream Shell performance fallback storage failed:', error);
+            }
+        });
+    return Promise.resolve(true);
 }
 /*
  * ============================================================
@@ -2419,6 +2507,9 @@ async function _ensureProviderWindow(
 
 
 function switchProvider(providerName) {
+    if (providerName === "mangayomi") {
+        return runStreamShellWindowTransition("native:mangayomi", () => showMangayomi());
+    }
     return runStreamShellWindowTransition(
         `provider:${providerName}`,
         () => _switchProvider(providerName)
@@ -2434,6 +2525,7 @@ async function _switchProvider(
         return;
     }
 
+    await hideMangayomiIfActive();
     await measureShellWindowStep("provider:refresh-targets", () => refreshStreamShellProviderTargets());
     if (!PROVIDERS[providerName]) {
         throw new Error(`Unknown or disabled provider: ${providerName}`);
@@ -2931,6 +3023,7 @@ async function showLanding(
         return;
     }
 
+    await hideMangayomiIfActive();
     await stopVolumeCaptureForProviderChange(
         "landing"
     );
@@ -3222,6 +3315,7 @@ async function showDashboard() {
 
     const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
     const compact = displayProfile?.mode === "compact";
+    if (compact) await hideMangayomiIfActive();
 
     await deactivateTwitchForRightSurface({
         forceMinimize: compact
@@ -3294,6 +3388,8 @@ async function showDashboard() {
         // Right Dashboard was explicitly selected. Repair any owner-graph
         // ordering drift after Opera completes the focus hand-off, once only.
         scheduleWideRightPaneReassert("dashboard");
+        // Also maintain Mangayomi's LEFT app over its Landing owner. Passive only.
+        scheduleMangayomiWideReassert();
     }
 }
 
@@ -3478,6 +3574,260 @@ async function syncDiscordVisibilityState() {
 }
 
 
+/* Mangayomi is a native left-pane app, not an Opera web provider. */
+async function mangayomiNativeCommand(action, search = null) {
+    // A disabled setting is a runtime denial, not merely a hidden UI control.
+    // `hide` remains available so an existing window can be cleaned up on revoke.
+    if (action !== "hide" && action !== "kill") {
+        const gate = await chrome.storage.local.get("streamShellSevenSeasAcknowledged");
+        if (gate.streamShellSevenSeasAcknowledged !== true)
+            throw new Error("Mangayomi is disabled. Acknowledge the Seven Seas in General settings first.");
+    }
+    const stored = await chrome.storage.local.get(MANGAYOMI_PATH_KEY);
+    const path = String(stored[MANGAYOMI_PATH_KEY] || "").trim();
+    // Align Flutter's content below Stream Shell's Wide chrome (two live screenshot adjustments).
+    // Preserve LEFT bottom edge: inset and height reduction always match.
+    const profile = (action === "show" || action === "search" || action === "lookup" || action === "open-result")
+        ? await getStreamShellDisplayProfile().catch(() => null) : null;
+    const isWide = profile?.mode !== "compact";
+    const wideTopInset = 6;
+    const geometry = (action === "show" || action === "search" || action === "lookup" || action === "open-result") && isWide
+        ? {...LEFT, top: LEFT.top + wideTopInset, height: LEFT.height - wideTopInset} : LEFT;
+    const response = await chrome.runtime.sendNativeMessage(MANGAYOMI_NATIVE_HOST, {
+        action, executablePath: path, ...geometry,
+        ...((action === "open-result" && search ? {resultId:search.resultId} :
+            (action === "search" || action === "lookup") && search ? {query:search.query, itemType:search.itemType} : {}))
+    });
+    if (response?.ok !== true) {
+        throw new Error(response?.error || "Mangayomi native helper unavailable. Install integrations/mangayomi/install-mangayomi-helper.ps1.");
+    }
+    return response;
+}
+
+async function killMangayomiByUserRequest() {
+    // Invalidate any pending reveal before killing the process.
+    ++mangayomiPendingRevealGeneration;
+    const result = await mangayomiNativeCommand("kill");
+    const stored = await chrome.storage.local.get("leftMode");
+    if (stored.leftMode === "mangayomi" && !shuttingDown) {
+        // The now-absent process cannot be accidentally foregrounded by the
+        // regular provider-switch path; it only handles normal Opera windows.
+        await switchProvider("youtube");
+    }
+    await recordFlightEvent({source:"background", category:"native-app",
+        action:"mangayomi-hard-kill", provider:"mangayomi"}).catch(() => {});
+    return result;
+}
+
+async function hideMangayomiIfActive() {
+    const { leftMode } = await chrome.storage.local.get("leftMode");
+    if (leftMode !== "mangayomi") return;
+    try {
+        await mangayomiNativeCommand("hide");
+        recordFlightEvent({source: "background", category: "native-app", action: "mangayomi-hidden", provider: "mangayomi"}).catch(() => {});
+    } catch (error) {
+        recordFlightEvent({source: "background", category: "native-app", action: "mangayomi-hide-failed", provider: "mangayomi",
+            detail: {error: String(error?.message || error).slice(0, 180)}}).catch(() => {});
+        console.warn("Mangayomi hide unavailable:", error?.message || error);
+    }
+}
+
+async function showMangayomi() {
+    if (shuttingDown) return;
+    const stored = await chrome.storage.local.get(STREAM_SHELL_PROVIDER_REGISTRY_KEY);
+    const registry = normalizeStreamShellProviderRegistry(stored[STREAM_SHELL_PROVIDER_REGISTRY_KEY]);
+    if (!registry.providers.some(item => item.id === "mangayomi" && item.enabled))
+        throw new Error("Mangayomi integration is disabled in provider settings.");
+
+    const displayProfile = await getStreamShellDisplayProfile().catch(() => null);
+    const wide = displayProfile?.mode !== "compact";
+
+    // Do not replace activeProvider with a nonexistent browser provider.
+    // No Opera window mutations until the optional native app starts successfully.
+    await stopVolumeCaptureForProviderChange("mangayomi");
+    await mangayomiNativeCommand("show");
+    if (shuttingDown) return;
+
+    if (wide) {
+        /*
+         * The Wide Landing HWND is Stream Shell's Win32 Alt+Tab OWNER / anchor.
+         * Minimizing it also minimizes its owned right-hand Dashboard (and can
+         * collapse the entire shell). Keep Landing NORMAL behind Mangayomi,
+         * just as Discord leaves Dashboard alive behind its native window.
+         * Restore it here as well to repair an anchor left minimized by 0.21.0.
+         */
+        const landingId = await ensureLandingWindow();
+        if (shuttingDown) return;
+        await restoreWindow(landingId, LEFT, false);
+    }
+
+    const windows = await getProviderWindows();
+    await Promise.all(Object.entries(windows).filter(([, id]) => Number.isInteger(id))
+        .map(async ([name, id]) => {
+            await pauseProviderWindowPlayback(id, name, "mangayomi").catch(() => {});
+            await setWindowMuted(id, true).catch(() => {});
+            await safelyMinimizeWindow(id).catch(() => {});
+        }));
+
+    if (wide) {
+        // Repair a Dashboard already minimized by the old Landing-owner bug,
+        // but never change the selected right mode (Discord/Twitch stay put).
+        const { rightMode } = await chrome.storage.local.get("rightMode");
+        if (rightMode === "dashboard") {
+            const dashboardId = await ensureDashboardWindow();
+            if (shuttingDown) return;
+            await restoreWindow(dashboardId, RIGHT, false);
+        }
+    }
+
+    if (shuttingDown) return;
+    // Opera's old LEFT provider transitions can change Windows foreground.
+    // Reassert Mangayomi only after the owned Opera HWNDs have settled.
+    await mangayomiNativeCommand("show");
+    if (shuttingDown) return;
+    await chrome.storage.local.set({ leftMode: "mangayomi" });
+    await broadcastState();
+}
+
+/*
+ * Dashboard can raise its Win32 Landing owner above the external Mangayomi
+ * window whenever focus returns to Opera. Unlike `show`, `raise` is passive:
+ * the native host reorders an already-visible HWND WITHOUT taking keyboard focus,
+ * restoring/minimizing any window, or touching Discord/right Twitch.
+ * Only schedule on a RIGHT Dashboard focus event while LEFT is Mangayomi.
+ */
+let mangayomiWideRaiseTimer = null;
+let mangayomiWideRaiseInFlight = false;
+let mangayomiWideRaiseLastAt = 0;
+function scheduleMangayomiWideReassert() {
+    if (shuttingDown || streamShellDisplayProfileCache?.mode === "compact") return;
+    if (mangayomiWideRaiseTimer !== null) clearTimeout(mangayomiWideRaiseTimer);
+    mangayomiWideRaiseTimer = setTimeout(async () => {
+        mangayomiWideRaiseTimer = null;
+        if (shuttingDown || mangayomiWideRaiseInFlight) return;
+        // Verify the CURRENT state, not the stale onFocusChanged cache.
+        const state = await chrome.storage.local.get(["leftMode", "rightMode"]);
+        if (state.leftMode !== "mangayomi" || state.rightMode !== "dashboard" ||
+            streamShellDisplayProfileCache?.mode === "compact") return;
+        if (Date.now() - mangayomiWideRaiseLastAt < 150) return;
+        mangayomiWideRaiseInFlight = true;
+        try {
+            await mangayomiNativeCommand("raise");
+            mangayomiWideRaiseLastAt = Date.now();
+        } catch (error) {
+            console.warn("Mangayomi passive Wide reassert unavailable:", error?.message || error);
+        } finally {
+            mangayomiWideRaiseInFlight = false;
+        }
+    }, 80);
+}
+
+// Explicit, user-triggered experimental direct search: requires a Mangayomi
+// build with the matching global-search URI handler. NOT a results API.
+async function streamShellMangayomiDirectSearch(query, itemType) {
+    if (!["anime", "manga", "novel"].includes(itemType) ||
+        typeof query !== "string" || !query.trim() || query.length > 200 ||
+        /[\u0000-\u001f\u007f]/.test(query))
+        throw new Error("Invalid Mangayomi direct-search request.");
+    if (shuttingDown) throw new Error("Stream Shell shutting down.");
+    try {
+        const response = await mangayomiNativeCommand("lookup", {query, itemType});
+        const parsed = JSON.parse(response.searchResultsJson || "null");
+        if (!parsed?.ok || !Array.isArray(parsed.sources))
+            throw new Error("Mangayomi bridge returned an invalid source-result payload.");
+        return {dispatched:true, fallback:false, searchResults:parsed};
+    } catch (error) {
+        // Preserve the precise startup/bridge error instead of incorrectly
+        // telling users to start Mangayomi manually. Lookup auto-starts the
+        // configured fork and checks that the bridge belongs to its PID.
+        if (String(error?.message || error).includes("MANGAYOMI_DIRECT_SEARCH_UNAVAILABLE"))
+            return {dispatched:false, fallback:true,
+                reason:String(error?.message || error).replace(/^.*MANGAYOMI_DIRECT_SEARCH_UNAVAILABLE:\s*/, "").slice(0, 400)};
+        throw error;
+    }
+}
+
+// User-selected opaque hit from the last completed source scan. Mangayomi's
+// bridge resolves the ID against in-memory MManga objects and navigates to its
+// native detail page; no source URL is accepted from the extension.
+// When /v1/open accepts a result before Flutter creates its Win32 window,
+// the old helper reports "Result opened but Mangayomi window is not ready".
+// That is NOT a failed navigation. Never send /v1/open twice for the same hit.
+// Poll the non-launching `status` action until an HWND exists, then show it.
+let mangayomiPendingRevealGeneration = 0;
+function scheduleMangayomiPendingResultReveal(initialLeftMode) {
+    const generation = ++mangayomiPendingRevealGeneration;
+    let attempts = 0;
+    const check = async () => {
+        if (shuttingDown || generation !== mangayomiPendingRevealGeneration) return;
+        try {
+            const state = await chrome.storage.local.get("leftMode");
+            // A user-initiated provider change cancels the delayed reveal.
+            if (state.leftMode !== initialLeftMode) return;
+            const status = await mangayomiNativeCommand("status");
+            // `status` never starts a second Mangayomi process. `running:true`
+            // means the helper found an actual window for the configured fork.
+            if (status.running === true) {
+                await showMangayomi();
+                return;
+            }
+        } catch (error) {
+            console.warn("Mangayomi result reveal not ready:", error?.message || error);
+        }
+        if (++attempts < 16 && generation === mangayomiPendingRevealGeneration)
+            setTimeout(check, 5000);
+    };
+    setTimeout(check, 1200);
+}
+
+async function streamShellMangayomiOpenSourceResult(resultId) {
+    if (typeof resultId !== "string" || !/^[A-Za-z0-9_-]{22,40}$/.test(resultId))
+        throw new Error("Invalid Mangayomi result ID.");
+    let windowPending = false;
+    try {
+        const response = await mangayomiNativeCommand("open-result", {resultId});
+        windowPending = response.visible === false;
+    } catch (error) {
+        // Native v0.21.25 returns failure only because the Flutter window is
+        // not ready; its /v1/open request has already succeeded at this point.
+        if (!/Result opened but Mangayomi window is not ready\.|Could not position selected result\./.test(String(error?.message || error)))
+            throw error;
+        windowPending = true;
+    }
+    if (!windowPending) {
+        try {
+            // Existing fast path: completed navigation and Win32 window ready.
+            await showMangayomi();
+            return {opened:true, pending:false};
+        } catch (error) {
+            // Window can disappear during the Flutter route transition.
+            if (!/window (?:could not be identified|unavailable)|main window unavailable/i.test(String(error?.message || error)))
+                throw error;
+            windowPending = true;
+        }
+    }
+    // The result was accepted by Mangayomi. Report that accurately, rather
+    // than falsely asking for another fork build. Do not call `show` while
+    // the HWND is absent: the legacy helper could start a second instance.
+    if (windowPending) {
+        const state = await chrome.storage.local.get("leftMode");
+        scheduleMangayomiPendingResultReveal(state.leftMode);
+        return {opened:true, pending:true};
+    }
+}
+
+// Revoking acknowledgement must also prevent a currently active native pane
+// from continuing to be exposed as an enabled Stream Shell provider.
+chrome.storage.onChanged?.addListener?.((changes, area) => {
+    if (area !== "local" || !changes.streamShellSevenSeasAcknowledged ||
+        changes.streamShellSevenSeasAcknowledged.newValue === true) return;
+    void (async () => {
+        const stored = await chrome.storage.local.get("leftMode");
+        if (stored.leftMode !== "mangayomi" || shuttingDown) return;
+        await mangayomiNativeCommand("hide").catch(() => {});
+        await switchProvider("youtube");
+    })().catch(error => console.warn("Seven Seas revoke transition failed", error));
+});
 /*
  * ============================================================
  * TWITCH AUXILIARY WINDOW
@@ -6091,6 +6441,18 @@ async function getTwitchWorkspaceV2Context(windowId) {
     };
 }
 
+// Explicit raid marker fallback: a tagged Twitch raid is not equivalent to
+// an ordinary user-selected channel switch. This is the ONLY case where the
+// background may restore a former workspace URL; no 45s generic URL guard.
+const twitchWorkspaceV2RaidRedirectRecoveries = new Map();
+function isExplicitTwitchRaidReferral(url) {
+    try {
+        const parsed = new URL(url);
+        return /(^|\.)twitch\.tv$/i.test(parsed.hostname) &&
+            String(parsed.searchParams.get("referrer") || "").toLowerCase() === "raid";
+    } catch { return false; }
+}
+
 async function syncTwitchWorkspaceV2Location(tab) {
     if (!tab?.id || !Number.isInteger(tab.windowId)) return false;
     const url = String(tab.url || tab.pendingUrl || "");
@@ -6102,6 +6464,31 @@ async function syncTwitchWorkspaceV2Location(tab) {
     if (!slotId) return false;
     const slot = record.slots[slotId];
     if (!slot) return false;
+
+    // Twitch annotates some automatic raid destinations with ?referrer=raid.
+    // Only that positive signal may trigger restoration of the pre-raid slot.
+    // Unmarked Twitch links, UI navigation, and explicit slot edits remain free.
+    if (slot.raidProtectionEnabled === true &&
+        isExplicitTwitchRaidReferral(url) &&
+        isTwitchUrl(slot.url) && !isExplicitTwitchRaidReferral(slot.url) &&
+        twitchWorkspaceV2ChannelFromUrl(slot.url) &&
+        twitchWorkspaceV2ChannelFromUrl(slot.url) !== twitchWorkspaceV2ChannelFromUrl(url)) {
+        const previous = twitchWorkspaceV2RaidRedirectRecoveries.get(tab.id);
+        if (previous?.url === url && Date.now() - previous.at < 10000) return true;
+        twitchWorkspaceV2RaidRedirectRecoveries.set(tab.id, { url, at: Date.now() });
+        try {
+            await chrome.tabs.update(tab.id, { url: slot.url });
+            void recordFlightEvent({
+                source: "background", category: "twitch-raid-guard",
+                action: "tagged-raid-redirect-recovered", provider: "twitch",
+                detail: { slotId, evidence: "referrer=raid" }
+            }).catch(() => {});
+            return true;
+        } catch {
+            twitchWorkspaceV2RaidRedirectRecoveries.delete(tab.id);
+            return false;
+        }
+    }
 
     const kind = slot.kindSource === "explicit" && (slot.kind === "stream" || slot.kind === "page")
         ? slot.kind
@@ -6383,7 +6770,7 @@ let titlebarProviderLastAckAt = null;
 let titlebarProviderLastRejectedIconCount = 0;
 
 const STREAM_SHELL_TITLEBAR_BUILTIN_LABELS = Object.freeze({
-    youtube: "YT", netflix: "N", prime: "P", disney: "D+", crunchyroll: "CR"
+    youtube: "YT", netflix: "N", prime: "P", disney: "D+", crunchyroll: "CR", mangayomi: "MY"
 });
 
 // Load primary PNG bytes directly in the extension worker: the native helper handles
@@ -6392,11 +6779,12 @@ const STREAM_SHELL_TITLEBAR_BUILTIN_LABELS = Object.freeze({
 const streamShellTitlebarRasterCache = new Map();
 const streamShellTitlebarArtworkStatus = new Map();
 
-function streamShellTitlebarButtons(registryValue) {
+function streamShellTitlebarButtons(registryValue, sevenSeas = false) {
     const registry = normalizeStreamShellProviderRegistry(registryValue);
     const byId = new Map(registry.providers.map(provider => [provider.id, provider]));
     return registry.titlebarOrder.map(id => byId.get(id))
-        .filter(provider => provider?.enabled && provider?.showInTitlebar)
+        .filter(provider => provider?.enabled && provider?.showInTitlebar &&
+            (provider.id !== "mangayomi" || sevenSeas))
         .map(provider => {
             const name = provider.name.replace(/[\r\n\t]/g, " ").slice(0, 48).trim() || provider.id;
             const icon = (STREAM_SHELL_TITLEBAR_BUILTIN_LABELS[provider.id] || provider.icon ||
@@ -6510,7 +6898,7 @@ async function streamShellTitlebarIconData(button) {
 }
 
 async function streamShellTitlebarPayload(registryValue, options = {}) {
-    const buttons = streamShellTitlebarButtons(registryValue);
+    const buttons = streamShellTitlebarButtons(registryValue, options.sevenSeas === true);
     const withArtwork = options.includeArtwork !== false;
     const rows = await Promise.all(buttons.map(async button => {
         const image = withArtwork ? await streamShellTitlebarIconData(button) : "";
@@ -6557,7 +6945,9 @@ async function syncTitlebarProviderRegistry(registryValue = undefined) {
         if (expectedEpoch !== titlebarProviderStorageEpoch) return;
         registryValue = stored[STREAM_SHELL_PROVIDER_REGISTRY_KEY];
     }
-    const configSignature = JSON.stringify(streamShellTitlebarButtons(registryValue));
+    const gateValue = await chrome.storage.local.get("streamShellSevenSeasAcknowledged");
+    const sevenSeas = gateValue.streamShellSevenSeasAcknowledged === true;
+    const configSignature = JSON.stringify(streamShellTitlebarButtons(registryValue, sevenSeas));
     // A heartbeat or repeated init must not replace loaded icons with placeholders.
     if (configSignature === titlebarProviderConfigSignature && titlebarProviderPayloadB64 !== null) {
         if (titlebarProviderAckGeneration !== titlebarProviderGeneration) sendTitlebarProviderPayload();
@@ -6568,21 +6958,21 @@ async function syncTitlebarProviderRegistry(registryValue = undefined) {
     titlebarProviderConfigSignature = configSignature;
     titlebarProviderLastError = null;
     streamShellTitlebarArtworkStatus.clear();
-    for (const button of streamShellTitlebarButtons(registryValue)) {
+    for (const button of streamShellTitlebarButtons(registryValue, sevenSeas)) {
         if (button.kind === "custom")
             streamShellTitlebarArtworkStatus.set(button.id, {source:"pending",reason:"artwork-loading"});
     }
 
     // Phase 1: send ALL buttons immediately, with text/initials. This has no
     // dependency on PNG/SVG decoding or on the offscreen audio document.
-    const textPayload = await streamShellTitlebarPayload(registryValue, {includeArtwork:false});
+    const textPayload = await streamShellTitlebarPayload(registryValue, {includeArtwork:false, sevenSeas});
     if (shuttingDown || renderEpoch !== titlebarProviderStorageEpoch ||
         sequence !== titlebarProviderRenderSequence) return;
     streamShellApplyTitlebarPayload(textPayload,"buttons-ready");
 
     // Phase 2: enhance the same buttons with icons. If rasterization fails,
     // the native helper keeps the valid text-only list instead of losing a provider.
-    void streamShellTitlebarPayload(registryValue).then(payload => {
+    void streamShellTitlebarPayload(registryValue, {sevenSeas}).then(payload => {
         if (shuttingDown || renderEpoch !== titlebarProviderStorageEpoch ||
             sequence !== titlebarProviderRenderSequence) return;
         streamShellApplyTitlebarPayload(payload,"artwork-ready");
@@ -6596,9 +6986,9 @@ async function syncTitlebarProviderRegistry(registryValue = undefined) {
 // Provider changes affect only the LEFT titlebar buttons. No focus, restore,
 // native claims, pane reassert or rightMode updates occur on this path.
 chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]) return;
+    if (area !== "local" || (!changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY] && !changes.streamShellSevenSeasAcknowledged)) return;
     titlebarProviderStorageEpoch++;
-    void syncTitlebarProviderRegistry(changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY].newValue)
+    void syncTitlebarProviderRegistry(changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY]?.newValue)
         .catch(error => console.warn("Native provider sync failed:", error));
 });
 
@@ -7521,6 +7911,7 @@ function startTitlebarReconcileLoop() {
     }
 
     let titlebarReconcileTick = 0;
+    let lastPerformanceTick = performance.now();
 
     titlebarReconcileTimer =
         setInterval(
@@ -7532,6 +7923,19 @@ function startTitlebarReconcileLoop() {
                 ) {
                     stopTitlebarReconcileLoop();
                     return;
+                }
+
+                // Measure callback delay before any native/browser work.
+                // Delayed service-worker callbacks are evidence of a stall,
+                // though browser power management can cause similar gaps.
+                const tickNow = performance.now();
+                const lag = tickNow - lastPerformanceTick - TITLEBAR_RECONCILE_INTERVAL_MS;
+                lastPerformanceTick = tickNow;
+                if (lag >= 2000 && lag < 86400000) {
+                    void recordStreamShellPerformanceIncident({
+                        source: 'background', kind: 'background-timer-gap',
+                        durationMs: lag, visible: true
+                    });
                 }
 
                 try {
@@ -7847,6 +8251,10 @@ function handleTitlebarNativeMessage(
 
                 if (typeof action === "string" && action.startsWith("custom-") && !PROVIDERS[action]) {
                     await refreshStreamShellProviderTargets();
+                }
+                if (action === "mangayomi") {
+                    await switchProvider("mangayomi");
+                    return;
                 }
                 if (
                     PROVIDERS[
@@ -9163,6 +9571,15 @@ async function killStreamShell() {
     landingCreationLock = null;
     dashboardCreationLock = null;
     stopTitlebarNative();
+
+    // The global skull Kill is an explicit termination request, not a provider
+    // switch. Shut down an external Mangayomi process too, so it cannot stay
+    // alive invisibly after all Stream Shell windows have gone away.
+    // Never launch Mangayomi while shutting down; the native 'kill' action
+    // refuses to target an unconfigured/unrelated EXE.
+    await mangayomiNativeCommand("kill").catch(error => {
+        console.warn("Mangayomi remained running or native Kill was unavailable:", error?.message || error);
+    });
 
     /* Keep the logical A-D definition but close all four physical Twitch
      * windows concurrently. */
@@ -10939,6 +11356,22 @@ chrome.runtime.onMessage.addListener(
         }
 
 
+        if (message.type === 'stream-shell-performance-event') {
+            if (!isShellHomeUiSender(sender)) {
+                sendResponse({ok: false});
+                return;
+            }
+            const origin = isDashboardSender(sender) ? 'dashboard' : 'landing';
+            const raw = message.incident || {};
+            return streamShellRespondAsync(sendResponse, () =>
+                recordStreamShellPerformanceIncident({
+                    source: origin, kind: raw.kind,
+                    durationMs: raw.durationMs,
+                    visible: raw.visible
+                }), { success: () => ({ok: true}), failure: () => ({ok: false}) }
+            );
+        }
+
         if (message.type === "dashboard-flight-event") {
             if (!isDashboardSender(sender)) {
                 sendResponse({ ok: false });
@@ -12191,6 +12624,46 @@ chrome.runtime.onMessage.addListener(
         }
 
 
+        if (message.type === "dashboard-kill-mangayomi") {
+            if (!isDashboardSender(sender)) {
+                sendResponse({ok:false,error:"Only Stream Shell Dashboard can terminate Mangayomi."});
+                return false;
+            }
+            killMangayomiByUserRequest()
+                .then(() => sendResponse({ok:true}))
+                .catch(error => sendResponse({ok:false,error:String(error?.message || error)}));
+            return true;
+        }
+        if (message.type === "landing-mangayomi-open-result") {
+            if (!isShellHomeUiSender(sender)) {
+                sendResponse({ok:false,error:"Only Stream Shell may open Mangayomi results."});
+                return false;
+            }
+            streamShellMangayomiOpenSourceResult(message.resultId)
+                .then(result => sendResponse({ok:true, ...result}))
+                .catch(error => sendResponse({ok:false,error:String(error?.message || error)}));
+            return true;
+        }
+        if (message.type === "landing-mangayomi-direct-search") {
+            if (!isShellHomeUiSender(sender)) {
+                sendResponse({ok:false,error:"Only the managed Stream Shell UI may search Mangayomi."});
+                return false;
+            }
+            streamShellMangayomiDirectSearch(message.query, message.itemType)
+                .then(result => sendResponse({ok:true, dispatched:result.dispatched, fallback:result.fallback === true, reason:result.reason || null, searchResults:result.searchResults || null}))
+                .catch(error => sendResponse({ok:false,error:String(error?.message || error)}));
+            return true;
+        }
+        if (message.type === "landing-show-mangayomi") {
+            if (!isShellHomeUiSender(sender)) {
+                sendResponse({ok:false,error:"Only a managed Landing/Dashboard may launch Mangayomi."});
+                return false;
+            }
+            switchProvider("mangayomi")
+                .then(() => sendResponse({ok:true}))
+                .catch(error => sendResponse({ok:false,error:error.message}));
+            return true;
+        }
         if (
             message.type ===
             "landing-show-discord"
@@ -13542,6 +14015,12 @@ function reconcileShellWideFocusFast(focusedWindowId) {
         shellWideLastSelectedSlot = null;
     }
     notifyShellWideProviderFocus(state, focusedWindowId);
+    // A RIGHT Dashboard focus can bring its owned Opera Landing HWND above
+    // Mangayomi on LEFT. Reassert the native app without focusing it.
+    if (state.leftMode === 'mangayomi' && state.rightMode === 'dashboard' &&
+        focusedWindowId === state.dashboardWindowId) {
+        scheduleMangayomiWideReassert();
+    }
     // Only notify native when the visibility actually changes. The full
     // state sender also deduplicates identical payloads.
     if (visibility !== shellWideFocusVisibility) {

@@ -65,8 +65,19 @@ internal static partial class StreamShellTitlebarHost
             return;
         }
 
+        case "performance-event":
+        {
+            WritePerformanceIncident(
+                GetJsonString(json, "source") ?? "native",
+                GetJsonString(json, "kind") ?? "unknown",
+                GetJsonInt(json, "durationMs", 0),
+                GetJsonBool(json, "visible", false));
+            return;
+        }
+
         case "heartbeat":
         {
+            MarkPerformanceHeartbeat();
             SendNativeStatus();
             return;
         }

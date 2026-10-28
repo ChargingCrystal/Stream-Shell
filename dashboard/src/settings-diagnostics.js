@@ -970,6 +970,8 @@ function renderSettingsDiagnostics(snapshot) {
         diagnosticsRow("Snapshot mode", snapshot.mode === "full" ? "Deep · live probes" : "Panel · cached health", "neutral") +
         diagnosticsRow("Generated", generatedAt, "neutral") +
         diagnosticsRow("Flight events", `${Number(flightRecorder.count) || 0}/${Number(flightRecorder.maxEvents) || 200}`, "neutral") +
+        diagnosticsRow("Performance black box", "Daily JSONL · native titlebar helper", "neutral") +
+        diagnosticsRow("Performance log folder", "%LOCALAPPDATA%\\StreamShell\\Logs", "neutral") +
         diagnosticsRow("Export", "Runtime (fast) / Deep (optional)", "good");
 
     settingsDiagnosticsContent.innerHTML =
@@ -1022,7 +1024,7 @@ function renderSettingsDiagnostics(snapshot) {
         diagnosticsSection(
             "05",
             "Event timeline",
-            "The session flight recorder shows the event chain that led to the current state.",
+            "Session timeline plus permanent performance incidents (when the native titlebar helper is updated). Files: %LOCALAPPDATA%\\StreamShell\\Logs.",
             diagnosticsTimelineCard(flightRecorder),
             "timeline"
         ) +

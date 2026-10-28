@@ -9,6 +9,15 @@ async function killStreamShell() {
     dashboardCreationLock = null;
     stopTitlebarNative();
 
+    // The global skull Kill is an explicit termination request, not a provider
+    // switch. Shut down an external Mangayomi process too, so it cannot stay
+    // alive invisibly after all Stream Shell windows have gone away.
+    // Never launch Mangayomi while shutting down; the native 'kill' action
+    // refuses to target an unconfigured/unrelated EXE.
+    await mangayomiNativeCommand("kill").catch(error => {
+        console.warn("Mangayomi remained running or native Kill was unavailable:", error?.message || error);
+    });
+
     /* Keep the logical A-D definition but close all four physical Twitch
      * windows concurrently. */
     await closeTwitchWorkspaceV2Windows(true).catch(() => {});

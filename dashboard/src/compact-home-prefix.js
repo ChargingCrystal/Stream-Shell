@@ -1,4 +1,4 @@
-/* Compact Shell Home reuses the proven Landing media/subscription runtime in
+/* Compact Shell Home reuses the proven Landing media runtime in
  * an isolated scope. Wide never initializes or styles this block. */
 (async function streamShellCompactHomeRuntime() {
     const compactBootState = await chrome.runtime.sendMessage({ type: "get-state" }).catch(() => null);
@@ -22,6 +22,8 @@
     // for Compact so Wide Dashboard keeps its pre-0.14 runtime/CSS surface.
     await Promise.all([
         "media/watchlist.js",
+        "media/external-library.js",
+        "media/anilist-api.js",
         "media/direct-links.js",
         "media/continue-watching.js",
         "media/availability.js",

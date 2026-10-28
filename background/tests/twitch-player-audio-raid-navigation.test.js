@@ -25,7 +25,8 @@ assert.match(utility,/workspacePlaybackGuardEnabled/,
     'covered-stream playback guard is preserved');
 
 assert.match(automation,/function preventRaid\(/,'visible Twitch raid cancellation is preserved');
-assert.match(automation,/leave raid\|cancel raid/,'raid UI cancellation remains targeted');
+assert.match(automation,/function raidBannerEvidence\(/,'raid UI requires positive banner evidence');
+assert.match(automation,/cancel raid/,'explicit raid opt-out remains available');
 assert.doesNotMatch(automation,/type:\s*["']twitch-arm-raid-guard["']/,
     'raid UI must not rearm background URL snapback');
 assert.doesNotMatch(background,/function enforceTwitchRaidGuard\s*\(/,

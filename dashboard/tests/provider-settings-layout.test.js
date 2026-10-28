@@ -27,9 +27,9 @@ const html = expr('renderProviderRegistrySettings()');
 assert.match(html, /settings-provider-registry-columns/);
 assert.match(html, /settings-custom-provider-fields/);
 assert.match(html, /settings-custom-provider-bottom/);
-assert.equal((html.match(/data-registry-enabled=/g) || []).length, 6);
-assert.equal((html.match(/data-registry-titlebar-visible=/g) || []).length, 6);
-assert.equal((html.match(/data-registry-titlebar-color-picker=/g) || []).length, 6);
+assert.equal((html.match(/data-registry-enabled=/g) || []).length, 7);
+assert.equal((html.match(/data-registry-titlebar-visible=/g) || []).length, 7);
+assert.equal((html.match(/data-registry-titlebar-color-picker=/g) || []).length, 7);
 assert.equal((html.match(/data-artwork-path=/g) || []).length, 5);
 const initial = {
     icon: 'assets/providers/custom/custom_key_icon.svg',

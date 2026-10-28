@@ -22,6 +22,7 @@ internal static partial class StreamShellTitlebarHost
             case "prime": return new ButtonDef("P", id, "prime.png", 18, 18);
             case "disney": return new ButtonDef("D+", id, "disney.png", 20, 20);
             case "crunchyroll": return new ButtonDef("CR", id, "crunchyroll.png", 19, 19);
+            case "mangayomi": return new ButtonDef("MY", id, "mangayomi.png", 19, 19);
             default: return null;
         }
     }
@@ -241,7 +242,7 @@ internal static partial class StreamShellTitlebarHost
                 string[] parts = row.Split('\t');
                 if (parts.Length != 5) return false;
                 string id = parts[0];
-                if (!Regex.IsMatch(id, "^(youtube|netflix|prime|disney|crunchyroll|custom-[a-z0-9]{8,40})$", RegexOptions.CultureInvariant)) return false;
+                if (!Regex.IsMatch(id, "^(youtube|netflix|prime|disney|crunchyroll|mangayomi|custom-[a-z0-9]{8,40})$", RegexOptions.CultureInvariant)) return false;
                 if (!used.Add(id)) return false;
                 string label = parts[1];
                 string fullName = parts[2];
@@ -513,6 +514,8 @@ internal static partial class StreamShellTitlebarHost
             return Rgb(69, 116, 255);
         if (String.Equals(mode, "crunchyroll", StringComparison.OrdinalIgnoreCase))
             return Rgb(255, 101, 0);
+        if (String.Equals(mode, "mangayomi", StringComparison.OrdinalIgnoreCase))
+            return Rgb(239, 68, 68);
 
         return Rgb(166, 84, 255);
     }
@@ -697,7 +700,14 @@ internal static partial class StreamShellTitlebarHost
         {
             LeftButtons,
             CompactButtons,
-            RightTwitchButtons
+            RightTwitchButtons,
+            // LeftButtons is the fixed legacy chrome layout. Mangayomi is only
+            // present in DynamicProviderButtons after a registry update, so it
+            // is NOT discovered by the three static arrays above. Preload its
+            // installed PNG just like the original five built-in providers.
+            // Do not add it to LeftButtons: that would shift hardcoded indices
+            // in ComposeLeftButtons() and alter the Titlebar layout.
+            new ButtonDef[] { BuiltinProviderButton("mangayomi") }
         };
 
         for (int setIndex = 0; setIndex < iconSets.Length; setIndex++)
@@ -755,7 +765,7 @@ internal static partial class StreamShellTitlebarHost
         lock (StateLock)
         {
             if (action == "landing" || action.StartsWith("custom-", StringComparison.OrdinalIgnoreCase) ||
-                action == "youtube" || action == "netflix" || action == "prime" || action == "disney" || action == "crunchyroll")
+                action == "youtube" || action == "netflix" || action == "prime" || action == "disney" || action == "crunchyroll" || action == "mangayomi")
             {
                 return String.Equals(leftMode, action, StringComparison.OrdinalIgnoreCase);
             }

@@ -206,6 +206,8 @@
                         aria-label="Search movies and TV shows"
                     >
 
+                    <input type="hidden" id="media-search-source" value="tmdb">
+
                     <button
                         type="button"
                         id="media-search-clear"
@@ -242,7 +244,7 @@
                                 id="watchlist-tab"
                                 class="library-tab active"
                             >
-                                Official
+                                Library
                             </button>
 
 
@@ -328,7 +330,10 @@
                             class="search-header-title"
                             hidden
                         >
-                            Search Results
+                            <div class="library-header-controls ss-search-source-tabs" role="tablist" aria-label="Search source">
+                                <button type="button" class="library-tab active" id="media-search-tmdb-tab" role="tab" aria-selected="true">Media · TMDB + AniList</button>
+                                <button type="button" class="library-tab" id="media-search-fmhy-tab" role="tab" aria-selected="false" disabled title="Enable Seven Seas acknowledgement in General settings">FMHY</button>
+                            </div>
                         </div>
 
 
@@ -559,10 +564,13 @@
 
     <script src="../media/media-api.js"></script>
     <script src="../media/watchlist.js"></script>
+    <script src="../media/external-library.js"></script>
+    <script src="../media/anilist-api.js"></script>
     <script src="../media/direct-links.js"></script>
     <script src="../media/continue-watching.js"></script>
     <script src="../media/history.js"></script>
     <script src="../media/availability.js"></script>
+    <script src="../shared/performance-watchdog.js"></script>
     <script src="landing.js"></script>
 
 </body>
