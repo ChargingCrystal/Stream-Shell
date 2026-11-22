@@ -1,269 +1,75 @@
 /*
- * ============================================================
- * SUBSCRIPTIONS
- * ============================================================
+ * Registry-driven subscriptions: configuration is separate from scraped data.
  */
-
-function getSubscriptionStatus(
-    value
-) {
-    return Object.prototype.hasOwnProperty.call(
-        SUBSCRIPTION_STATUS_LABELS,
-        value
-    )
-        ? value
-        : "unknown";
+let landingSubscriptionConfig = {};
+let landingSubscriptionRegistry = defaultStreamShellProviderRegistry();
+let landingSubscriptionState = {};
+function getSubscriptionStatus(value) {
+    return Object.prototype.hasOwnProperty.call(SUBSCRIPTION_STATUS_LABELS,value) ? value : "unknown";
 }
-
-
-function formatSubscriptionSyncTime(
-    timestamp
-) {
-    if (
-        !Number.isFinite(
-            timestamp
-        )
-    ) {
-        return "Never synced";
-    }
-
-
-    try {
-        return `Updated ${new Intl.DateTimeFormat(
-            undefined,
-            {
-                hour:
-                    "2-digit",
-
-                minute:
-                    "2-digit"
-            }
-        ).format(
-            new Date(
-                timestamp
-            )
-        )}`;
-    } catch {
-        return "Updated";
-    }
+function formatSubscriptionSyncTime(timestamp) {
+    return Number.isFinite(timestamp) ? "Updated " + new Intl.DateTimeFormat(undefined,
+        {hour:"2-digit",minute:"2-digit"}).format(new Date(timestamp)) : "Never synced";
 }
-
-
-function renderSubscriptionState(
-    state
-) {
-    // Compact intentionally has no subscription UI. Wide Landing still does.
+function renderSubscriptionState(state) {
     if (!subscriptionSyncMeta) return;
-    const items =
-        state?.items ||
-        {};
-
-
-    for (
-        const [
-            provider,
-            element
-        ] of subscriptionItems
-    ) {
-        const subscription =
-            items[provider] ||
-            {};
-
-
-        const status =
-            getSubscriptionStatus(
-                subscription.status
-            );
-
-
-        const statusElement =
-            element.querySelector(
-                ".subscription-status"
-            );
-
-
-        const renewalElement =
-            element.querySelector(
-                ".subscription-renewal"
-            );
-
-
-        element.dataset.status =
-            status;
-
-
-        statusElement.textContent =
-            SUBSCRIPTION_STATUS_LABELS[
-                status
-            ];
-
-
-        let renewalText =
-            "—";
-
-
-        const billingSource =
-            subscription.billingSource ||
-            null;
-
-
-        if (
-            billingSource &&
-            subscription.renewal
-        ) {
-            renewalText =
-                `${billingSource} · ${subscription.renewal}`;
-        } else if (
-            billingSource
-        ) {
-            renewalText =
-                billingSource;
-        } else if (
-            subscription.renewal
-        ) {
-            renewalText =
-                subscription.renewal;
-        } else if (
-            status ===
-            "verify"
-        ) {
-            renewalText =
-                "Verify";
-        } else if (
-            status ===
-            "signin"
-        ) {
-            renewalText =
-                "Sign in";
-        } else if (
-            status ===
-            "unknown"
-        ) {
-            renewalText =
-                "No data";
-        }
-
-
-        renewalElement.textContent =
-            renewalText;
-
-
-        const dateAction =
-            subscription.dateKind ===
-                "ends"
-                ? "Ends"
-                : "Renews";
-
-
-        const titleParts = [
-            PROVIDER_NAMES[provider],
-            SUBSCRIPTION_STATUS_LABELS[status]
-        ];
-
-
-        if (
-            billingSource
-        ) {
-            titleParts.push(
-                `Billing: ${billingSource}`
-            );
-        }
-
-
-        if (
-            subscription.renewal
-        ) {
-            titleParts.push(
-                `${dateAction} ${subscription.renewal}`
-            );
-        }
-
-
-        element.title =
-            titleParts.join(
-                " · "
-            );
+    landingSubscriptionState = state || {};
+    const grid = document.querySelector(".subscription-grid");
+    if (!grid) return;
+    const entries = streamShellSubscriptionEntries(landingSubscriptionRegistry,landingSubscriptionConfig);
+    const visible = entries.filter(p=>p.visible);
+    const effective = visible.map(p=>({...p, status:p.mode==="auto" ?
+        getSubscriptionStatus(state?.items?.[p.id]?.status) : p.status}));
+    grid.replaceChildren(); subscriptionItems.clear();
+    for (const p of effective) {
+        const data = p.mode==="auto" ? (state?.items?.[p.id] || {}) : {
+            status:p.status,renewal:p.date,dateKind:p.dateKind
+        };
+        const row = document.createElement("div");
+        const successAt = data.lastSuccessAt ||
+            (["active","ending","inactive"].includes(data.status) ? data.checkedAt : null);
+        row.title = p.mode === "auto" ? "Last successful sync: " + formatSubscriptionSyncTime(successAt) : "Manually maintained";
+        row.className="subscription-item"; row.dataset.status=p.status;
+        row.dataset.subscriptionProvider=p.id;
+        const icon = document.createElement("img"); icon.alt="";
+        if(p.icon) { icon.src=chrome.runtime.getURL(p.icon); icon.addEventListener("error",()=>{icon.hidden=true;}); }
+        else icon.hidden=true;
+        const name=document.createElement("span"); name.className="subscription-name";
+        name.textContent=p.id==="youtube"?"YouTube":p.id==="prime"?"Prime":p.name; name.title=p.plan || p.name;
+        const status=document.createElement("span"); status.className="subscription-status";
+        status.textContent=SUBSCRIPTION_STATUS_LABELS[getSubscriptionStatus(p.status)];
+        const date=document.createElement("span");date.className="subscription-renewal";
+        date.textContent=data.billingSource && data.renewal ? data.billingSource+" · "+data.renewal :
+            data.billingSource || data.renewal ||
+            (p.status==="verify"?"Verify":p.status==="signin"?"Sign in":p.status==="unknown"?"No data":"—");
+        row.append(icon,name,status,date);grid.append(row);subscriptionItems.set(p.id,row);
     }
-
-
-    subscriptionSyncMeta.textContent =
-        formatSubscriptionSyncTime(
-            state?.updatedAt
-        );
+    if(!visible.length)grid.textContent="Choose subscriptions in Settings → General → Subscriptions.";
+    subscriptionSyncMeta.textContent=formatSubscriptionSyncTime(state?.updatedAt);
+    subscriptionSyncMeta.title="";
+    subscriptionSyncButton.disabled=!visible.some(p=>p.mode==="auto");
 }
-
-
 async function loadSubscriptionState() {
     if (!subscriptionSyncMeta) return;
-    const stored =
-        await chrome.storage.local.get(
-            SUBSCRIPTION_STORAGE_KEY
-        );
-
-
-    renderSubscriptionState(
-        stored[
-            SUBSCRIPTION_STORAGE_KEY
-        ]
-    );
+    const stored=await chrome.storage.local.get([SUBSCRIPTION_STORAGE_KEY,
+        STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY,STREAM_SHELL_PROVIDER_REGISTRY_KEY]);
+    landingSubscriptionConfig=stored[STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY] || {};
+    landingSubscriptionRegistry=normalizeStreamShellProviderRegistry(stored[STREAM_SHELL_PROVIDER_REGISTRY_KEY]);
+    renderSubscriptionState(stored[SUBSCRIPTION_STORAGE_KEY]);
 }
-
-
-async function syncSubscriptions() {
-    if (!subscriptionSyncButton || !subscriptionSyncMeta) return;
-    subscriptionSyncButton.disabled =
-        true;
-
-
-    subscriptionSyncButton.classList.add(
-        "syncing"
-    );
-
-
-    subscriptionSyncMeta.textContent =
-        "Syncing account pages…";
-
-
+chrome.storage.onChanged.addListener((changes,area)=>{
+    if(area==="local" && (changes[STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY] ||
+        changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY])) loadSubscriptionState().catch(()=>{});
+});
+async function syncSubscriptions(providerId=null) {
+    if(!subscriptionSyncButton || !subscriptionSyncMeta)return;
+    subscriptionSyncButton.disabled=true;subscriptionSyncButton.classList.add("syncing");
+    subscriptionSyncMeta.textContent="Syncing account pages…";
     try {
-        const response =
-            await chrome.runtime.sendMessage({
-                type:
-                    "sync-subscriptions"
-            });
-
-
-        if (
-            response?.ok ===
-            false
-        ) {
-            throw new Error(
-                response.error ||
-                "Subscription sync failed."
-            );
-        }
-
-
-        renderSubscriptionState(
-            response?.state
-        );
-    } catch (error) {
-        console.error(
-            "Subscription sync failed:",
-            error
-        );
-
-
-        subscriptionSyncMeta.textContent =
-            "Sync failed";
-    } finally {
-        subscriptionSyncButton.classList.remove(
-            "syncing"
-        );
-
-
-        subscriptionSyncButton.disabled =
-            false;
-    }
+        const response=await chrome.runtime.sendMessage({type:"sync-subscriptions",
+            providerId:typeof providerId==="string"?providerId:null});
+        if(response?.ok===false)throw Error(response.error || "Sync failed");
+        await loadSubscriptionState();
+    } catch(error) {subscriptionSyncMeta.textContent="Sync failed";subscriptionSyncMeta.title=error.message;}
+    finally {subscriptionSyncButton.classList.remove("syncing");subscriptionSyncButton.disabled=false;}
 }
-
-

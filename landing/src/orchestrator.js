@@ -929,17 +929,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 function landingProviderBackground(provider, variant) {
-    const builtin = STREAM_SHELL_BUILTIN_IDS.has(provider);
-    const custom = landingProviderRegistry.providers.find(p => p.id === provider && p.kind === "custom");
-    const recognized = builtin || Boolean(custom);
-    const displayProvider = recognized ? provider : "netflix";
-    const file = builtin
-        ? `assets/backgrounds/${provider}_${variant}.png`
-        : (custom ? streamShellCustomArtworkPath(custom.artKey, variant) : null);
+    const recognized = STREAM_SHELL_BUILTIN_IDS.has(provider) ||
+        STREAM_SHELL_NATIVE_APP_IDS.has(provider) ||
+        landingProviderRegistry.providers.some(p => p.id === provider);
+    const paths = streamShellProviderBackgroundPaths(provider, variant, landingProviderRegistry);
     const neutral = "radial-gradient(ellipse at 77% 20%, rgba(70, 79, 104, .21), transparent 62%), linear-gradient(135deg, #0b0e17, #03050a)";
     return {
-        provider: displayProvider,
-        image: file ? `url("${chrome.runtime.getURL(file)}"), ${neutral}` : neutral
+        provider: recognized ? provider : "netflix",
+        image: [...paths.map(path => `url("${chrome.runtime.getURL(path)}")`), neutral].join(", ")
     };
 }
 
@@ -955,7 +952,7 @@ function renderState(
     lastLandingShellState = state;
     const backgroundVariant = document.body.dataset.layoutProfile === "compact"
         ? "compact" : "wide";
-    const background = landingProviderBackground(state?.activeProvider || "netflix", backgroundVariant);
+    const background = landingProviderBackground(streamShellPersistentBackgroundProvider(state, landingProviderRegistry), backgroundVariant);
     document.body.dataset.provider = background.provider;
 
 

@@ -1,4 +1,5 @@
 const PROVIDERS = {
+    "youtube-music": { label: "YouTube Music", url: "https://music.youtube.com/" },
     youtube: {
         label: "YouTube",
         url: "https://www.youtube.com/"
@@ -75,45 +76,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 const SUBSCRIPTION_STORAGE_KEY =
     "streamShellSubscriptions";
-
-
-const SUBSCRIPTION_PROVIDERS = [
-    {
-        id:
-            "youtube",
-
-        url:
-            "https://www.youtube.com/paid_memberships"
-    },
-    {
-        id:
-            "netflix",
-
-        url:
-            "https://www.netflix.com/account"
-    },
-    {
-        id:
-            "prime",
-
-        url:
-            "https://www.amazon.de/gp/primecentral"
-    },
-    {
-        id:
-            "disney",
-
-        url:
-            "https://www.disneyplus.com/account"
-    },
-    {
-        id:
-            "crunchyroll",
-
-        url:
-            "https://www.crunchyroll.com/account/membership"
-    }
-];
 
 
 const GOOGLE_PLAY_SUBSCRIPTIONS_URL =

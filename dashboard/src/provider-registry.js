@@ -10,14 +10,14 @@ function streamShellPinnedProviders(registry = getStreamShellProviderRegistry())
         .map(id => lookup.get(id))
         .filter(p => p?.enabled && p?.showOnDashboard &&
             (p.id !== "mangayomi" || settingsValues.streamShellSevenSeasAcknowledged === true))
-        .slice(0, 7);
+        ;
 }
 
 function renderProviderSelector() {
     const root = document.querySelector(".provider-selector");
     if (!root) return;
 
-    const pinned = streamShellPinnedProviders();
+    const pinned = streamShellDashboardGroups(streamShellPinnedProviders());
     const layout = STREAM_SHELL_PROVIDER_GRID_PATTERNS[pinned.length] || [];
     root.replaceChildren();
     root.dataset.providerCount = String(pinned.length);
@@ -32,7 +32,15 @@ function renderProviderSelector() {
         const row = document.createElement("div");
         row.className = `provider-row provider-row-count-${size}`;
         for (let j = 0; j < size; j++) {
-            const provider = pinned[index++];
+            const group = pinned[index++];
+            const holder = group.length === 2 ? document.createElement("div") : row;
+            if (group.length === 2) {
+                holder.className = "provider-card-split";
+                holder.setAttribute("role", "group");
+                holder.setAttribute("aria-label", "YouTube and YouTube Music");
+                row.appendChild(holder);
+            }
+            for (const provider of group) {
             const card = document.createElement("button");
             card.type = "button";
             card.className = "provider-card";
@@ -61,11 +69,13 @@ function renderProviderSelector() {
             } else {
                 icon.src = `../assets/providers/icons/${provider.id}.svg`;
                 icon.alt = "";
+                icon.addEventListener("error", () => { icon.hidden = true; });
             }
             const label = document.createElement("span");
-            label.textContent = provider.name;
+            label.textContent = provider.id === "youtube-music" ? "Music" : provider.name;
             card.append(icon, label);
-            row.appendChild(card);
+            holder.appendChild(card);
+            }
         }
         root.appendChild(row);
     }
@@ -188,25 +198,24 @@ function renderProviderRegistrySettings() {
     const registry = getStreamShellProviderRegistry();
     const sevenSeas = settingsValues.streamShellSevenSeasAcknowledged === true;
     const byId = new Map(registry.providers.map(p => [p.id, p]));
-    const visible = streamShellPinnedProviders(registry).length;
+    const visible = streamShellDashboardGroups(streamShellPinnedProviders(registry)).length;
     const rows = registry.dashboardOrder.map((id, index) => {
         const p = byId.get(id);
         const locked = p.id === "mangayomi" && !sevenSeas;
         const pinned = !locked && p.enabled && p.showOnDashboard;
         const label = escapeSettingsHtml(p.name);
-        return `<div class="setting-row settings-provider-registry-row">
+        return `<div class="setting-row settings-provider-registry-row" data-ss-order-item="${id}" data-ss-order-surface="dashboard">
+            ${settingsProviderDragHandle(id, "dashboard", p.name)}
             <span class="setting-copy"><strong>${label}</strong>
             <span>${p.kind === "native" ? "Native Windows app · optional helper" : p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}${p.kind === "custom" ? " · " + escapeSettingsHtml(p.url) : ""}</span></span>
             <label class="settings-provider-registry-toggle">
-                <input type="checkbox" data-registry-enabled="${id}" ${p.enabled && !locked ? "checked" : ""} ${locked ? "disabled" : ""}>
+                <span class="settings-switch" style="--settings-accent-rgb:${streamShellProviderAccentRgb(id, registry)}"><input type="checkbox" data-registry-enabled="${id}" ${p.enabled && !locked ? "checked" : ""} ${locked ? "disabled" : ""}><span aria-hidden="true"></span></span>
                 <span>Enabled</span>
             </label>
             <label class="settings-provider-registry-toggle">
-                <input type="checkbox" data-registry-visibility="${id}" ${pinned ? "checked" : ""} ${p.enabled && !locked ? "" : "disabled"}>
+                <span class="settings-switch" style="--settings-accent-rgb:${streamShellProviderAccentRgb(id, registry)}"><input type="checkbox" data-registry-visibility="${id}" ${pinned ? "checked" : ""} ${p.enabled && !locked ? "" : "disabled"}><span aria-hidden="true"></span></span>
                 <span>Dashboard</span>
             </label>
-            <button type="button" class="settings-provider-registry-move" data-registry-move="${id}" data-registry-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${label} up">↑</button>
-            <button type="button" class="settings-provider-registry-move" data-registry-move="${id}" data-registry-direction="1" ${index === registry.dashboardOrder.length - 1 ? "disabled" : ""} aria-label="Move ${label} down">↓</button>
             ${p.kind === "custom" ? `<button type="button" class="settings-provider-registry-move" data-registry-edit="${id}" aria-label="Edit ${label}">✎</button>
             <button type="button" class="settings-provider-registry-move" data-registry-remove="${id}" aria-label="Remove ${label}">×</button>` : ""}
         </div>`;
@@ -215,19 +224,18 @@ function renderProviderRegistrySettings() {
         const p = byId.get(id);
         if (!p) return "";
         const locked = p.id === "mangayomi" && !sevenSeas;
-        return `<div class="setting-row settings-provider-registry-row">
+        return `<div class="setting-row settings-provider-registry-row" data-ss-order-item="${id}" data-ss-order-surface="titlebar">
+            ${settingsProviderDragHandle(id, "titlebar", p.name)}
             <span class="setting-copy"><strong>${escapeSettingsHtml(p.name)}</strong>
                 <span>${p.kind === "native" ? "Native Windows app" : p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}</span></span>
             <label class="settings-provider-registry-toggle">
-                <input type="checkbox" data-registry-titlebar-visible="${id}" ${p.showInTitlebar && p.enabled && !locked ? "checked" : ""} ${p.enabled && !locked ? "" : "disabled"}>
+                <span class="settings-switch" style="--settings-accent-rgb:${streamShellProviderAccentRgb(id, registry)}"><input type="checkbox" data-registry-titlebar-visible="${id}" ${p.showInTitlebar && p.enabled && !locked ? "checked" : ""} ${p.enabled && !locked ? "" : "disabled"}><span aria-hidden="true"></span></span>
                 <span>Titlebar</span>
             </label>
             <label class="settings-provider-titlebar-color" title="Titlebar theme / active-state background color; icons always stay neutral monochrome">
                 <input type="color" data-registry-titlebar-color-picker="${id}" value="${p.titlebarColor || '#D5D0DD'}" aria-label="${escapeSettingsHtml(p.name)} titlebar theme color">
                 <input type="text" data-registry-titlebar-color-hex="${id}" maxlength="7" spellcheck="false" placeholder="Auto" value="${escapeSettingsHtml(p.titlebarColor || '')}" aria-label="${escapeSettingsHtml(p.name)} theme color hex">
             </label>
-            <button type="button" class="settings-provider-registry-move" data-registry-titlebar-move="${id}" data-registry-titlebar-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${escapeSettingsHtml(p.name)} up in titlebar">↑</button>
-            <button type="button" class="settings-provider-registry-move" data-registry-titlebar-move="${id}" data-registry-titlebar-direction="1" ${index === registry.titlebarOrder.length - 1 ? "disabled" : ""} aria-label="Move ${escapeSettingsHtml(p.name)} down in titlebar">↓</button>
         </div>`;
     }).join("");
 
@@ -245,12 +253,12 @@ function renderProviderRegistrySettings() {
     </div>`).join("");
     const form = `<div class="settings-custom-provider-form">
         <div class="settings-custom-provider-fields">
-            <label>Name<input id="settings-custom-provider-name" maxlength="48" placeholder="Paramount+" value="${escapeSettingsHtml(editing?.name || "")}"></label>
-            <label>Icon / initials<input id="settings-custom-provider-icon" maxlength="8" placeholder="P+" value="${escapeSettingsHtml(editing?.icon || "")}"></label>
-            <label>HTTPS URL<input id="settings-custom-provider-url" type="url" placeholder="https://www.paramountplus.com/" value="${escapeSettingsHtml(editing?.url || "")}"></label>
+            <label>Name<input id="settings-custom-provider-name" maxlength="48" placeholder="Provider name" value="${escapeSettingsHtml(editing?.name || "")}"></label>
+            <label>Icon / initials<input id="settings-custom-provider-icon" maxlength="8" placeholder="AB" value="${escapeSettingsHtml(editing?.icon || "")}"></label>
+            <label>HTTPS URL<input id="settings-custom-provider-url" type="url" placeholder="https://example.com/" value="${escapeSettingsHtml(editing?.url || "")}"></label>
         </div>
         <div class="settings-custom-provider-bottom">
-            <label>Local artwork key (optional)<input id="settings-custom-provider-art-key" maxlength="32" placeholder="paramount" value="${escapeSettingsHtml(editing?.artKey || "")}"></label>
+            <label>Local artwork key (optional)<input id="settings-custom-provider-art-key" maxlength="32" placeholder="my_provider" value="${escapeSettingsHtml(editing?.artKey || "")}"></label>
             <div class="settings-custom-provider-actions">
                 <button type="button" class="settings-provider-registry-move" id="settings-custom-provider-save">${editing ? "Save changes" : "Add provider"}</button>
                 ${editing ? `<button type="button" class="settings-provider-registry-move" id="settings-custom-provider-cancel">Cancel</button>` : ""}
@@ -270,10 +278,13 @@ function renderProviderRegistrySettings() {
     return settingsPage("Providers",
         `<p class="ss-seven-seas-status">${sevenSeas ? "Third-party integrations unlocked." : "Mangayomi is locked. Enable General → Seven Seas to unlock it."}</p>` +
         `<div class="settings-provider-registry-columns">` +
-            settingsSubgroup(`Dashboard (${visible}/7)`, rows,
-                "Up to seven pinned providers; independent of the native titlebar.") +
-            settingsSubgroup("Native titlebar (unlimited)", titlebarRows,
-                "Independent order and colors; extra buttons appear under … .") +
+            settingsSubgroup("Dashboard", `<div class="ss-provider-list">${rows}</div>` +
+                `<p class="ss-provider-selection-count">${streamShellPinnedProviders(registry).length} providers selected · ${visible}/7 dashboard slots</p>` +
+                renderSettingsProviderPreview(registry, "dashboard"),
+                "Drag the handles or preview buttons to reorder. YouTube and Music share one slot.") +
+            settingsSubgroup("Native titlebar (unlimited)", `<div class="ss-provider-list">${titlebarRows}</div>` +
+                `<p class="ss-provider-selection-count">${registry.providers.filter(p => p.enabled && p.showInTitlebar).length} titlebar providers selected</p>` + renderSettingsProviderPreview(registry, "titlebar"),
+                "Drag to reorder the horizontal preview or list. Extra buttons appear under … in the native titlebar.") +
         `</div>` +
         settingsSubgroup("Mangayomi · native integration", nativeSetup) +
         settingsSubgroup(editing ? "Edit custom provider" : "Add custom provider", form)

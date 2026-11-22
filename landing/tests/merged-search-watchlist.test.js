@@ -1,0 +1,21 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),path=require('node:path');
+const root=path.resolve(__dirname,'../..');
+const tmdb={id:1,mediaType:'tv',title:'Example',releaseDate:'2024-01-01'};
+const ani={id:'ani',source:'anilist',anilistId:2,mediaType:'anime',format:'TV',title:'Example',year:2024};
+const deleted=[];
+const ctx=vm.createContext({watchlistItems:[tmdb],getMediaKey:x=>String(x.id),selectedMediaKey:null,window:{StreamShellExternalLibrary:{getAll:async()=>[ani],remove:async id=>deleted.push(id)},StreamShellWatchlist:{remove:async item=>deleted.push(item.id)}}});
+vm.runInContext(fs.readFileSync(path.join(root,'landing/src/library.js'),'utf8'),ctx);
+vm.runInContext('showWatchlist = async () => {};',ctx);
+(async()=>{
+ await ctx.removeWatchlistItem('1');assert.deepEqual(deleted,['ani',1],'linked row removes both source records');
+ deleted.length=0;ctx.watchlistItems=[{...tmdb,title:'Different'}];await ctx.removeWatchlistItem('1');assert.deepEqual(deleted,[1],'unrelated AniList entry stays');
+ const source=fs.readFileSync(path.join(root,'landing/src/search.js'),'utf8');
+ const start=source.indexOf('async function streamShellRenderUnifiedResults('),end=source.indexOf('\nasync function runSearch',start);
+ Object.assign(ctx,{streamShellUnifiedRenderEpoch:0,searchGeneration:1,mediaSearchSource:{value:'tmdb'},streamShellSearchResultCache:{tmdb:{query:'example',items:[tmdb]},anilist:{query:'example',items:[Object.fromEntries(Object.entries(ani).filter(([key])=>key!=='source' && key!=='id'))]}},streamShellSearchMatchesType:()=>true,streamShellSearchTypeSubtitle:()=>{},streamShellMergedSearch:true,isSaved:()=>false,createElement:()=>({children:[],appendChild(x){this.children.push(x);}}),createMediaItem:()=>({kind:'tmdb'}),streamShellAniListResultCard:()=>({kind:'anilist'}),mediaPanelBody:{replaceChildren(list){this.list=list;}}});
+ vm.runInContext('streamShellLinkedMediaRow = () => ({kind:"linked"});',ctx);
+ vm.runInContext(source.slice(start,end),ctx);
+ await ctx.streamShellRenderUnifiedResults('example',1);assert.deepEqual(ctx.mediaPanelBody.list.children.map(x=>x.kind),['linked']);
+ ctx.streamShellMergedSearch=false;await ctx.streamShellRenderUnifiedResults('example',1);assert.equal(ctx.mediaPanelBody.list.children.length,4);assert.equal(ctx.streamShellSearchResultCache.anilist.items.length,1,'raw source cache preserved for unmerge');
+ ctx.streamShellMergedSearch=true;await ctx.streamShellRenderUnifiedResults('example',1);assert.equal(ctx.mediaPanelBody.list.children.length,1);
+ console.log('PASS: delete both linked records, preserve unrelated records, cached merge/unmerge/remerge without search API');
+})().catch(e=>{console.error(e);process.exitCode=1;});

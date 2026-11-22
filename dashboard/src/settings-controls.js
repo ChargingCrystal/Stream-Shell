@@ -1,3 +1,28 @@
+let settingsExplanationsVisible = false;
+function settingsSectionIcon(id) {
+    const paths = {
+        search: 'M10 3a7 7 0 1 0 0 14a7 7 0 1 0 0-14M15 15l6 6',
+        display: 'M3 4h18v13H3zM8 21h8M12 17v4',
+        providers: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
+        subscriptions: 'M3 5h18v15H3zM3 10h18M7 15h4',
+        playback: 'M8 4l12 8-12 8z',
+        player: 'M3 4h18v16H3zM9 8l7 4-7 4z',
+        audio: 'M3 9h4l5-5v16l-5-5H3zM16 8q5 4 0 8M19 5q8 7 0 14',
+        subtitles: 'M3 5h18v14H3zM6 10h5M14 10h4M6 14h3M12 14h6',
+        automation: 'M13 2L4 14h7l-1 8 10-13h-7z',
+        anarchy: 'M13 2L4 14h7l-1 8 10-13h-7z',
+        appearance: 'M12 3a9 9 0 1 0 9 9h-9z',
+        quality: 'M12 3l9 5v8l-9 5-9-5V8zM8 12l3 3 5-6',
+        'upload-date': 'M4 5h16v16H4zM8 2v6M16 2v6M4 10h16',
+        'auto-like': 'M8 10l4-7h3v6h5l-2 12H8zM3 10h5v11H3z',
+        cleanup: 'M4 7h16M9 3h6l2 4M6 7l1 14h10l1-14M10 11v6M14 11v6',
+        'safe-mode': 'M12 2l9 4v6q0 6-9 10-9-4-9-10V6zM8 12l3 3 5-6',
+        'seven-seas': 'M12 3v16M9 6h6M4 14q0 7 8 7t8-7M8 17l4 4 4-4',
+        twitch: 'M4 3h17v13l-5 5h-5l-4 3v-3H4zM10 7v6M16 7v6'
+    };
+    return `<svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[id] || paths.providers}"></path></svg>`;
+}
+
 function notifySettingsVisibility(open) {
     chrome.runtime.sendMessage({
         type: "dashboard-settings-visibility",
@@ -44,7 +69,7 @@ function settingSwitch(key, title, description) {
         ? "playback"
         : key === "streamShellSubtitleAnarchy"
             ? "subtitles"
-            : key === "streamShellDvdAnarchy"
+            : key === "streamShellDvdAnarchy" || key.startsWith("streamShellVisual")
                 ? "dvd"
                 : "";
     const anarchyClass = anarchyKind
@@ -206,9 +231,17 @@ function renderTwitchUtilitySettings() {
             settingSwitch(
                 "streamShellTwitchMarblesAutoJoin",
                 "Marbles auto-join",
-                "Watch this Twitch window's chat for a burst of 5-10 unique !play messages, then send one !play after a 1-4 second jitter. Each Workspace slot has its own 120-second cooldown."
+                "Watch for a burst of !play messages from distinct users within 30 seconds, then join after a random delay using the ranges below. Each Workspace slot keeps its 120-second cooldown."
             ),
             "All Twitch automation is local DOM automation; Stream Shell does not use Twitch OAuth or a Twitch API token."
+        ) +
+        settingsSubgroup(
+            "Auto-join ranges",
+            settingNumber("streamShellTwitchMarblesMinDelaySeconds", "Minimum jitter", "Shortest delay before sending !play.", 0, 120, "s") +
+            settingNumber("streamShellTwitchMarblesMaxDelaySeconds", "Maximum jitter", "Longest delay before sending !play.", 0, 120, "s") +
+            settingNumber("streamShellTwitchMarblesMinViewerPercent", "Minimum viewers", "Minimum percentage of viewers who must send !play.", 1, 100, "%") +
+            settingNumber("streamShellTwitchMarblesMaxViewerPercent", "Maximum viewers", "Maximum percentage of viewers who must send !play.", 1, 100, "%"),
+            "Viewer count is read once every five minutes per window. Auto-join waits when the count is unavailable or belongs to a different channel. The percentage is randomized for each burst. Equal values give a fixed delay or count; reversed limits are treated as an ordered range. Changes reset pending joins."
         ) +
         settingsSubgroup(
             "Audio",
@@ -521,12 +554,14 @@ function renderAnarchySettings() {
             )
         ) +
         settingsSubgroup(
-            "Visual",
+            "DVD",
             settingSwitch(
                 "streamShellDvdAnarchy",
                 "DVD Anarchy",
                 "Bounce a DVD logo around whichever supported provider occupies the active left surface, randomly changing speed and color on collisions."
-            ) +
+            )
+        ) +
+        settingsSubgroup("Visual director",
             settingSwitch("streamShellVisualAnarchy", "Visual Anarchy Director",
                 "One event timer for random visual disasters. Active, playing video only; restores all video styles when disabled.") +
             settingSelect("streamShellVisualFrequency", "Chaos frequency", "Average interval between visual events.", [
@@ -534,7 +569,9 @@ function renderAnarchySettings() {
                 ["chaotic","Chaotic · 20–60 s"],
                 ["absolute","Absolute Anarchy · 5–15 s"]
             ]) +
-            settingRange("streamShellVisualIntensity", "Chaos intensity", "Visual effect strength (GPU-intensive at high values).", 0, 100, 5) +
+            settingRange("streamShellVisualIntensity", "Chaos intensity", "Visual effect strength (GPU-intensive at high values).", 0, 100, 5)
+        ) +
+        settingsSubgroup("Effects",
             settingSwitch("streamShellVisualZoom", "Zoom Anarchy", "Random zoom and off-center focus.") +
             settingSwitch("streamShellVisualDeepFry", "Deep Fry Roulette", "Brief contrast and saturation overload.") +
             settingSwitch("streamShellVisualVhs", "VHS Meltdown", "Scanlines, color fringing and visual jitter.") +

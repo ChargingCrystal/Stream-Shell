@@ -9,10 +9,11 @@ const ctx = vm.createContext({
     escapeSettingsHtml: value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;'),
     settingsSubgroup: (title, content) => `<section class="settings-subgroup"><h3>${title}</h3>${content}</section>`,
     settingsPage: (title, content) => `<main><h2>${title}</h2>${content}</main>`,
-    document: { querySelector: selector => ctx.dom[selector] || null },
+    chrome: {runtime:{getURL:p=>p}},
+    document: { addEventListener(){}, querySelector: selector => ctx.dom[selector] || null },
     dom: {}
 });
-for (const name of ['shared/provider-registry-core.js', 'dashboard/src/provider-registry.js']) {
+for (const name of ['shared/provider-registry-core.js', 'dashboard/src/provider-registry.js', 'dashboard/src/provider-layout-settings.js']) {
     vm.runInContext(fs.readFileSync(path.join(root, name), 'utf8'), ctx);
 }
 const expr = code => vm.runInContext(code, ctx);
@@ -26,10 +27,13 @@ expr('settingsValues[STREAM_SHELL_PROVIDER_REGISTRY_KEY] = normalizeStreamShellP
 const html = expr('renderProviderRegistrySettings()');
 assert.match(html, /settings-provider-registry-columns/);
 assert.match(html, /settings-custom-provider-fields/);
-assert.match(html, /settings-custom-provider-bottom/);
-assert.equal((html.match(/data-registry-enabled=/g) || []).length, 7);
-assert.equal((html.match(/data-registry-titlebar-visible=/g) || []).length, 7);
-assert.equal((html.match(/data-registry-titlebar-color-picker=/g) || []).length, 7);
+assert.match(html, /ss-layout-preview-dashboard/);
+assert.match(html, /ss-layout-preview-titlebar/);
+assert.ok(!html.includes("data-registry-move="));
+assert.ok(!html.includes("data-registry-titlebar-move="));
+assert.equal((html.match(/data-registry-enabled=/g) || []).length, expr("getStreamShellProviderRegistry().providers.length"));
+assert.equal((html.match(/data-registry-titlebar-visible=/g) || []).length, expr("getStreamShellProviderRegistry().providers.length"));
+assert.equal((html.match(/data-registry-titlebar-color-picker=/g) || []).length, expr("getStreamShellProviderRegistry().providers.length"));
 assert.equal((html.match(/data-artwork-path=/g) || []).length, 5);
 const initial = {
     icon: 'assets/providers/custom/custom_key_icon.svg',

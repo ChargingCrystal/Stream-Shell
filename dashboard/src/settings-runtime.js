@@ -1,3 +1,4 @@
+let settingsCategoryOrder = {};
 function renderSettingsContent() {
     if (!settingsContent) {
         return;
@@ -15,6 +16,10 @@ function renderSettingsContent() {
 
     if (settingsSection === "display") {
         html = renderDisplaySettings();
+    }
+
+    if (settingsProvider === "general" && settingsSection === "subscriptions") {
+        html = renderSubscriptionSettingsPage();
     }
 
     if (settingsProvider === "general" && settingsSection === "providers") {
@@ -345,7 +350,17 @@ function renderSettingsContent() {
 
     }
 
-    settingsContent.innerHTML = html;
+    if (settingsProvider === "youtube" && settingsSection === "blocklist") html = renderYoutubeBlocklistSettings();
+
+    const contextName = settingsProvider === "general" ? "General" : (PROVIDER_NAMES[settingsProvider] || settingsProvider);
+    settingsContent.innerHTML = `<div class="settings-workspace-bar">
+        <span class="settings-workspace-context">${escapeSettingsHtml(contextName)} <span aria-hidden="true">/</span> ${escapeSettingsHtml(settingsSectionLabel(settingsProvider, settingsSection))}</span>
+        <button type="button" class="settings-note-edit settings-help-toggle" data-settings-note-edit aria-label="Edit page note" title="Edit page note">✎</button>
+        <button type="button" class="settings-help-toggle" data-settings-help aria-pressed="${settingsExplanationsVisible}">${settingsExplanationsVisible ? "Hide explanations" : "Show explanations"}</button>
+        </div><div class="settings-page-note" data-settings-page-note hidden></div>` + html;
+    mountSettingsPageNote(settingsContent, settingsProvider, settingsSection);
+    mountYoutubeBlocklistSettings(settingsContent);
+    settingsContent.classList.toggle("settings-explanations-visible", settingsExplanationsVisible);
 
     if (settingsSection === "search") {
         const searchInput = document.getElementById("settings-search-input");
@@ -354,6 +369,7 @@ function renderSettingsContent() {
         }
     }
 
+    if (typeof syncSettingsTitlebarPreview === "function") syncSettingsTitlebarPreview();
     syncAnarchySettingsVisuals();
 }
 
@@ -362,7 +378,12 @@ function renderSettingsSidebar() {
         return;
     }
 
-    const sections = SETTINGS_SECTIONS[settingsProvider] || [];
+    const sourceSections = SETTINGS_SECTIONS[settingsProvider] || [];
+    const order = settingsCategoryOrder[settingsProvider] || [];
+    const sections = [...sourceSections].sort((a,b) => {
+        const rank = id => order.includes(id) ? order.indexOf(id) : order.length + sourceSections.findIndex(row => row[0] === id);
+        return rank(a[0])-rank(b[0]);
+    });
 
     if (!sections.some(([id]) => id === settingsSection)) {
         settingsSection = defaultSettingsSection(settingsProvider);
@@ -373,12 +394,26 @@ function renderSettingsSidebar() {
             <button
                 type="button"
                 class="settings-section-button ${id === "search" ? "settings-section-search " : ""}${id === settingsSection ? "active" : ""}"
-                data-settings-section="${id}"
+                draggable="true" title="Drag to reorder categories" data-settings-section="${id}" aria-current="${id === settingsSection ? "page" : "false"}"
             >
-                ${label}
+                ${settingsSectionIcon(id)}<span>${label}</span>
             </button>
         `
     ).join("");
+    let dragged = null;
+    for (const button of settingsSidebar.querySelectorAll('[data-settings-section]')) {
+        button.addEventListener('dragstart', event => {dragged = button.dataset.settingsSection;event.dataTransfer.setData('text/plain',dragged);event.dataTransfer.effectAllowed='move';});
+        button.addEventListener('dragover', event => {if(dragged)event.preventDefault();});
+        button.addEventListener('drop', async event => {
+            event.preventDefault();const target=button.dataset.settingsSection;
+            if(!dragged || dragged===target)return;
+            const ids=sections.map(row=>row[0]);ids.splice(ids.indexOf(dragged),1);ids.splice(ids.indexOf(target),0,dragged);
+            settingsCategoryOrder[settingsProvider]=ids;
+            renderSettingsSidebar();
+            await chrome.storage.local.set({streamShellSettingsCategoryOrder:settingsCategoryOrder});
+        });
+        button.addEventListener('dragend',()=>{dragged=null;});
+    }
 }
 
 function renderSettingsTabs() {
@@ -408,10 +443,11 @@ function renderSettingsCenter() {
 async function loadSettingsValues() {
     try {
         const stored = await chrome.storage.local.get(
-            SETTINGS_STORAGE_KEYS
+            [...SETTINGS_STORAGE_KEYS, "streamShellSubscriptionFinance"]
         );
 
         settingsValues = streamShellHydrateSettings(stored);
+        settingsValues.streamShellSubscriptionFinance = stored.streamShellSubscriptionFinance;
     } catch {
         settingsValues = {
             ...SETTINGS_DEFAULTS
@@ -443,6 +479,8 @@ async function openSettingsCenter(provider) {
         await loadSettingsValues();
     }
 
+    const categoryState = await chrome.storage.local.get("streamShellSettingsCategoryOrder");
+    settingsCategoryOrder = categoryState.streamShellSettingsCategoryOrder || {};
     await refreshSleepTimerState();
 
     if (settingsCloseTimer) {
@@ -529,6 +567,14 @@ function handleSettingsClick(event) {
 
     if (!button) {
         return false;
+    }
+
+    if (button.hasAttribute("data-settings-help")) {
+        settingsExplanationsVisible = !settingsExplanationsVisible;
+        settingsContent.classList.toggle("settings-explanations-visible", settingsExplanationsVisible);
+        button.setAttribute("aria-pressed", String(settingsExplanationsVisible));
+        button.textContent = settingsExplanationsVisible ? "Hide explanations" : "Show explanations";
+        return true;
     }
 
     if (button.id === "now-playing-settings") {
@@ -891,8 +937,9 @@ document.addEventListener(
             const id = pinInput.dataset.registryVisibility;
             const requested = pinInput.checked;
             const current = getStreamShellProviderRegistry();
-            const before = streamShellPinnedProviders(current).length;
-            if ((!requested && before <= 1) || (requested && before >= 7)) {
+            const pins = streamShellPinnedProviders(current);
+            const after = requested ? [...pins, current.providers.find(p => p.id === id)] : pins.filter(p => p.id !== id);
+            if (!after.length || streamShellDashboardGroups(after).length > 7) {
                 pinInput.checked = !requested;
                 return;
             }
@@ -1007,4 +1054,4 @@ chrome.storage.onChanged.addListener(
 
 notifySettingsVisibility(false);
 renderProviderSelector();
-loadSettingsValues().catch(() => {});
+loadSettingsValues().then(() => openRequestedSubscriptionSettings()).catch(() => {});

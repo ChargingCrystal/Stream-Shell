@@ -262,7 +262,8 @@ async function waitForPrimeVerification(
     windowId,
     tabId,
     initialResult,
-    timeoutMs = 120000
+    timeoutMs = 120000,
+    billingUrl = PRIME_CENTRAL_URL
 ) {
     await setSubscriptionSyncWindowInteractive(
         windowId
@@ -452,7 +453,7 @@ async function waitForPrimeVerification(
                 try {
                     await navigateSubscriptionTab(
                         tabId,
-                        PRIME_CENTRAL_URL,
+                        billingUrl,
                         18000
                     );
 
@@ -858,13 +859,20 @@ async function createSubscriptionSyncWindow() {
 }
 
 
-async function _syncSubscriptions() {
+async function _syncSubscriptions(providerId = null) {
+    const stored = await chrome.storage.local.get([STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY,
+        STREAM_SHELL_PROVIDER_REGISTRY_KEY, SUBSCRIPTION_STORAGE_KEY]);
+    const entries = streamShellSubscriptionEntries(
+        normalizeStreamShellProviderRegistry(stored[STREAM_SHELL_PROVIDER_REGISTRY_KEY]),
+        stored[STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY]);
+    const selected = entries.filter(p => p.visible && p.mode === "auto" && (!providerId || p.id === providerId));
+    if (!selected.length) return stored[SUBSCRIPTION_STORAGE_KEY] || {items:{}};
+    const selectedIds = new Set(selected.map(p=>p.id));
     let syncWindowId =
         null;
 
 
-    const items =
-        {};
+    const items = {...stored[SUBSCRIPTION_STORAGE_KEY]?.items};
 
 
     try {
@@ -909,7 +917,7 @@ async function _syncSubscriptions() {
 
         for (
             const provider
-            of SUBSCRIPTION_PROVIDERS
+            of selected.filter(p=>p.id !== "discord" && p.url)
         ) {
             try {
                 await navigateSubscriptionTab(
@@ -945,11 +953,15 @@ async function _syncSubscriptions() {
                         await waitForPrimeVerification(
                             syncWindowId,
                             tabId,
-                            result
+                            result,
+                            120000,
+                            provider.url
                         );
                 }
 
 
+                result.lastSuccessAt = ["active","ending","inactive"].includes(result.status)
+                    ? Date.now() : stored[SUBSCRIPTION_STORAGE_KEY]?.items?.[provider.id]?.lastSuccessAt || null;
                 items[provider.id] =
                     result;
             } catch (error) {
@@ -1043,6 +1055,15 @@ async function _syncSubscriptions() {
     }
 
 
+    // Google Play can report other services; retain only requested automatic entries.
+    for (const id of Object.keys(items)) {
+        if (!selectedIds.has(id)) {
+            if (stored[SUBSCRIPTION_STORAGE_KEY]?.items?.[id])
+                items[id] = stored[SUBSCRIPTION_STORAGE_KEY].items[id];
+            else delete items[id];
+        }
+    }
+
     const state = {
         items,
         updatedAt:
@@ -1060,7 +1081,7 @@ async function _syncSubscriptions() {
 }
 
 
-async function syncSubscriptions() {
+async function syncSubscriptions(providerId = null) {
     if (
         subscriptionSyncLock
     ) {
@@ -1069,7 +1090,7 @@ async function syncSubscriptions() {
 
 
     subscriptionSyncLock =
-        _syncSubscriptions()
+        _syncSubscriptions(providerId)
             .finally(
                 () => {
                     subscriptionSyncLock =

@@ -5,7 +5,7 @@ on:
     paths:
       - 'native/**/*.cs'
       - 'native/install-titlebar-helper.ps1'
-      - 'native/tests/compile-titlebar-host.ps1'
+      - 'native/tests/*.ps1'
       - 'integrations/mangayomi/tests/compile-mangayomi-host.ps1'
       - 'integrations/discord/**/*.cs'
       - 'integrations/mangayomi/**/*.cs'
@@ -16,7 +16,7 @@ on:
     paths:
       - 'native/**/*.cs'
       - 'native/install-titlebar-helper.ps1'
-      - 'native/tests/compile-titlebar-host.ps1'
+      - 'native/tests/*.ps1'
       - 'integrations/mangayomi/tests/compile-mangayomi-host.ps1'
       - 'integrations/discord/**/*.cs'
       - 'integrations/mangayomi/**/*.cs'
@@ -38,6 +38,9 @@ jobs:
       - name: Compile using the installer's C# source assembly order
         shell: powershell
         run: .\native\tests\compile-titlebar-host.ps1
+      - name: Exercise independent hang recorder and minidump worker
+        shell: powershell
+        run: .\native\tests\test-hang-diagnostics.ps1
       - name: Compile Mangayomi native helper (no registration)
         shell: powershell
         run: .\integrations\mangayomi\tests\compile-mangayomi-host.ps1

@@ -536,6 +536,7 @@ internal static partial class StreamShellTitlebarHost
     {
         switch ((mode ?? String.Empty).ToLowerInvariant())
         {
+            case "youtube-music": return "Stream Shell \u2014 YouTube Music";
             case "youtube": return "Stream Shell \u2014 YouTube";
             case "netflix": return "Stream Shell \u2014 Netflix";
             case "prime": return "Stream Shell \u2014 Prime Video";

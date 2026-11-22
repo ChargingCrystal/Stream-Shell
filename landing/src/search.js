@@ -17,6 +17,15 @@ const streamShellSearchFilterTypes = Object.freeze({
 const streamShellSearchSelectedTypes = { tmdb: new Set() };
 const streamShellSearchResultCache = {tmdb: null, anilist: null};
 let streamShellSevenSeasAcknowledged = false;
+let streamShellMergedSearch = false;
+chrome.storage.local.get("streamShellMergedSearch").then(stored => {
+    streamShellMergedSearch = stored.streamShellMergedSearch === true;
+    if (activePanel === "search" && mediaSearchSource?.value === "tmdb") {
+        if (streamShellSearchResultCache.tmdb || streamShellSearchResultCache.anilist)
+            void streamShellRenderUnifiedResults(mediaSearchInput.value.trim(), searchGeneration);
+        else showSearchHint();
+    }
+}).catch(() => {});
 function streamShellSearchMatchesType(item, source) {
     const selected = streamShellSearchSelectedTypes.tmdb;
     return !selected.size || selected.has(item.mediaType);
@@ -24,7 +33,24 @@ function streamShellSearchMatchesType(item, source) {
 function streamShellSearchTypeSubtitle(source, summary) {
     if (mediaSearchSource?.value !== "tmdb") return;
     const host = createElement("div", "ss-search-filter-bar");
-    host.appendChild(createElement("div", "ss-search-filter-summary", summary));
+    const top = createElement("div", "ss-search-header-options");
+    const mergeLabel = createElement("label", "ss-search-merge-toggle");
+    const merge = document.createElement("input"); merge.type = "checkbox"; merge.checked = streamShellMergedSearch;
+    merge.addEventListener("change", () => {
+        streamShellMergedSearch = merge.checked;
+        void chrome.storage.local.set({streamShellMergedSearch});
+        const query = mediaSearchInput.value.trim();
+        if (streamShellSearchResultCache.tmdb?.query === query || streamShellSearchResultCache.anilist?.query === query)
+            void streamShellRenderUnifiedResults(query, searchGeneration);
+        else showSearchHint();
+    });
+    const switchWrap = createElement("span", "settings-switch");
+    merge.setAttribute("role", "switch");
+    const track = document.createElement("span"); track.setAttribute("aria-hidden", "true");
+    switchWrap.append(merge, track);
+    mergeLabel.append(switchWrap, document.createTextNode("Merged search"));
+    top.append(mergeLabel, createElement("div", "ss-search-filter-summary", summary));
+    host.appendChild(top);
     const filters = createElement("div", "ss-search-filter-chips");
     filters.setAttribute("role", "group");
     filters.setAttribute("aria-label", "Search media types (multiple allowed)");
@@ -180,6 +206,18 @@ async function streamShellRenderUnifiedResults(query, generation, warning = "") 
         return;
     }
     const list = createElement("div", "media-list ss-unified-results");
+    if (streamShellMergedSearch) {
+        const current = await window.StreamShellExternalLibrary.getAll();
+        if (generation !== searchGeneration || renderEpoch !== streamShellUnifiedRenderEpoch || mediaSearchSource?.value !== "tmdb") return;
+        const savedIds = new Set(current.filter(item => item.source === "anilist").map(item => `${item.mediaType}:${item.anilistId}`));
+        for (const row of streamShellLinkLibraryEntries(movies, anime.map(item => ({...item, source:"anilist"})))) {
+            if (row.kind === "linked") list.appendChild(streamShellLinkedMediaRow(row.media,row.anilist,{mode:"search",saved:isSaved(row.media),generation}));
+            else if (row.kind === "tmdb") list.appendChild(createMediaItem(row.media,{mode:"search",saved:isSaved(row.media),generation}));
+            else list.appendChild(streamShellAniListResultCard(row.media,savedIds.has(`${row.media.mediaType}:${row.media.anilistId}`),generation));
+        }
+        mediaPanelBody.replaceChildren(list);
+        return;
+    }
     if (movies.length) {
         list.appendChild(createElement("div", "ss-search-result-section", `TMDB · Movies & Series (${movies.length})`));
         for (const item of movies) list.appendChild(createMediaItem(item, {

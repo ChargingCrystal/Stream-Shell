@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Stream Shell",
-  "version": "0.22.1",
+  "version": "0.22.35",
   "description": "Unified shell for Netflix, Prime Video, Crunchyroll, YouTube and Disney+, with Discord/Twitch utilities and remote control.",
   "author": "Sven Rieseler",
   "icons": {
@@ -105,7 +105,10 @@
       "world": "MAIN",
       "all_frames": true,
       "match_about_blank": true,
-      "match_origin_as_fallback": true
+      "match_origin_as_fallback": true,
+      "exclude_matches": [
+        "*://music.youtube.com/*"
+      ]
     },
     {
       "matches": [
@@ -122,7 +125,10 @@
       "run_at": "document_start",
       "all_frames": true,
       "match_about_blank": true,
-      "match_origin_as_fallback": true
+      "match_origin_as_fallback": true,
+      "exclude_matches": [
+        "*://music.youtube.com/*"
+      ]
     },
     {
       "matches": [
@@ -139,6 +145,9 @@
       "run_at": "document_start",
       "css": [
         "providers/player/playback-utilities.css"
+      ],
+      "exclude_matches": [
+        "*://music.youtube.com/*"
       ]
     },
     {
@@ -163,7 +172,10 @@
         "providers/player/youtube-extras.css",
         "providers/player/youtube-cleanup.css"
       ],
-      "run_at": "document_start"
+      "run_at": "document_start",
+      "exclude_matches": [
+        "*://music.youtube.com/*"
+      ]
     },
     {
       "matches": [
@@ -232,7 +244,39 @@
         "subscriptions/account-scraper.js"
       ],
       "run_at": "document_idle",
-      "css": []
+      "css": [],
+      "exclude_matches": [
+        "*://music.youtube.com/*"
+      ]
+    },
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "exclude_matches": [
+        "*://music.youtube.com/*"
+      ],
+      "run_at": "document_start",
+      "js": [
+        "providers/player/youtube-blocklist-main.js"
+      ],
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "exclude_matches": [
+        "*://music.youtube.com/*"
+      ],
+      "run_at": "document_idle",
+      "js": [
+        "shared/youtube-blocklist-core.js",
+        "providers/player/youtube-blocklist.js"
+      ],
+      "css": [
+        "providers/player/youtube-blocklist.css"
+      ]
     }
   ],
   "commands": {

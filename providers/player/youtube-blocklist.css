@@ -1,0 +1,5 @@
+.ss-blocklist-image { filter:blur(13px) !important; }
+.ss-blocklist-position { position:relative !important; }
+.ss-blocklist-label { position:absolute !important; right:auto !important; bottom:auto !important; display:block !important; width:max-content !important; max-width:none !important; margin:0 !important; padding:0 !important; transform:translate(-50%,-50%) rotate(30deg) !important; transform-origin:center !important; color:#ff3434 !important; font-family:Arial,sans-serif !important; font-weight:800 !important; line-height:1.15 !important; white-space:nowrap !important; text-shadow:0 1px 3px #000,0 0 6px #000 !important; z-index:20 !important; pointer-events:none !important; text-align:center !important; }
+
+.ss-blocklist-removed {display:none !important;}

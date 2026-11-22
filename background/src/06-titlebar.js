@@ -24,7 +24,7 @@ let titlebarProviderLastAckAt = null;
 let titlebarProviderLastRejectedIconCount = 0;
 
 const STREAM_SHELL_TITLEBAR_BUILTIN_LABELS = Object.freeze({
-    youtube: "YT", netflix: "N", prime: "P", disney: "D+", crunchyroll: "CR", mangayomi: "MY"
+    "youtube-music": "YM", youtube: "YT", netflix: "N", prime: "P", disney: "D+", crunchyroll: "CR", mangayomi: "MY"
 });
 
 // Load primary PNG bytes directly in the extension worker: the native helper handles
@@ -1165,6 +1165,7 @@ function startTitlebarReconcileLoop() {
     }
 
     let titlebarReconcileTick = 0;
+    let diagnosticHeartbeatSequence = 0;
     let lastPerformanceTick = performance.now();
 
     titlebarReconcileTimer =
@@ -1196,6 +1197,8 @@ function startTitlebarReconcileLoop() {
                     titlebarPort.postMessage({
                         type:
                             "heartbeat",
+                        sequence: diagnosticHeartbeatSequence = (diagnosticHeartbeatSequence % 2147483647) + 1,
+                        sentAtUtc: new Date().toISOString(),
 
                         protocolVersion:
                             TITLEBAR_PROTOCOL_VERSION

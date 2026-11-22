@@ -27,8 +27,9 @@ assert.match(native, /ComposeLeftButtons\(compact, providers, paneWidth/);
 const source = read('landing/src/subscriptions.js');
 const context = vm.createContext({
     subscriptionSyncMeta: null, subscriptionSyncButton: null,
-    SUBSCRIPTION_STORAGE_KEY: 'unused', chrome: { storage: { local: { get() { throw Error('compact must not load subscriptions'); } } } }
+    SUBSCRIPTION_STORAGE_KEY: 'unused', chrome: { storage: { onChanged: {addListener() {}}, local: { get() { throw Error('compact must not load subscriptions'); } } } }
 });
+vm.runInContext(read('shared/provider-registry-core.js'), context);
 vm.runInContext(source, context);
 assert.doesNotThrow(() => vm.runInContext('renderSubscriptionState({items:{}})', context));
 Promise.all([

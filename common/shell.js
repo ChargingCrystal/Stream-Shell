@@ -3495,7 +3495,11 @@ function resolveProviderMediaLink(
 
         const id = media.identity || getProviderMediaIdentity(media.provider, media.url);
         const progressPercent = Math.max(0, Math.min(100, currentTime / duration * 100));
-        const stored = await chrome.storage.local.get(CONTINUE_WATCHING_STORAGE_KEY);
+        const stored = await chrome.storage.local.get([CONTINUE_WATCHING_STORAGE_KEY, "streamShellContinueWatchingPolicy"]);
+        const policy = stored.streamShellContinueWatchingPolicy || {};
+        if (Array.isArray(policy.disabledProviders) && policy.disabledProviders.includes(media.provider)) return;
+        const minPercent = Number.isFinite(policy.minPercent) ? Math.max(0, Math.min(continueWatchingCompletePercent - 1, policy.minPercent)) : Math.min(5, continueWatchingCompletePercent - 1);
+        if (progressPercent < minPercent) return;
         const items = Array.isArray(stored[CONTINUE_WATCHING_STORAGE_KEY])
             ? stored[CONTINUE_WATCHING_STORAGE_KEY].map(normalizeContinueWatchingItem)
             : [];

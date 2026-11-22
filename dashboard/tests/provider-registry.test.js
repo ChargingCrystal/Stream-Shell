@@ -44,7 +44,7 @@ assert.deepEqual(plain('STREAM_SHELL_PROVIDER_GRID_PATTERNS'), {
     1: [1], 2: [2], 3: [3], 4: [1,2,1], 5: [1,3,1], 6: [2,2,2], 7: [2,3,2]
 });
 const clean = plain('normalizeStreamShellProviderRegistry({dashboardOrder:["disney","disney","prime","bogus"],providers:[{id:"prime",showOnDashboard:false}]})');
-assert.equal(clean.dashboardOrder.length, 6);
+assert.equal(clean.dashboardOrder.length, 7);
 assert.equal(clean.dashboardOrder[0], 'disney');
 assert.equal(clean.providers.find(p => p.id === 'prime').showOnDashboard, false);
 assert.equal(plain('streamShellPinnedProviders(normalizeStreamShellProviderRegistry({providers:[{id:"youtube",showOnDashboard:false},{id:"netflix",showOnDashboard:false},{id:"prime",showOnDashboard:false},{id:"disney",showOnDashboard:false},{id:"crunchyroll",showOnDashboard:false}]})).length'), 1);
@@ -65,18 +65,29 @@ ctx.custom = custom;
 const norm = plain('normalizeStreamShellProviderRegistry({providers: custom, dashboardOrder: custom.map(p=>p.id)})');
 const branded = plain('normalizeStreamShellProviderRegistry({providers:[{id:"custom-aabbccdd",kind:"custom",name:"Example",url:"https://example.com/",artKey:"CuStom_Art"}]})');
 assert.equal(branded.providers.find(p => p.id === 'custom-aabbccdd').artKey, 'custom_art');
-assert.equal(norm.providers.length,15);
+assert.equal(norm.providers.length,16);
 assert.equal(norm.providers.filter(p=>p.enabled && p.showOnDashboard).length,7);
-assert.equal(norm.titlebarOrder.length,15);
+assert.equal(norm.titlebarOrder.length,16);
 const bad = plain('normalizeStreamShellProviderRegistry({ providers: [...custom,{id:"custom-aaaaaaa1",kind:"custom",name:"X",url:"https://duplicate.com"},{id:"custom-evil000",kind:"custom",name:"X",url:"javascript:foo"}]})');
-assert.equal(bad.providers.length,15);
+assert.equal(bad.providers.length,16);
 ctx.registry = norm;
 exec('settingsValues[STREAM_SHELL_PROVIDER_REGISTRY_KEY] = registry; syncDashboardProviderIdentities();');
 assert.equal(exec('PROVIDERS.has("custom-aaaaaaa1")'), true);
 assert.equal(exec('PROVIDER_NAMES["custom-aaaaaaa1"]'), 'Provider 1');
+// Music remains opt-in when upgrading an existing registry.
+assert.equal(exec('normalizeStreamShellProviderRegistry({providers:[]}).providers.find(p=>p.id==="youtube-music").enabled'),false);
+exec('settingsValues[STREAM_SHELL_PROVIDER_REGISTRY_KEY] = defaultStreamShellProviderRegistry();');
+exec('Object.assign(settingsValues[STREAM_SHELL_PROVIDER_REGISTRY_KEY].providers.find(p=>p.id==="youtube-music"), {enabled:true,showOnDashboard:true,showInTitlebar:true});renderProviderSelector();');
+assert.equal(selector.dataset.providerCount,'5','YouTube and Music share one footprint');
+const pair=selector.children.flatMap(r=>r.children).find(c=>c.className==='provider-card-split');
+assert.ok(pair);assert.deepEqual(pair.children.map(c=>c.dataset.provider),['youtube','youtube-music']);
+assert.ok(pair.children.every(c=>c.tag==='button'),'separate accessible controls, no nested buttons');
+exec('settingsValues[STREAM_SHELL_PROVIDER_REGISTRY_KEY].providers.find(p=>p.id==="youtube").showOnDashboard=false;renderProviderSelector();');
+assert.equal(selector.dataset.providerCount,'5');
+assert.ok(selector.children.flatMap(r=>r.children).some(c=>c.dataset.provider==='youtube-music'),'Music alone is a full card');
 for (let count=1;count<=7;count++) {
     ctx.count=count;
-    exec(`streamShellPinnedProviders = () => registry.providers.slice(0,count); renderProviderSelector()`);
+    exec(`streamShellPinnedProviders = () => registry.providers.filter(p => p.id !== "youtube-music").slice(0,count); renderProviderSelector()`);
     assert.deepEqual(selector.children.map(row=>row.children.length), plain(`STREAM_SHELL_PROVIDER_GRID_PATTERNS[${count}]`));
     assert.equal(Number(selector.dataset.providerCount), count);
     assert.equal(selector.style.properties["--compact-provider-count"], String(count));

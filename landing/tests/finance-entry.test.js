@@ -18,6 +18,7 @@ class Element {
     this.attributes = {};
     this.value = '';
   }
+  contains(node) { return this.children.some(child => child === node || child.contains(node)); }
   append(...children) { this.children.push(...children); }
   appendChild(node) { this.append(node); }
   remove() { this.removed = true; }
@@ -68,11 +69,14 @@ test('five Subscriptions heading clicks open the Wide finance overlay and RECONC
   ].join('\n');
   let stylesheet = null;
   const consoleMessages = [];
+  const changeHandlers = [];
+  const storageHandlers = [];
+  const stored = {streamShellSubscriptions:{items:{}}};
   const document = {
     body, head: { append(node) { stylesheet = node; head.append(node); } },
     querySelector(selector) { return selector === '.subscription-panel-title' ? title : null; },
     createElement(tag) { return new Element(tag); },
-    addEventListener() {}
+    addEventListener(type, fn) { if(type === "change") changeHandlers.push(fn); }
   };
   const chrome = {
     runtime: {
@@ -85,9 +89,9 @@ test('five Subscriptions heading clicks open the Wide finance overlay and RECONC
       }
     },
     storage: { local: {
-      async get() { return { streamShellSubscriptions: { items: {} } }; },
-      async set() {}
-    }}
+      async get() { return structuredClone(stored); },
+      async set(values) { Object.assign(stored, values); for(const fn of storageHandlers) fn(Object.fromEntries(Object.entries(values).map(([key,value])=>[key,{newValue:value}])), "local"); }
+    }, onChanged: {addListener(fn) {storageHandlers.push(fn);}}}
   };
   const context = vm.createContext({
     document, chrome, TextEncoder, TextDecoder, Intl, atob,
@@ -117,6 +121,30 @@ test('five Subscriptions heading clicks open the Wide finance overlay and RECONC
   assert.equal(consoleMessages.length, 0, 'no finance UI errors');
   const print = body.children[0].querySelector('#finance-print');
   assert.equal(print.disabled, false, 'COBOL-generated report becomes printable');
+
+  // Settings and Finance share storage, while custom-provider records survive reconciliation.
+  const settingsListeners = [];
+  const settingsInputs = [];
+  const settingsContext = vm.createContext({chrome, settingsValues:{},
+    document:{addEventListener(type,fn){if(type === 'change') settingsListeners.push(fn);},
+      querySelectorAll(){return settingsInputs;},querySelector(){return null;}},
+    settingsCenterIsOpen:()=>true,settingsProvider:'general',settingsSection:'subscriptions'});
+  vm.runInContext(fs.readFileSync(path.join(root,'dashboard/src/subscription-settings.js'),'utf8'),settingsContext);
+  const settingsInput = {dataset:{subscriptionId:'netflix',subscriptionFinance:'amountCents'},value:'12.99',
+    closest(selector){return selector === '[data-subscription-finance]' ? this : null;},checkValidity:()=>true};
+  settingsInputs.push(settingsInput);
+  for(const fn of settingsListeners) fn({target:settingsInput});
+  await settle();
+  const amount = body.children[0].querySelector('[data-finance-amount="netflix"]');
+  assert.equal(amount.value,'12.99','Settings edits update the open Finance form');
+  amount.value='15.49';
+  for(const fn of changeHandlers) fn({target:amount});
+  await settle();
+  assert.equal(settingsInput.value,'15.49','Finance edits update open Settings');
+  stored.streamShellSubscriptionFinance.items.custom_demo={amountCents:987,cadence:'yearly'};
+  reconcile.handlers.get('click')();
+  await settle();
+  assert.equal(stored.streamShellSubscriptionFinance.items.custom_demo.amountCents,987);
 
   const originalHost = chrome.runtime.sendNativeMessage;
   chrome.runtime.sendNativeMessage = async () => { throw new Error('Native host disconnected'); };

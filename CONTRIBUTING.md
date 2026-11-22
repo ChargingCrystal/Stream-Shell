@@ -2,7 +2,7 @@
 
 Stream Shell is a personal, Windows / Opera GX-first streaming workspace. Contributions are welcome when they improve existing functionality or are aligned with the architecture; support for arbitrary browsers, services or hardware is not guaranteed.
 
-**Current application release: 0.22.1.** Start with the [README](README.md), [project structure](docs/PROJECT-STRUCTURE.md), [CI quality guide](docs/CI-QUALITY.md) and the latest [release notes](release-notes/RELEASE_NOTES_v0.22.1.md).
+**Current application release: 0.22.3.** Start with the [README](README.md), [project structure](docs/PROJECT-STRUCTURE.md), [CI quality guide](docs/CI-QUALITY.md) and the latest [release notes](release-notes/RELEASE_NOTES_v0.22.3.md).
 
 ## Scope and design rules
 

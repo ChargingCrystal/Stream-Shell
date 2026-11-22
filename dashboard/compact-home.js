@@ -337,274 +337,80 @@ let selectedMediaKey =
 
 
 /*
- * ============================================================
- * SUBSCRIPTIONS
- * ============================================================
+ * Registry-driven subscriptions: configuration is separate from scraped data.
  */
-
-function getSubscriptionStatus(
-    value
-) {
-    return Object.prototype.hasOwnProperty.call(
-        SUBSCRIPTION_STATUS_LABELS,
-        value
-    )
-        ? value
-        : "unknown";
+let landingSubscriptionConfig = {};
+let landingSubscriptionRegistry = defaultStreamShellProviderRegistry();
+let landingSubscriptionState = {};
+function getSubscriptionStatus(value) {
+    return Object.prototype.hasOwnProperty.call(SUBSCRIPTION_STATUS_LABELS,value) ? value : "unknown";
 }
-
-
-function formatSubscriptionSyncTime(
-    timestamp
-) {
-    if (
-        !Number.isFinite(
-            timestamp
-        )
-    ) {
-        return "Never synced";
-    }
-
-
-    try {
-        return `Updated ${new Intl.DateTimeFormat(
-            undefined,
-            {
-                hour:
-                    "2-digit",
-
-                minute:
-                    "2-digit"
-            }
-        ).format(
-            new Date(
-                timestamp
-            )
-        )}`;
-    } catch {
-        return "Updated";
-    }
+function formatSubscriptionSyncTime(timestamp) {
+    return Number.isFinite(timestamp) ? "Updated " + new Intl.DateTimeFormat(undefined,
+        {hour:"2-digit",minute:"2-digit"}).format(new Date(timestamp)) : "Never synced";
 }
-
-
-function renderSubscriptionState(
-    state
-) {
-    // Compact intentionally has no subscription UI. Wide Landing still does.
+function renderSubscriptionState(state) {
     if (!subscriptionSyncMeta) return;
-    const items =
-        state?.items ||
-        {};
-
-
-    for (
-        const [
-            provider,
-            element
-        ] of subscriptionItems
-    ) {
-        const subscription =
-            items[provider] ||
-            {};
-
-
-        const status =
-            getSubscriptionStatus(
-                subscription.status
-            );
-
-
-        const statusElement =
-            element.querySelector(
-                ".subscription-status"
-            );
-
-
-        const renewalElement =
-            element.querySelector(
-                ".subscription-renewal"
-            );
-
-
-        element.dataset.status =
-            status;
-
-
-        statusElement.textContent =
-            SUBSCRIPTION_STATUS_LABELS[
-                status
-            ];
-
-
-        let renewalText =
-            "—";
-
-
-        const billingSource =
-            subscription.billingSource ||
-            null;
-
-
-        if (
-            billingSource &&
-            subscription.renewal
-        ) {
-            renewalText =
-                `${billingSource} · ${subscription.renewal}`;
-        } else if (
-            billingSource
-        ) {
-            renewalText =
-                billingSource;
-        } else if (
-            subscription.renewal
-        ) {
-            renewalText =
-                subscription.renewal;
-        } else if (
-            status ===
-            "verify"
-        ) {
-            renewalText =
-                "Verify";
-        } else if (
-            status ===
-            "signin"
-        ) {
-            renewalText =
-                "Sign in";
-        } else if (
-            status ===
-            "unknown"
-        ) {
-            renewalText =
-                "No data";
-        }
-
-
-        renewalElement.textContent =
-            renewalText;
-
-
-        const dateAction =
-            subscription.dateKind ===
-                "ends"
-                ? "Ends"
-                : "Renews";
-
-
-        const titleParts = [
-            PROVIDER_NAMES[provider],
-            SUBSCRIPTION_STATUS_LABELS[status]
-        ];
-
-
-        if (
-            billingSource
-        ) {
-            titleParts.push(
-                `Billing: ${billingSource}`
-            );
-        }
-
-
-        if (
-            subscription.renewal
-        ) {
-            titleParts.push(
-                `${dateAction} ${subscription.renewal}`
-            );
-        }
-
-
-        element.title =
-            titleParts.join(
-                " · "
-            );
+    landingSubscriptionState = state || {};
+    const grid = document.querySelector(".subscription-grid");
+    if (!grid) return;
+    const entries = streamShellSubscriptionEntries(landingSubscriptionRegistry,landingSubscriptionConfig);
+    const visible = entries.filter(p=>p.visible);
+    const effective = visible.map(p=>({...p, status:p.mode==="auto" ?
+        getSubscriptionStatus(state?.items?.[p.id]?.status) : p.status}));
+    grid.replaceChildren(); subscriptionItems.clear();
+    for (const p of effective) {
+        const data = p.mode==="auto" ? (state?.items?.[p.id] || {}) : {
+            status:p.status,renewal:p.date,dateKind:p.dateKind
+        };
+        const row = document.createElement("div");
+        const successAt = data.lastSuccessAt ||
+            (["active","ending","inactive"].includes(data.status) ? data.checkedAt : null);
+        row.title = p.mode === "auto" ? "Last successful sync: " + formatSubscriptionSyncTime(successAt) : "Manually maintained";
+        row.className="subscription-item"; row.dataset.status=p.status;
+        row.dataset.subscriptionProvider=p.id;
+        const icon = document.createElement("img"); icon.alt="";
+        if(p.icon) { icon.src=chrome.runtime.getURL(p.icon); icon.addEventListener("error",()=>{icon.hidden=true;}); }
+        else icon.hidden=true;
+        const name=document.createElement("span"); name.className="subscription-name";
+        name.textContent=p.id==="youtube"?"YouTube":p.id==="prime"?"Prime":p.name; name.title=p.plan || p.name;
+        const status=document.createElement("span"); status.className="subscription-status";
+        status.textContent=SUBSCRIPTION_STATUS_LABELS[getSubscriptionStatus(p.status)];
+        const date=document.createElement("span");date.className="subscription-renewal";
+        date.textContent=data.billingSource && data.renewal ? data.billingSource+" · "+data.renewal :
+            data.billingSource || data.renewal ||
+            (p.status==="verify"?"Verify":p.status==="signin"?"Sign in":p.status==="unknown"?"No data":"—");
+        row.append(icon,name,status,date);grid.append(row);subscriptionItems.set(p.id,row);
     }
-
-
-    subscriptionSyncMeta.textContent =
-        formatSubscriptionSyncTime(
-            state?.updatedAt
-        );
+    if(!visible.length)grid.textContent="Choose subscriptions in Settings → General → Subscriptions.";
+    subscriptionSyncMeta.textContent=formatSubscriptionSyncTime(state?.updatedAt);
+    subscriptionSyncMeta.title="";
+    subscriptionSyncButton.disabled=!visible.some(p=>p.mode==="auto");
 }
-
-
 async function loadSubscriptionState() {
     if (!subscriptionSyncMeta) return;
-    const stored =
-        await chrome.storage.local.get(
-            SUBSCRIPTION_STORAGE_KEY
-        );
-
-
-    renderSubscriptionState(
-        stored[
-            SUBSCRIPTION_STORAGE_KEY
-        ]
-    );
+    const stored=await chrome.storage.local.get([SUBSCRIPTION_STORAGE_KEY,
+        STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY,STREAM_SHELL_PROVIDER_REGISTRY_KEY]);
+    landingSubscriptionConfig=stored[STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY] || {};
+    landingSubscriptionRegistry=normalizeStreamShellProviderRegistry(stored[STREAM_SHELL_PROVIDER_REGISTRY_KEY]);
+    renderSubscriptionState(stored[SUBSCRIPTION_STORAGE_KEY]);
 }
-
-
-async function syncSubscriptions() {
-    if (!subscriptionSyncButton || !subscriptionSyncMeta) return;
-    subscriptionSyncButton.disabled =
-        true;
-
-
-    subscriptionSyncButton.classList.add(
-        "syncing"
-    );
-
-
-    subscriptionSyncMeta.textContent =
-        "Syncing account pages…";
-
-
+chrome.storage.onChanged.addListener((changes,area)=>{
+    if(area==="local" && (changes[STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY] ||
+        changes[STREAM_SHELL_PROVIDER_REGISTRY_KEY])) loadSubscriptionState().catch(()=>{});
+});
+async function syncSubscriptions(providerId=null) {
+    if(!subscriptionSyncButton || !subscriptionSyncMeta)return;
+    subscriptionSyncButton.disabled=true;subscriptionSyncButton.classList.add("syncing");
+    subscriptionSyncMeta.textContent="Syncing account pages…";
     try {
-        const response =
-            await chrome.runtime.sendMessage({
-                type:
-                    "sync-subscriptions"
-            });
-
-
-        if (
-            response?.ok ===
-            false
-        ) {
-            throw new Error(
-                response.error ||
-                "Subscription sync failed."
-            );
-        }
-
-
-        renderSubscriptionState(
-            response?.state
-        );
-    } catch (error) {
-        console.error(
-            "Subscription sync failed:",
-            error
-        );
-
-
-        subscriptionSyncMeta.textContent =
-            "Sync failed";
-    } finally {
-        subscriptionSyncButton.classList.remove(
-            "syncing"
-        );
-
-
-        subscriptionSyncButton.disabled =
-            false;
-    }
+        const response=await chrome.runtime.sendMessage({type:"sync-subscriptions",
+            providerId:typeof providerId==="string"?providerId:null});
+        if(response?.ok===false)throw Error(response.error || "Sync failed");
+        await loadSubscriptionState();
+    } catch(error) {subscriptionSyncMeta.textContent="Sync failed";subscriptionSyncMeta.title=error.message;}
+    finally {subscriptionSyncButton.classList.remove("syncing");subscriptionSyncButton.disabled=false;}
 }
-
-
 /*
  * ============================================================
  * HELPERS
@@ -2637,9 +2443,9 @@ function streamShellSortedLibrary(tmdbItems,externalItems) {
     return out;
 }
 
-function streamShellLinkedMediaRow(tmdb, anilist) {
+function streamShellLinkedMediaRow(tmdb, anilist, options = {mode:"watchlist",saved:true,addedAt:tmdb.addedAt}) {
     // Reuse the TMDB card, including selection and JustWatch availability.
-    const row = createMediaItem(tmdb,{mode:"watchlist",saved:true,addedAt:tmdb.addedAt});
+    const row = createMediaItem(tmdb,options);
     row.classList.add("ss-library-linked");
     const cover = streamShellAniListCover(anilist,"ss-anilist-cover") ||
         createElement("div","ss-anilist-cover ss-anilist-cover-empty","◈");
@@ -2668,8 +2474,7 @@ function streamShellLinkedMediaRow(tmdb, anilist) {
     actions.prepend(details);
     if (mangayomi) actions.prepend(mangayomi);
     row.appendChild(panel);
-    // Deleting the TMDB entry leaves the AniList entry saved, intentionally.
-    // Nothing is silently removed from either store.
+    // A linked Library row represents both saved source records.
     return row;
 }
 
@@ -2793,12 +2598,25 @@ function createContinueWatchingItem(item) {
 }
 
 
-function renderContinueWatchingSubtitle(completePercent) {
+async function renderContinueWatchingSubtitle(completePercent) {
+    const policy = await window.StreamShellContinueWatching.getPolicy();
+    const accentStorage = await chrome.storage.local.get(STREAM_SHELL_PROVIDER_REGISTRY_KEY);
+    const accentRegistry = normalizeStreamShellProviderRegistry(accentStorage[STREAM_SHELL_PROVIDER_REGISTRY_KEY]);
     mediaPanelSubtitle.replaceChildren();
     mediaPanelSubtitle.append(
-        document.createTextNode("Resume across providers · completed at ")
+        document.createTextNode("Include progress from ")
     );
 
+    const minimum = document.createElement("input");
+    minimum.type = "number"; minimum.className = "continue-complete-percent-input";
+    minimum.min = "0"; minimum.max = String(completePercent - 1); minimum.step = "1";
+    minimum.value = String(Math.min(policy.minPercent, completePercent - 1));
+    minimum.setAttribute("aria-label", "Minimum progress percentage");
+    minimum.addEventListener("change", async () => {
+        await window.StreamShellContinueWatching.setPolicy({minPercent:Number(minimum.value)});
+        await showContinueWatching();
+    });
+    mediaPanelSubtitle.append(minimum, document.createTextNode("% to "));
     const input = document.createElement("input");
     input.type = "number";
     input.className = "continue-complete-percent-input";
@@ -2843,6 +2661,24 @@ function renderContinueWatchingSubtitle(completePercent) {
         input,
         document.createTextNode("%")
     );
+    const providers = createElement("div", "continue-provider-switches");
+    for (const [id, name] of [["youtube","YouTube"],["netflix","Netflix"],["prime","Prime Video"],["disney","Disney+"],["crunchyroll","Crunchyroll"]]) {
+        const label = createElement("label", "ss-search-merge-toggle");
+        const wrap = createElement("span", "settings-switch");
+        wrap.style.setProperty("--settings-accent-rgb",streamShellProviderAccentRgb(id,accentRegistry));
+        const toggle = document.createElement("input");toggle.type="checkbox";toggle.setAttribute("role","switch");
+        toggle.checked = !policy.disabledProviders.includes(id);
+        toggle.addEventListener("change", async () => {
+            const current = await window.StreamShellContinueWatching.getPolicy();
+            const disabled = new Set(current.disabledProviders);
+            if (toggle.checked) disabled.delete(id); else disabled.add(id);
+            await window.StreamShellContinueWatching.setPolicy({disabledProviders:[...disabled]});
+        });
+        const track = document.createElement("span");track.setAttribute("aria-hidden","true");
+        wrap.append(toggle,track);label.append(wrap,document.createTextNode(name));providers.append(label);
+    }
+    providers.title = "Automatically add progress from these providers. Existing entries remain when disabled.";
+    mediaPanelSubtitle.append(providers);
 }
 
 
@@ -2850,7 +2686,7 @@ async function showContinueWatching() {
     openPanel("continue");
 
     const completePercent = await window.StreamShellContinueWatching.getCompletePercent();
-    renderContinueWatchingSubtitle(completePercent);
+    await renderContinueWatchingSubtitle(completePercent);
     await refreshContinueWatchingCache();
 
     if (continueWatchingItems.length === 0) {
@@ -3248,6 +3084,11 @@ async function removeWatchlistItem(
     }
 
 
+    const external = await window.StreamShellExternalLibrary.getAll();
+    const linked = streamShellLinkLibraryEntries(watchlistItems, external)
+        .find(row => row.kind === "linked" && row.media === media);
+    if (linked) await window.StreamShellExternalLibrary.remove(linked.anilist.id);
+
     await window
         .StreamShellWatchlist
         .remove(
@@ -3304,10 +3145,7 @@ async function toggleWatchlistForSearch(
         activePanel ===
         "search"
     ) {
-        renderSearchResults(
-            searchResults,
-            searchGeneration
-        );
+        await streamShellRenderUnifiedResults(mediaSearchInput.value.trim(), searchGeneration);
     }
 }
 
@@ -3880,6 +3718,15 @@ const streamShellSearchFilterTypes = Object.freeze({
 const streamShellSearchSelectedTypes = { tmdb: new Set() };
 const streamShellSearchResultCache = {tmdb: null, anilist: null};
 let streamShellSevenSeasAcknowledged = false;
+let streamShellMergedSearch = false;
+chrome.storage.local.get("streamShellMergedSearch").then(stored => {
+    streamShellMergedSearch = stored.streamShellMergedSearch === true;
+    if (activePanel === "search" && mediaSearchSource?.value === "tmdb") {
+        if (streamShellSearchResultCache.tmdb || streamShellSearchResultCache.anilist)
+            void streamShellRenderUnifiedResults(mediaSearchInput.value.trim(), searchGeneration);
+        else showSearchHint();
+    }
+}).catch(() => {});
 function streamShellSearchMatchesType(item, source) {
     const selected = streamShellSearchSelectedTypes.tmdb;
     return !selected.size || selected.has(item.mediaType);
@@ -3887,7 +3734,24 @@ function streamShellSearchMatchesType(item, source) {
 function streamShellSearchTypeSubtitle(source, summary) {
     if (mediaSearchSource?.value !== "tmdb") return;
     const host = createElement("div", "ss-search-filter-bar");
-    host.appendChild(createElement("div", "ss-search-filter-summary", summary));
+    const top = createElement("div", "ss-search-header-options");
+    const mergeLabel = createElement("label", "ss-search-merge-toggle");
+    const merge = document.createElement("input"); merge.type = "checkbox"; merge.checked = streamShellMergedSearch;
+    merge.addEventListener("change", () => {
+        streamShellMergedSearch = merge.checked;
+        void chrome.storage.local.set({streamShellMergedSearch});
+        const query = mediaSearchInput.value.trim();
+        if (streamShellSearchResultCache.tmdb?.query === query || streamShellSearchResultCache.anilist?.query === query)
+            void streamShellRenderUnifiedResults(query, searchGeneration);
+        else showSearchHint();
+    });
+    const switchWrap = createElement("span", "settings-switch");
+    merge.setAttribute("role", "switch");
+    const track = document.createElement("span"); track.setAttribute("aria-hidden", "true");
+    switchWrap.append(merge, track);
+    mergeLabel.append(switchWrap, document.createTextNode("Merged search"));
+    top.append(mergeLabel, createElement("div", "ss-search-filter-summary", summary));
+    host.appendChild(top);
     const filters = createElement("div", "ss-search-filter-chips");
     filters.setAttribute("role", "group");
     filters.setAttribute("aria-label", "Search media types (multiple allowed)");
@@ -4043,6 +3907,18 @@ async function streamShellRenderUnifiedResults(query, generation, warning = "") 
         return;
     }
     const list = createElement("div", "media-list ss-unified-results");
+    if (streamShellMergedSearch) {
+        const current = await window.StreamShellExternalLibrary.getAll();
+        if (generation !== searchGeneration || renderEpoch !== streamShellUnifiedRenderEpoch || mediaSearchSource?.value !== "tmdb") return;
+        const savedIds = new Set(current.filter(item => item.source === "anilist").map(item => `${item.mediaType}:${item.anilistId}`));
+        for (const row of streamShellLinkLibraryEntries(movies, anime.map(item => ({...item, source:"anilist"})))) {
+            if (row.kind === "linked") list.appendChild(streamShellLinkedMediaRow(row.media,row.anilist,{mode:"search",saved:isSaved(row.media),generation}));
+            else if (row.kind === "tmdb") list.appendChild(createMediaItem(row.media,{mode:"search",saved:isSaved(row.media),generation}));
+            else list.appendChild(streamShellAniListResultCard(row.media,savedIds.has(`${row.media.mediaType}:${row.media.anilistId}`),generation));
+        }
+        mediaPanelBody.replaceChildren(list);
+        return;
+    }
     if (movies.length) {
         list.appendChild(createElement("div", "ss-search-result-section", `TMDB · Movies & Series (${movies.length})`));
         for (const item of movies) list.appendChild(createMediaItem(item, {
@@ -5648,17 +5524,14 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 function landingProviderBackground(provider, variant) {
-    const builtin = STREAM_SHELL_BUILTIN_IDS.has(provider);
-    const custom = landingProviderRegistry.providers.find(p => p.id === provider && p.kind === "custom");
-    const recognized = builtin || Boolean(custom);
-    const displayProvider = recognized ? provider : "netflix";
-    const file = builtin
-        ? `assets/backgrounds/${provider}_${variant}.png`
-        : (custom ? streamShellCustomArtworkPath(custom.artKey, variant) : null);
+    const recognized = STREAM_SHELL_BUILTIN_IDS.has(provider) ||
+        STREAM_SHELL_NATIVE_APP_IDS.has(provider) ||
+        landingProviderRegistry.providers.some(p => p.id === provider);
+    const paths = streamShellProviderBackgroundPaths(provider, variant, landingProviderRegistry);
     const neutral = "radial-gradient(ellipse at 77% 20%, rgba(70, 79, 104, .21), transparent 62%), linear-gradient(135deg, #0b0e17, #03050a)";
     return {
-        provider: displayProvider,
-        image: file ? `url("${chrome.runtime.getURL(file)}"), ${neutral}` : neutral
+        provider: recognized ? provider : "netflix",
+        image: [...paths.map(path => `url("${chrome.runtime.getURL(path)}")`), neutral].join(", ")
     };
 }
 
@@ -5674,7 +5547,7 @@ function renderState(
     lastLandingShellState = state;
     const backgroundVariant = document.body.dataset.layoutProfile === "compact"
         ? "compact" : "wide";
-    const background = landingProviderBackground(state?.activeProvider || "netflix", backgroundVariant);
+    const background = landingProviderBackground(streamShellPersistentBackgroundProvider(state, landingProviderRegistry), backgroundVariant);
     document.body.dataset.provider = background.provider;
 
 

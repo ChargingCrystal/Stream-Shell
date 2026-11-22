@@ -29,8 +29,10 @@ class Element {
 }
 const labels={lastResult:'not-seen',bannersSeen:0,optOutAttempts:0,lastOptOutAt:null,lastOptOutLabel:null,lastScanAt:null};
 let roots=[];
+const recoveryStops=[];
 const context=vm.createContext({
     Element,Date,Number,Array,Set,WeakMap,
+    core:{stopPlaybackRecovery:reason=>recoveryStops.push(reason)},
     document:{querySelectorAll(){return roots;}},
     getComputedStyle:()=>({display:'block',visibility:'visible',opacity:'1'}),
     raidProtectionEnabled:true,raidGuardCooldownUntil:0,raidGuardMetrics:labels,
@@ -46,6 +48,7 @@ const raidLeave=new Element({text:'Leave',attrs:{'aria-label':'Leave'},selector:
 const raidBanner=new Element({text:'Someone is raiding another channel in 15s',attrs:{'data-a-target':'raid-banner'},buttons:[raidLeave]});
 roots=[raidBanner];scan();assert.equal(raidLeave.clicks,1,'viewer Leave button is clicked within raid banner');
 assert.equal(labels.optOutAttempts,1);
+assert.deepEqual(recoveryStops,['raid-opt-out']);
 scan();assert.equal(raidLeave.clicks,1,'short opt-out cooldown prevents repeated clicks');
 const raidHidden=new Element({text:'Raiding another channel',attrs:{'data-a-target':'raid-banner'},buttons:[new Element({text:'Leave',selector:'button'})],visible:false});
 context.raidGuardCooldownUntil=0;roots=[raidHidden];scan();assert.equal(raidHidden.buttons[0].clicks,0,'hidden stale banner not clicked');

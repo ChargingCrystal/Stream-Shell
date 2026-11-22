@@ -18,9 +18,12 @@ assert.match(state, /mangayomi:\s*"Mangayomi"/);
 assert.match(state, /mangayomi:\s*"assets\/providers\/wordmarks\/mangayomi\.svg"/);
 assert.match(state, /const PROVIDERS\s*=\s*new Set\(\["youtube", "netflix", "prime", "disney", "crunchyroll"\]\)/,
     'the native app must not become a browser player/reload adapter');
-assert.match(view, /state\.leftMode === "mangayomi"\s*\? "mangayomi"/,
-    'visual identity must follow native left mode, not stale activeProvider');
-assert.match(view, /provider !== "mangayomi" &&\s*!PROVIDERS\.has/);
+assert.match(view, /streamShellPersistentBackgroundProvider/);
+const vm = require('node:vm');
+const context = vm.createContext({URL});
+vm.runInContext(read('shared/provider-registry-core.js'), context);
+assert.equal(vm.runInContext('streamShellPersistentBackgroundProvider({leftMode:"mangayomi",activeProvider:"youtube"},defaultStreamShellProviderRegistry())',context),'mangayomi',
+    'native left identity must win over stale activeProvider');
 assert.match(theme, /body\[data-provider="mangayomi"\]\s*\{\s*--accent-rgb:\s*239, 68, 68/);
 assert.match(chrome, /case "mangayomi": return new ButtonDef\("MY", id, "mangayomi\.png"/);
 assert.match(chrome, /action == "crunchyroll" \|\| action == "mangayomi"\)/,

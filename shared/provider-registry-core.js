@@ -3,6 +3,7 @@
 const STREAM_SHELL_PROVIDER_REGISTRY_KEY = "streamShellProviderRegistry";
 const STREAM_SHELL_PROVIDER_BUILTINS = Object.freeze([
     { id: "youtube", name: "YouTube", url: "https://www.youtube.com/" },
+    { id: "youtube-music", name: "YouTube Music", url: "https://music.youtube.com/", optional: true },
     { id: "netflix", name: "Netflix", url: "https://www.netflix.com/browse" },
     { id: "prime", name: "Prime Video", url: "https://www.primevideo.com/" },
     { id: "disney", name: "Disney+", url: "https://www.disneyplus.com/" },
@@ -64,14 +65,21 @@ function defaultStreamShellProviderRegistry() {
         version: 3,
         providers: [
             ...STREAM_SHELL_PROVIDER_BUILTINS.map(p => ({
-                ...p, kind: "builtin", enabled: true, showOnDashboard: true,
-                showInTitlebar: true
+                ...p, kind: "builtin", enabled: !p.optional, showOnDashboard: !p.optional,
+                showInTitlebar: !p.optional
             })),
             ...STREAM_SHELL_NATIVE_APPS
         ],
         dashboardOrder: [...ids, ...STREAM_SHELL_NATIVE_APP_IDS],
         titlebarOrder: [...ids, ...STREAM_SHELL_NATIVE_APP_IDS]
     };
+}
+
+function streamShellDashboardGroups(providers) {
+    const youtube = providers.find(p => p.id === "youtube");
+    const music = providers.find(p => p.id === "youtube-music");
+    return providers.filter(p => !(youtube && music && p.id === "youtube-music"))
+        .map(p => p.id === "youtube" && music ? [p, music] : [p]);
 }
 
 function normalizeStreamShellProviderRegistry(value) {
@@ -82,9 +90,9 @@ function normalizeStreamShellProviderRegistry(value) {
         const incoming = supplied.find(p => p && p.id === base.id);
         return {
             ...defaults.providers[index],
-            enabled: incoming?.enabled !== false,
-            showOnDashboard: incoming?.showOnDashboard !== false,
-            showInTitlebar: incoming?.showInTitlebar !== false,
+            enabled: incoming ? incoming.enabled !== false : defaults.providers[index].enabled,
+            showOnDashboard: incoming ? incoming.showOnDashboard !== false : defaults.providers[index].showOnDashboard,
+            showInTitlebar: incoming ? incoming.showInTitlebar !== false : defaults.providers[index].showInTitlebar,
             titlebarColor: streamShellValidatedTitlebarColor(incoming?.titlebarColor)
         };
     });
@@ -135,9 +143,89 @@ function normalizeStreamShellProviderRegistry(value) {
         const first = providers.find(p => p.enabled) || providers[0];
         first.enabled = true;
         first.showOnDashboard = true;
-    } else if (pinned.length > 7) {
-        const kept = new Set(dashboardOrder.filter(id => pinned.some(p => p.id === id)).slice(0, 7));
+    } else if (streamShellDashboardGroups(pinned).length > 7) {
+        const ordered = dashboardOrder.map(id => pinned.find(p => p.id === id)).filter(Boolean);
+        const kept = new Set(streamShellDashboardGroups(ordered).slice(0, 7).flat().map(p => p.id));
         for (const provider of pinned) if (!kept.has(provider.id)) provider.showOnDashboard = false;
     }
     return { version: 3, providers, dashboardOrder, titlebarOrder };
+}
+
+
+// Shared by both shell surfaces; existing custom_ artwork remains first choice.
+function streamShellProviderBackgroundPaths(provider, variant, registry) {
+    if (!["wide", "compact"].includes(variant)) return [];
+    if (STREAM_SHELL_BUILTIN_IDS.has(provider) || STREAM_SHELL_NATIVE_APP_IDS.has(provider))
+        return [`assets/backgrounds/${provider}_${variant}.png`];
+    const entry = registry.providers.find(p => p.id === provider && p.kind === "custom");
+    if (!entry) return [];
+    const key = streamShellValidatedArtworkKey(entry.artKey);
+    const name = streamShellValidatedArtworkKey(entry.name);
+    return [...new Set([
+        key ? streamShellCustomArtworkPath(key, variant) : null,
+        key ? `assets/backgrounds/${key}_${variant}.png` : null,
+        name ? `assets/backgrounds/${name}_${variant}.png` : null
+    ].filter(Boolean))];
+}
+
+// Extension pages share this origin-local visual preference. It does not
+// change activeProvider, which also controls browser-player restoration.
+function streamShellPersistentBackgroundProvider(state, registry, storage = globalThis.localStorage) {
+    const known = id => STREAM_SHELL_BUILTIN_IDS.has(id) ||
+        STREAM_SHELL_NATIVE_APP_IDS.has(id) ||
+        registry.providers.some(p => p.id === id && p.enabled !== false);
+    const key = "streamShellLastBackgroundProvider";
+    const visible = known(state?.leftMode) ? state.leftMode : null;
+    let previous = null;
+    try { previous = storage?.getItem(key); } catch {}
+    if (visible) {
+        try { if (previous !== visible) storage?.setItem(key, visible); } catch {}
+        return visible;
+    }
+    return known(previous) ? previous : (known(state?.activeProvider) ? state.activeProvider : "netflix");
+}
+
+const STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY = "streamShellSubscriptionConfig";
+const STREAM_SHELL_SUBSCRIPTION_DEFAULT_URLS = Object.freeze({
+    youtube: "https://www.youtube.com/paid_memberships",
+    netflix: "https://www.netflix.com/account",
+    prime: "https://www.amazon.de/gp/primecentral",
+    disney: "https://www.disneyplus.com/account",
+    crunchyroll: "https://www.crunchyroll.com/account/membership",
+    discord: "https://discord.com/settings/subscriptions"
+});
+function streamShellSubscriptionEntries(registry, config) {
+    const input = config && typeof config === "object" && !Array.isArray(config) ? config : {};
+    const providers = registry.providers.filter(p => p.id !== "youtube-music");
+    providers.push({id:"discord", name:"Discord", enabled:true});
+    return providers.map(p => {
+        const raw = input[p.id] || {};
+        const supported = Object.prototype.hasOwnProperty.call(STREAM_SHELL_SUBSCRIPTION_DEFAULT_URLS, p.id);
+        return {
+            id:p.id, name:p.id === "youtube" ? "YouTube Premium / Music" : p.name,
+            visible: typeof raw.visible === "boolean" ? raw.visible : supported,
+            mode: supported && raw.mode !== "manual" ? "auto" : "manual",
+            supported, url: streamShellValidatedCustomUrl(raw.url === undefined ?
+                STREAM_SHELL_SUBSCRIPTION_DEFAULT_URLS[p.id] : raw.url) || "",
+            plan: typeof raw.plan === "string" ? raw.plan.slice(0,80) : "",
+            status: ["active","ending","inactive","unknown"].includes(raw.status) ? raw.status : "unknown",
+            date: typeof raw.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : "",
+            dateKind: raw.dateKind === "ends" ? "ends" : "renews",
+            icon: p.kind === "custom" ? streamShellCustomArtworkPath(p.artKey,"icon") :
+                `assets/providers/icons/${p.id}.svg`
+        };
+    });
+}
+
+// Shared control accents: explicit provider override takes precedence.
+function streamShellProviderAccentRgb(id, registry) {
+    const provider = registry?.providers?.find(item => item.id === id);
+    const custom = streamShellValidatedTitlebarColor(provider?.titlebarColor);
+    if (custom) {
+        const value = parseInt(custom.slice(1),16);
+        return `${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}`;
+    }
+    return ({youtube:"255, 35, 72", "youtube-music":"255, 35, 72", netflix:"229, 9, 20",
+        prime:"0, 168, 225", disney:"69, 116, 255", crunchyroll:"255, 101, 0",
+        mangayomi:"220, 40, 80", discord:"88, 101, 242"})[id] || "157, 177, 210";
 }

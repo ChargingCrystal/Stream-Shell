@@ -34,6 +34,7 @@ function baseSettingKeyForStorageKey(storageKey) {
 }
 
 const SETTINGS_DEFAULTS = {
+    streamShellSubscriptionConfig: {},
     streamShellDisplayMode: "auto",
     streamShellSevenSeasAcknowledged: false,
     streamShellProviderRegistry: defaultStreamShellProviderRegistry(),
@@ -43,6 +44,10 @@ const SETTINGS_DEFAULTS = {
     streamShellTwitchAutoClaimDrops: true,
     streamShellTwitchPreventRaids: true,
     streamShellTwitchMarblesAutoJoin: true,
+    streamShellTwitchMarblesMinDelaySeconds: 1,
+    streamShellTwitchMarblesMaxDelaySeconds: 4,
+    streamShellTwitchMarblesMinViewerPercent: 5,
+    streamShellTwitchMarblesMaxViewerPercent: 10,
     streamShellTwitchAutoMute: true,
     streamShellVolumeBoost_twitch: 100,
     streamShellAudioProfile_twitch: "normal",
@@ -193,12 +198,14 @@ const SETTINGS_SECTIONS = {
     general: [
         ["display", "Display"],
         ["providers", "Providers"],
+        ["subscriptions", "Subscriptions"],
         ["seven-seas", "Seven Seas"],
         ["anarchy", "Anarchy"],
         ["twitch", "Twitch"]
     ],
     youtube: [
         ["search", "Search"],
+        ["blocklist", "Blocklist"],
         ["appearance", "Appearance"],
         ["player", "Player"],
         ["playback", "Playback"],
@@ -420,6 +427,12 @@ function hexToRgbTriplet(hex) {
 
 function paintAnarchySettings() {
     if (!settingsCenter || settingsSection !== "anarchy") return;
+    settingsCenter.querySelectorAll('.settings-switch:has(input[data-setting-key^="streamShellVisual"])').forEach((control, index) => {
+        control.style.setProperty("--anarchy-dvd-rgb", hexToRgbTriplet(nextAnarchyColor("visual-" + index)));
+    });
+    settingsCenter.querySelectorAll('input[type="range"]').forEach(control => {
+        control.style.setProperty("--settings-accent-rgb", hexToRgbTriplet(nextAnarchyColor("intensity")));
+    });
     settingsCenter.style.setProperty(
         "--anarchy-playback-rgb",
         hexToRgbTriplet(nextAnarchyColor("playback"))

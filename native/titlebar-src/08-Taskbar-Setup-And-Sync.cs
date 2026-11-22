@@ -64,7 +64,7 @@ internal static partial class StreamShellTitlebarHost
         try
         {
             string root = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "taskbar-icons");
-            string[] providers = new string[] { "youtube", "netflix", "prime", "disney", "crunchyroll" };
+            string[] providers = new string[] { "youtube", "youtube-music", "netflix", "prime", "disney", "crunchyroll" };
             foreach (string provider in providers)
             {
                 string path = Path.Combine(root, provider + ".ico");

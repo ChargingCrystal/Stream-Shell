@@ -57,6 +57,8 @@ internal static partial class StreamShellTitlebarHost
 
     private static void SafeSyncOverlays()
     {
+        Interlocked.Exchange(ref PerformanceUiTick, Environment.TickCount);
+        PerformanceUiPhase = "sync-start";
         Stopwatch watch = Stopwatch.StartNew();
         try
         {
@@ -66,6 +68,7 @@ internal static partial class StreamShellTitlebarHost
         {
             // Never propagate managed exceptions through an unmanaged WndProc.
             // Leave the host alive and retry at the next normal timer tick.
+            PerformanceVisibilityReason = "overlay-exception";
             LogNativeFailure("overlay-sync", ex);
             try
             {
@@ -77,6 +80,8 @@ internal static partial class StreamShellTitlebarHost
         }
         finally
         {
+            PerformanceUiPhase = "idle";
+            Interlocked.Exchange(ref PerformanceUiTick, Environment.TickCount);
             watch.Stop();
             if (watch.ElapsedMilliseconds >= 2000)
             {

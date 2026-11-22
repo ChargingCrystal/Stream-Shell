@@ -1,3 +1,152 @@
+## 0.22.35 — Provider accents and independent Anarchy colors
+- Active toggles in Continue, Providers and Subscriptions use the provider's chosen titlebar color, falling back to its default accent. Off states remain neutral.
+- Give every Visual Anarchy switch an independent shuffled neon color sequence, including the Director. Chaos intensity now cycles colors as well.
+- Reuse the existing visibility-aware Anarchy timer; no additional polling or timers.
+
+Validation: default/custom provider color checks, bundle startup, merged search regression and JavaScript syntax checks passed. Live Opera visual verification remains outstanding.
+
+## 0.22.34 — Consistent controls and Continue admission rules
+- Replace Providers and Subscriptions checkboxes with the existing Settings toggle style.
+- Theme Settings range sliders consistently, including Anarchy, Twitch and provider Audio pages; use Anarchy colors for its intensity control.
+- Continue now exposes an editable progress range: minimum admission defaults to 5%, while the existing completion threshold is retained. Bounds stay ordered.
+- Add per-provider automatic admission switches for the five supported Continue providers. Disabled providers do not add or update entries; existing records remain. Admission checks share the existing storage read and add no polling.
+- The minimum uses playback position percentage, not elapsed viewing time. Existing entries below the minimum are filtered out of Continue.
+
+Validation: Continue admission, disabled providers, completion cleanup and bounds regression checks passed, along with merged search and bundle tests. Syntax checks passed; live Opera visual verification remains outstanding.
+
+## 0.22.33 — Filter controls and merged search fix
+- Reuse Settings switches for global filtering, each filter list and Merged search.
+- Place filter enable/import actions beside the page title. Keep delete actions in a fixed trailing column, using the existing dark Settings X button. Preserve blur-field alignment across modes; wrap controls on narrow layouts.
+- Fix merged search: AniList API search results lack the Library source field. Tag results at the merge boundary without modifying the raw cache, so matching entries merge and unmerge without another request.
+- Regression test now uses the actual search-result shape without a stored Library source or ID.
+
+Validation: cached merge/unmerge, paired Watchlist removal and bundle tests passed; JavaScript syntax checks passed. Live Opera visual verification remains outstanding.
+
+## 0.22.32 — Filter lists, merged search and settings order
+- Import multiple independent YouTube filter lists. Enable each list separately and choose Blur with a custom label, or Remove. Existing imports migrate to a Blur list without reimport. Remove takes priority for overlapping channels.
+- Remove both stored entries when deleting a linked TMDB + AniList Watchlist row.
+- Add a persistent Merged search switch beside the media search summary. Toggle already loaded results between linked and separate views without another search; use the existing Library matching rules.
+- Drag Settings categories to reorder them. Persist the order separately for each provider.
+- Includes the cumulative updates and release notes through 0.22.31.
+
+Validation: filter API, identity, Shorts resolver, merged search, paired Watchlist removal and Settings/bundle regression tests passed. Browser visual verification remains outstanding: local Chromium cannot start because socket creation is restricted.
+
+## 0.22.31 — Resolve missing Shorts channel identity
+- Add current Shorts host variants and grid-shelf-view-model containers.
+- Resolve visible/near-visible Shorts by video ID when local channel identity is unavailable. Use a fixed YouTube Shorts endpoint and accept only player details whose video ID matches the request.
+- Share one sequential resolver across tabs, with at least 1.5 seconds between network starts, an 8-second timeout, 4 MB response limit and at most 32 pending unique IDs. Duplicate requests share work.
+- Persist up to 500 mappings: successful lookups for seven days, failures for ten minutes. Disabled/empty lists stop queued network work. No third-party service or API key.
+- Ignore stale card results after navigation; retain the centered 30-degree visual label.
+- Validation: API, identity, Shorts shelf and resolver regression tests passed. Live authenticated YouTube/Opera visual verification remains outstanding.
+
+## 0.22.30 — Centered diagonal blocklist labels and Shorts shelves
+- Center the red label on the actual image rectangle and rotate it 30 degrees clockwise. Scale text to the thumbnail/avatar dimensions and update on resize.
+- Preserve existing absolute thumbnail positioning instead of overriding YouTube image wrappers.
+- Extend Shorts image/card selectors and use explicit channel-specific shelf identity when individual Shorts omit their author. Generic mixed shelves do not inherit an unrelated channel result.
+- Existing imported lists remain unchanged. No JSON reimport required.
+- API, identity and Shorts context regression tests passed; live YouTube visual verification remains pending.
+
+## 0.22.29 — Importable YouTube visual blocklist
+- Add YouTube → Blocklist with explicit JSON import, enable/disable and removal. No channel list or political category is bundled or enabled by default.
+- Internal youtube-blocklist-api validates and persists the imported channels array. Archived/unresolved entries are not imported. Invalid imports leave the previous list intact.
+- Mark identifiable thumbnails and channel avatars with blur and a red “on blocklist” overlay while retaining navigation and playback.
+- Match renderer-local channel IDs, with optional imported handles as fallback. Observe lazy-loaded/recycled cards in bounded batches; restore images after disabling/removing the list.
+- No additional network requests, YouTube Data API key or remote channel-resolution service.
+- Includes all prior updates and release notes through 0.22.28.
+
+Validation: API/identity regression tests, bundle and syntax checks passed. Browser visual test could not start in this environment (socket permission restriction); authenticated YouTube/Opera verification remains outstanding. Cards without an exposed channel ID or matching imported handle remain unmarked.
+
+## 0.22.28 — Personal settings page notes
+- Add a discreet pencil button to every settings category. Notes are empty by default and stored separately per provider and category.
+- Edit plain text and links on demand; saved notes appear without a permanent input field. Clear the note and save to remove it.
+- HTTP(S) URLs and bare domain links open in a new tab. Notes are rendered as text, never HTML.
+- Save/cancel, Ctrl+Enter, Escape and draft retention while navigating settings.
+- Includes all cumulative changes through 0.22.27, including Twitch channel-change viewer acquisition.
+
+## 0.22.27 — Consistent Twitch channel transitions
+- Both chat-driven and workspace-driven SPA channel changes invalidate the previous viewer count and start delayed acquisition exactly once.
+- Cancel pending joins and discard previous-channel chat bursts before using the new stream. F5 and hourly reload continue through the normal fresh-document startup.
+- Preserve bounded startup retries and five-minute steady-state viewer sampling.
+- Regression coverage exercises both SPA detection orders and cancellation.
+
+## 0.22.26 — Delayed Twitch viewer-count acquisition
+- Wait for the initial Twitch DOM with bounded five-second retries for one minute, then use five-minute sampling. Restart on channel navigation, preserve valid samples during transient DOM gaps and retain pending joins on routine refresh.
+
+## 0.22.25 — Restore Twitch viewer-count refresh
+- Fix the automation timer synchronization accidentally clearing the independent five-minute viewer-count timer immediately after startup and on settings/raid changes. Missing initial counts can now recover on the next scheduled sample, allowing percentage-based auto-join. Retain the five-minute sampling limit and disposal cleanup.
+- Add a timer lifecycle regression test covering repeated synchronization and disposal.
+
+## 0.22.24 — Bounded titlebar settings preview
+- Constrain provider columns and wrap the titlebar preview into responsive rows with continuation ellipses. Preserve drag-and-drop and keyboard ordering without horizontal page overflow.
+
+## 0.22.23 — Viewer-based auto-join and compact Twitch settings
+- Replace absolute message thresholds with configurable minimum/maximum viewer percentages. Read the displayed viewer count on startup and once every five minutes per Twitch window, with no API calls or viewer-count mutation observer. Round the randomized percentage threshold up to whole distinct chat users; wait when the count is missing or belongs to another channel. Retain jitter, chat freshness safeguards and per-slot cooldown. Compact range fields into a responsive two-column grid and place Audio alongside Auto-join. Restore missing release history.
+
+## 0.22.22 — Configurable Twitch auto-join ranges
+- Add minimum/maximum jitter in seconds and absolute distinct-user message thresholds. Apply setting changes to open Twitch windows, cancelling pending joins. Include the complete 0.22.21 update.
+
+## 0.22.21 — Provider alignment and Anarchy grouping
+- Align provider lists, counters and previews. Expand path/URL fields and replace Paramount+ examples with neutral placeholders. Group Playback, Subtitles and DVD Anarchy together; place Director, Frequency and Intensity first, followed by compact effect controls.
+
+## 0.22.20 — Settings navigation and progressive explanations
+- Add category icons, breadcrumbs, selected-navigation states and an in-place explanation toggle. Refine settings cards and active states while retaining the dark design.
+
+## 0.22.19 — Remaining compact settings
+- Compact Quality, Upload date, Auto Like, Safe mode, Seven Seas and Settings Search; unify fields and responsive columns.
+
+## 0.22.18 — Display, Appearance and Player settings
+- Compact these categories with inline display selectors, parallel player switches and consistent controls; retain stacked layouts on narrow panels.
+
+## 0.22.17 — Automation, Cleanup and Twitch settings
+- Add responsive group columns, compact cards, wrapped sleep-timer choices and parallel Twitch automation controls.
+
+## 0.22.16 — Playback, Audio and Subtitles settings
+- Use panel-width-based columns and consistent compact controls in these three categories.
+
+## 0.22.15 — Providers, Anarchy and Diagnostics layouts
+- Introduce parallel provider lists, compact cards, multi-column effects and panel-width-based Diagnostics columns with reduced spacing.
+
+## 0.22.14 — Shared subscription pricing
+- Restore editable prices and billing intervals in Subscriptions settings, synchronized bidirectionally with the existing Finance overview through shared storage. Compact subscription settings cards.
+
+## 0.22.13 — Visual provider ordering
+- Add drag-and-drop list and preview ordering for Dashboard and horizontal Titlebar buttons, keyboard reordering and provider selection counts. Use Anarchy colors for visual-effect switches.
+
+## 0.22.12 — Restore Landing subscription appearance
+- Restore the original compact Landing subscription panel. Retain separate subscription settings and use existing Finance data for prices and billing cadence.
+
+## 0.22.11 — Configurable subscriptions
+- Add a dedicated Subscriptions settings category with provider selection, editable billing URLs and automatic/manual entries, including custom providers. Initially revise Landing subscription rows; that visual change is reverted in 0.22.12.
+
+## 0.22.10 — Persistent provider backgrounds
+- Preserve the last visible provider background on Landing and Dashboard, including Music, Mangayomi and custom providers, independently of playback restoration.
+
+## 0.22.9 — Provider background resolution
+- Share background resolution between Landing and Dashboard. Include YouTube Music in the rebuilt Landing registry; resolve native Mangayomi and custom artwork keys, including Onionplay.
+
+## 0.22.8 — Music split proportions and native colors
+- Set the YouTube/Music split to 60/40 and scale the inset divider proportionally. Share the full default YouTube red native theme palette while preserving user overrides.
+
+## 0.22.7 — Shared YouTube and Music button
+- Introduce a shared YouTube/Music provider surface with separate click zones, inset divider and matching default red. The initial 70/30 split is superseded in 0.22.8.
+
+## 0.22.6 — Dashboard bundle hotfix
+- Repair the shipped Dashboard bundle and add bundle startup/order regression coverage.
+
+## 0.22.3 — Correct hang timing and capture delayed heartbeats (2026-10-30)
+- Fix the diagnostic timestamp race which turned a concurrently refreshed heartbeat/UI tick into a false ~4.29-billion-ms gap. Snapshot shared timestamps before reading the clock, clamp negative modular differences and use one immutable progress observation for logging and trigger decisions.
+- Track heartbeat receipt time, sender time and transport delay together. A sustained sender age >=15 seconds with >=5 seconds measured arrival delay now requests capture even when queued heartbeats keep arriving. Missing-heartbeat/UI stalls retain the 30-second threshold.
+- Confirm captures with two timely watchdog observations; require two healthy observations for recovery. Detect wall-clock discontinuities and suppress clock-dependent transport triggers for 60 seconds. Revalidate progress before consuming dump quota.
+- Store an incident sidecar beside the dumps with trigger snapshot, filenames, capture results and completion progress. Corrected v3 attempt markers do not inherit the exhausted quota caused by 0.22.2 false alarms. Existing dump retention and size/time limits remain.
+- Portable tests execute the source timing expressions through a small C#-to-JavaScript syntax adapter. 100,000 concurrent-update cases plus wraparound, backlog, clock and recovery scenarios pass. Local replay of the supplied 341 unique observations produces one capture request at the actual delayed-heartbeat episode instead of the earlier timing-race false alarms. Windows-native equivalents are included in the guarded installer; Windows compilation/runtime were not run in this environment.
+- Reinstall through native/install-hang-diagnostics.cmd, reload the extension and restart Opera GX. No induced browser freeze or manual reproduction is needed. This release repairs evidence collection, not the underlying browser overload.
+
+## 0.22.2 — Independent native hang diagnostics (2026-10-29)
+- Replace the ThreadPool heartbeat timer with a dedicated native recorder thread. Every five seconds it samples command/reader/stdout/UI progress, actual overlay visibility, claimed window responsiveness, and CPU/memory/process counters without waiting for the host state lock or Opera IPC.
+- Keep one minute of samples in memory; flush them on a heartbeat/UI stall. Persist healthy snapshots every minute, visibility decisions, recovery and host lifecycle events alongside existing bounded performance JSONL. Heartbeats include a sequence and sender timestamp; receipt and completed processing are measured separately.
+- After two timely watchdog observations of a >=30-second stall, attempt filtered stack/thread minidumps of up to two claimed Opera browser processes and the host in separate helper processes. Ten-second timeout per dump, 64 MiB acceptance limit, two capture batches/day, ten-minute cooldown and bounded retention. No browser process is killed or restarted. Dumps remain local and may contain private data.
+- Reinstall the titlebar native helper and reload the extension. No confirmed freeze fix: this release collects evidence during the next incident. See docs/HANG-DIAGNOSTICS.md for installation, output and test coverage.
+
 ## 0.22.1 — Visual Anarchy rendering reliability (2026-10-27)
 - Correct four visual effects that could be ineffective in real player layouts: Zoom, Gravity and Aspect Ratio now use Chromium's individual `scale`/`rotate` properties instead of modifying the provider-owned CSS `transform`; their random values cannot silently land near the identity at normal intensity.
 - VHS uses stronger visible scanlines plus a video-level filter and jitter fallback. Overlays are inserted inside a non-video fullscreen element so they appear in the browser's fullscreen top layer; native fullscreen `<video>` falls back to the video-level effect only.

@@ -19,14 +19,18 @@ internal static partial class StreamShellTitlebarHost
         {
             while (!shuttingDown)
             {
+                PerformanceReaderState = "waiting-input";
                 string json = ReadMessage();
                 if (json == null)
                 {
+                    PerformanceReaderState = "eof";
+                    PerformanceLifecycle("reader-eof");
                     break;
                 }
 
                 try
                 {
+                    BeginPerformanceCommand(json);
                     HandleNativeMessage(json);
                 }
                 catch (Exception ex)
@@ -38,11 +42,14 @@ internal static partial class StreamShellTitlebarHost
                     // exception handler: that could raise and exit ReadLoop.
                     WriteJson("{\"event\":\"native-command-error\"}");
                 }
+                finally { EndPerformanceCommand(); }
             }
         }
         catch (Exception ex)
         {
             // EOF/disconnect is expected, but exceptions are essential evidence.
+            PerformanceReaderState = "fault";
+            PerformanceLifecycle("reader-fault");
             LogNativeFailure("native-reader", ex);
         }
         finally

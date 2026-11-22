@@ -28,6 +28,10 @@ function streamShellExportSettings(stored) {
 // Known Dashboard input contracts. These mirror the actual controls, NOT the
 // provider/runtime storage schema. No additional reads or watchers are added.
 const STREAM_SHELL_SETTING_BOUNDS = Object.freeze({
+    streamShellTwitchMarblesMinDelaySeconds: [0, 120, 1],
+    streamShellTwitchMarblesMaxDelaySeconds: [0, 120, 1],
+    streamShellTwitchMarblesMinViewerPercent: [1, 100, 1],
+    streamShellTwitchMarblesMaxViewerPercent: [1, 100, 1],
     streamShellContinueWatchingCompletePercent: [1, 100, 1],
     streamShellYoutubeUploadDateRelativeDays: [0, 30, 1],
     streamShellYoutubeAutoLikePercent: [1, 100, 1],
@@ -77,6 +81,23 @@ function streamShellNormalizeSettingValue(key, value) {
 
     if (!SETTINGS_STORAGE_KEY_SET.has(key)) {
         throw new Error(`Unknown Stream Shell setting: ${key}`);
+    }
+    if (key === STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY) {
+        if (!value || typeof value !== "object" || Array.isArray(value))
+            throw new Error("Invalid subscription configuration");
+        const result = {};
+        for (const [id,raw] of Object.entries(value).slice(0,200)) {
+            if (!/^(youtube|netflix|prime|disney|crunchyroll|discord|mangayomi|custom-[a-z0-9]{8,40})$/.test(id) ||
+                !raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+            const entry = streamShellSubscriptionEntries({providers:[
+                {id, name:id, kind:id.startsWith("custom-")?"custom":"builtin"}
+            ]}, {[id]:raw}).find(p=>p.id===id);
+            if (!entry) continue;
+            result[id] = {};
+            for (const field of ["visible","mode","url","plan","status","date","dateKind"])
+                result[id][field] = entry[field];
+        }
+        return result;
     }
     if (key === STREAM_SHELL_PROVIDER_REGISTRY_KEY) {
         return normalizeStreamShellProviderRegistry(value);

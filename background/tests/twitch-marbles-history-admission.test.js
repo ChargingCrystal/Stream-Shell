@@ -12,7 +12,7 @@ assert.match(source, /initialHydrationGuardMs: 12000/);
 assert.match(source, /marblesChatMessageAgeMs\(line, now\)/);
 const testing = source.slice(0,source.indexOf(tail)) + `
     globalThis.__marblesProbe = {
-        armMarblesHydrationGuard, observeMarblesChat,
+        armMarblesHydrationGuard, observeMarblesChat, refreshViewerCount, onWorkspaceChanged,
         getTwitchRuntimeDiagnostics: () => ({automation:getDiagnostics()}),
         scheduleMarblesAutoJoin, getGuard: () => marblesHydrationGuardUntil
     };
@@ -43,10 +43,11 @@ class Element {
     }
     querySelectorAll() { return []; }
 }
+let displayedViewers = '100';
 const timers = [];
 const context = vm.createContext({
     Date: FakeDate, Element, Math: Object.assign(Object.create(Math), {random: () => 0}),
-    document: {visibilityState:'hidden',hasFocus:()=>false},
+    document: {querySelector:()=>({textContent:displayedViewers}),visibilityState:'hidden',hasFocus:()=>false},
     window: {__streamShellTwitchCoreV1: {isAlive:()=>true, getSlotId:()=> 'b', getRaidProtectionEnabled:()=>true}},
     location: {pathname:'/streamer',href:'https://www.twitch.tv/streamer'},
     chrome: {runtime:{onMessage:{addListener() {}}}},
@@ -56,6 +57,7 @@ const context = vm.createContext({
 });
 vm.runInContext(testing,context);
 const probe = context.__marblesProbe;
+probe.refreshViewerCount();
 const stats = () => probe.getTwitchRuntimeDiagnostics().automation;
 const line = (user, stamp=null) => new Element({username:user,text:'!play',timestamp:stamp});
 const deliver = (...lines) => probe.observeMarblesChat([{addedNodes:lines}]);
@@ -109,3 +111,31 @@ assert.equal(stats().uniquePlayUsersInBurst,0);
 assert.equal(stats().observedChannel,'https://www.twitch.tv/other');
 assert.equal(stats().historyBatchesDiscarded,1);
 console.log('Twitch Marbles history quarantine, timestamps, batch, tail, fresh quorum, navigation: PASS');
+
+// Viewer-derived thresholds update only on the explicit five-minute sample.
+displayedViewers = '250';
+probe.refreshViewerCount();
+assert.equal(stats().triggerCount, 13, '5% of 250 rounds up to 13 distinct users');
+assert.equal(stats().viewerCount, 250);
+displayedViewers = '';
+probe.refreshViewerCount();
+assert.equal(stats().viewerCount, 250, 'transient missing DOM retains last valid sample');
+
+// A chat mutation may detect SPA navigation before the workspace storage event.
+context.location.pathname = '/nextstream';
+context.location.href = 'https://www.twitch.tv/nextstream';
+deliver(line('navigation'));
+assert.equal(stats().viewerCount, null, 'old channel viewer count is invalidated');
+assert.equal(stats().observedChannel, context.location.href);
+assert.equal(timers.at(-1).delay, 5000, 'chat path starts delayed acquisition');
+const acquisition = timers.at(-1);
+const timerCount = timers.length;
+probe.onWorkspaceChanged();
+assert.equal(timers.length, timerCount, 'later workspace event does not restart acquisition');
+assert.equal(acquisition.cancelled, false);
+context.location.pathname = '/thirdstream';
+context.location.href = 'https://www.twitch.tv/thirdstream';
+probe.onWorkspaceChanged();
+assert.equal(acquisition.cancelled, true, 'next navigation cancels old acquisition');
+assert.equal(timers.at(-1).delay, 5000);
+console.log('Both SPA detection paths restart acquisition exactly once: PASS');

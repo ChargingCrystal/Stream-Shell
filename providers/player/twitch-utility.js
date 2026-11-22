@@ -46,6 +46,8 @@
             documentFocused: document.hasFocus(),
             workspaceCovered: workspaceIsCovered(), workspaceRightMode,
             workspacePlaybackGuardEnabled, workspaceWantedPlaying,
+            playbackRecovery: { pending: workspaceResumePending,
+                attempts: workspaceResumeAttempts, stopped: workspaceResumeStopped },
             slotId: workspaceSlotId, channel: currentChannelUrl(),
             automation: {
                 ...late, ...twitchRuntimeMetrics,
@@ -81,6 +83,33 @@
     let workspaceWantedPlaying = false;
     let workspaceResumeInterval = null;
     let workspaceResumeTimeout = null;
+    let workspaceResumePending = false;
+    let workspaceResumeAttempts = 0;
+    let workspaceResumeStopped = null;
+
+    function stopWorkspacePlaybackRecovery(reason) {
+        workspaceWantedPlaying = false;
+        workspaceResumeStopped = reason;
+        clearWorkspaceResumeTimers();
+    }
+
+    function requestWorkspacePlaybackResume(video) {
+        if (!automationDocumentAlive || workspaceResumeStopped || workspaceResumePending ||
+            !video || !video.paused || video.ended) return;
+        if (workspaceResumeAttempts >= 3) {
+            stopWorkspacePlaybackRecovery("retry-limit");
+            return;
+        }
+        workspaceResumeAttempts += 1;
+        workspaceResumePending = true;
+        // Keep the gate until the actual play promise settles: a timeout must
+        // never admit another request while the browser still owns this one.
+        try {
+            Promise.resolve(video.play()).catch(() => {}).finally(() => {
+                workspaceResumePending = false;
+            });
+        } catch { workspaceResumePending = false; }
+    }
 
     function getPrimaryTwitchVideo() {
         const videos = Array.from(document.querySelectorAll("video"));
@@ -119,14 +148,11 @@
         if (!workspacePlaybackGuardEnabled || !workspaceWantedPlaying || !workspaceIsCovered()) return;
         const video = getPrimaryTwitchVideo();
         if (!video || !video.paused || video.ended) return;
-        try {
-            const result = video.play();
-            if (result && typeof result.catch === "function") result.catch(() => {});
-        } catch {}
+        requestWorkspacePlaybackResume(video);
     }
 
     function syncWorkspaceResumeWatchdog() {
-        if (!workspacePlaybackGuardEnabled || !workspaceWantedPlaying || !workspaceIsCovered()) {
+        if (!workspacePlaybackGuardEnabled || workspaceResumeStopped || !workspaceWantedPlaying || !workspaceIsCovered()) {
             clearWorkspaceResumeTimers();
             return;
         }
@@ -164,10 +190,7 @@
         if (workspaceWantedPlaying) {
             const video = getPrimaryTwitchVideo();
             if (video?.paused && !video.ended) {
-                try {
-                    const result = video.play();
-                    if (result && typeof result.catch === "function") result.catch(() => {});
-                } catch {}
+                requestWorkspacePlaybackResume(video);
             }
         }
         clearWorkspaceResumeTimers();
@@ -212,6 +235,7 @@
         isAlive: () => automationDocumentAlive,
         getSlotId: () => workspaceSlotId,
         getRaidProtectionEnabled: () => raidProtectionEnabled,
+        stopPlaybackRecovery: stopWorkspacePlaybackRecovery,
         registerAutomation(client) {
             if (!automationDocumentAlive || !client || automationClient) return false;
             automationClient = client;
@@ -315,6 +339,20 @@
                 workspaceWantedPlaying = true;
                 syncWorkspaceResumeWatchdog();
             }, true);
+
+            document.addEventListener("playing", event => {
+                if (event.target?.tagName !== "VIDEO" || event.target !== getPrimaryTwitchVideo()) return;
+                workspaceResumeAttempts = 0;
+                workspaceResumeStopped = null;
+                workspaceWantedPlaying = true;
+                syncWorkspaceResumeWatchdog();
+            }, true);
+            for (const eventName of ["ended", "emptied", "error"]) {
+                document.addEventListener(eventName, event => {
+                    if (event.target?.tagName !== "VIDEO" || event.target !== getPrimaryTwitchVideo()) return;
+                    stopWorkspacePlaybackRecovery(eventName);
+                }, true);
+            }
 
             document.addEventListener("pause", event => {
                 if (event.target?.tagName !== "VIDEO") return;

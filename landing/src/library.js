@@ -328,9 +328,9 @@ function streamShellSortedLibrary(tmdbItems,externalItems) {
     return out;
 }
 
-function streamShellLinkedMediaRow(tmdb, anilist) {
+function streamShellLinkedMediaRow(tmdb, anilist, options = {mode:"watchlist",saved:true,addedAt:tmdb.addedAt}) {
     // Reuse the TMDB card, including selection and JustWatch availability.
-    const row = createMediaItem(tmdb,{mode:"watchlist",saved:true,addedAt:tmdb.addedAt});
+    const row = createMediaItem(tmdb,options);
     row.classList.add("ss-library-linked");
     const cover = streamShellAniListCover(anilist,"ss-anilist-cover") ||
         createElement("div","ss-anilist-cover ss-anilist-cover-empty","◈");
@@ -359,8 +359,7 @@ function streamShellLinkedMediaRow(tmdb, anilist) {
     actions.prepend(details);
     if (mangayomi) actions.prepend(mangayomi);
     row.appendChild(panel);
-    // Deleting the TMDB entry leaves the AniList entry saved, intentionally.
-    // Nothing is silently removed from either store.
+    // A linked Library row represents both saved source records.
     return row;
 }
 
@@ -484,12 +483,25 @@ function createContinueWatchingItem(item) {
 }
 
 
-function renderContinueWatchingSubtitle(completePercent) {
+async function renderContinueWatchingSubtitle(completePercent) {
+    const policy = await window.StreamShellContinueWatching.getPolicy();
+    const accentStorage = await chrome.storage.local.get(STREAM_SHELL_PROVIDER_REGISTRY_KEY);
+    const accentRegistry = normalizeStreamShellProviderRegistry(accentStorage[STREAM_SHELL_PROVIDER_REGISTRY_KEY]);
     mediaPanelSubtitle.replaceChildren();
     mediaPanelSubtitle.append(
-        document.createTextNode("Resume across providers · completed at ")
+        document.createTextNode("Include progress from ")
     );
 
+    const minimum = document.createElement("input");
+    minimum.type = "number"; minimum.className = "continue-complete-percent-input";
+    minimum.min = "0"; minimum.max = String(completePercent - 1); minimum.step = "1";
+    minimum.value = String(Math.min(policy.minPercent, completePercent - 1));
+    minimum.setAttribute("aria-label", "Minimum progress percentage");
+    minimum.addEventListener("change", async () => {
+        await window.StreamShellContinueWatching.setPolicy({minPercent:Number(minimum.value)});
+        await showContinueWatching();
+    });
+    mediaPanelSubtitle.append(minimum, document.createTextNode("% to "));
     const input = document.createElement("input");
     input.type = "number";
     input.className = "continue-complete-percent-input";
@@ -534,6 +546,24 @@ function renderContinueWatchingSubtitle(completePercent) {
         input,
         document.createTextNode("%")
     );
+    const providers = createElement("div", "continue-provider-switches");
+    for (const [id, name] of [["youtube","YouTube"],["netflix","Netflix"],["prime","Prime Video"],["disney","Disney+"],["crunchyroll","Crunchyroll"]]) {
+        const label = createElement("label", "ss-search-merge-toggle");
+        const wrap = createElement("span", "settings-switch");
+        wrap.style.setProperty("--settings-accent-rgb",streamShellProviderAccentRgb(id,accentRegistry));
+        const toggle = document.createElement("input");toggle.type="checkbox";toggle.setAttribute("role","switch");
+        toggle.checked = !policy.disabledProviders.includes(id);
+        toggle.addEventListener("change", async () => {
+            const current = await window.StreamShellContinueWatching.getPolicy();
+            const disabled = new Set(current.disabledProviders);
+            if (toggle.checked) disabled.delete(id); else disabled.add(id);
+            await window.StreamShellContinueWatching.setPolicy({disabledProviders:[...disabled]});
+        });
+        const track = document.createElement("span");track.setAttribute("aria-hidden","true");
+        wrap.append(toggle,track);label.append(wrap,document.createTextNode(name));providers.append(label);
+    }
+    providers.title = "Automatically add progress from these providers. Existing entries remain when disabled.";
+    mediaPanelSubtitle.append(providers);
 }
 
 
@@ -541,7 +571,7 @@ async function showContinueWatching() {
     openPanel("continue");
 
     const completePercent = await window.StreamShellContinueWatching.getCompletePercent();
-    renderContinueWatchingSubtitle(completePercent);
+    await renderContinueWatchingSubtitle(completePercent);
     await refreshContinueWatchingCache();
 
     if (continueWatchingItems.length === 0) {
@@ -939,6 +969,11 @@ async function removeWatchlistItem(
     }
 
 
+    const external = await window.StreamShellExternalLibrary.getAll();
+    const linked = streamShellLinkLibraryEntries(watchlistItems, external)
+        .find(row => row.kind === "linked" && row.media === media);
+    if (linked) await window.StreamShellExternalLibrary.remove(linked.anilist.id);
+
     await window
         .StreamShellWatchlist
         .remove(
@@ -995,10 +1030,7 @@ async function toggleWatchlistForSearch(
         activePanel ===
         "search"
     ) {
-        renderSearchResults(
-            searchResults,
-            searchGeneration
-        );
+        await streamShellRenderUnifiedResults(mediaSearchInput.value.trim(), searchGeneration);
     }
 }
 

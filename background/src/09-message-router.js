@@ -1846,7 +1846,7 @@ chrome.runtime.onMessage.addListener(
             }
 
 
-            syncSubscriptions()
+            syncSubscriptions(typeof message.providerId === "string" ? message.providerId : null)
                 .then(
                     state => {
                         sendResponse({

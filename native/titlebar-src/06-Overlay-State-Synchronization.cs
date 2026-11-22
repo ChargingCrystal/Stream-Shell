@@ -17,6 +17,7 @@ internal static partial class StreamShellTitlebarHost
     {
         if (!initialized || shuttingDown)
         {
+            PerformanceVisibilityReason = shuttingDown ? "shutdown" : "not-initialized";
             HideChromeBackdrop();
             HideRightChrome();
             HideOverlay(leftOverlay, true);
@@ -29,6 +30,7 @@ internal static partial class StreamShellTitlebarHost
         // Pending claims must still be given an opportunity to finish.
         if (!HasPendingSurfaceClaim() && IsForeignFullscreenCoveringShell())
         {
+            PerformanceVisibilityReason = "foreign-fullscreen";
             lastEffectiveVisibility = "none";
             HideChromeBackdrop();
             HideRightChrome();
@@ -37,6 +39,7 @@ internal static partial class StreamShellTitlebarHost
             return;
         }
 
+        PerformanceUiPhase = "prune";
         PruneStaleSurfaceState();
 
         PaneBounds left;
@@ -61,6 +64,7 @@ internal static partial class StreamShellTitlebarHost
 
         if (IsHeartbeatFresh())
         {
+            PerformanceUiPhase = "claims";
             TryCompleteSurfaceClaims(
                 left,
                 right,
@@ -76,6 +80,7 @@ internal static partial class StreamShellTitlebarHost
             ClearPendingSurfaceClaims();
         }
 
+        PerformanceUiPhase = "find-targets";
         TargetInfo leftTarget = compactLayout
             ? FindCompactSurfaceTarget(left, currentLeftMode)
             : FindWideSurfaceTarget(left, "left", currentLeftMode);
@@ -114,6 +119,7 @@ internal static partial class StreamShellTitlebarHost
          * Only successful extension claims register shell HWNDs. This routine
          * merely repairs identities and keeps observed normal Opera separate.
          */
+        PerformanceUiPhase = "taskbar";
         SyncTaskbarIntegration(currentVisibility, compactLayout, leftTarget);
 
         string effectiveVisibility = ComputeNativeEffectiveVisibility(
@@ -167,6 +173,7 @@ internal static partial class StreamShellTitlebarHost
         }
         else
         {
+            PerformanceUiPhase = "alt-tab";
             SyncAltTabIntegration(effectiveVisibility, leftTarget, rightTarget, currentRightMode, left, right);
         }
 
@@ -174,6 +181,7 @@ internal static partial class StreamShellTitlebarHost
         // temporarily into Landing's owner graph when selected so an ordinary
         // RIGHT Dashboard click cannot reorder Landing over it. The native
         // timer reconciles ownership even when Chromium sends no focus event.
+        PerformanceUiPhase = "mangayomi-owner";
         SyncMangayomiWideOwner(compactLayout, currentLeftMode, leftTarget);
 
         // Alt+Tab ownership can itself change sibling HWND z-order. Audit only
@@ -184,9 +192,11 @@ internal static partial class StreamShellTitlebarHost
         if (!compactLayout && !spanningShellFullscreen && IsHeartbeatFresh() &&
             String.Equals(currentRightMode, "twitch", StringComparison.OrdinalIgnoreCase))
         {
+            PerformanceUiPhase = "twitch-z-order";
             RepairWideTwitchClusterZOrder();
         }
 
+        PerformanceUiPhase = "chrome-theme";
         SyncWindowChromeTheme(effectiveVisibility);
 
         // True fullscreen hides our own custom chrome only. Compact treats the
@@ -196,6 +206,7 @@ internal static partial class StreamShellTitlebarHost
         // never resized or restyled here.
         if (spanningShellFullscreen)
         {
+            PerformanceVisibilityReason = "shell-fullscreen";
             HideChromeBackdrop();
             HideRightChrome();
             HideOverlay(leftOverlay, true);
@@ -227,13 +238,17 @@ internal static partial class StreamShellTitlebarHost
                IsTrustedShellTarget(leftTarget))
             : CanKeepWideLeftChromeWithForeignForeground(leftTarget);
 
+        PerformanceUiPhase = "position-chrome";
         if (!showLeftChrome)
         {
+            PerformanceVisibilityReason = !IsHeartbeatFresh() ? "lease-stale-or-protocol" :
+                (leftTarget == null ? "no-left-target" : "foreground-or-occlusion");
             HideChromeBackdrop();
             HideOverlay(leftOverlay, true);
         }
         else
         {
+            PerformanceVisibilityReason = "show-left";
             PositionChromeBackdrop(leftTarget);
             PositionOverlay(leftOverlay, leftTarget, true);
         }

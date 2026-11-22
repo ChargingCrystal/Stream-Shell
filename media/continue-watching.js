@@ -11,6 +11,21 @@
     const PROVIDERS = new Set(["youtube", "netflix", "prime", "disney", "crunchyroll"]);
 
 
+    const POLICY_KEY = "streamShellContinueWatchingPolicy";
+    async function getPolicy() {
+        const stored = await chrome.storage.local.get(POLICY_KEY);
+        const policy = stored[POLICY_KEY] || {};
+        return {minPercent: Number.isFinite(policy.minPercent) ? Math.max(0, Math.min(99, policy.minPercent)) : 5,
+            disabledProviders: Array.isArray(policy.disabledProviders) ? policy.disabledProviders.filter(p => PROVIDERS.has(p)) : []};
+    }
+    async function setPolicy(value) {
+        const policy = {...await getPolicy(), ...value};
+        policy.minPercent = Math.max(0, Math.min((await getCompletePercent()) - 1, Number(policy.minPercent) || 0));
+        policy.disabledProviders = policy.disabledProviders.filter(p => PROVIDERS.has(p));
+        await chrome.storage.local.set({[POLICY_KEY]:policy});
+        return policy;
+    }
+
     function normalizeCompletePercent(value, fallback = DEFAULT_COMPLETE_PERCENT) {
         const numeric = Number(value);
         if (!Number.isFinite(numeric)) return fallback;
@@ -51,6 +66,8 @@
         await loadCompletePercent();
         completePercent = normalizeCompletePercent(value, completePercent);
         completePercentLoaded = true;
+        const policy = await getPolicy();
+        if (policy.minPercent >= completePercent) await setPolicy({minPercent:completePercent - 1});
 
         await chrome.storage.local.set({
             [COMPLETE_PERCENT_STORAGE_KEY]: completePercent
@@ -116,7 +133,8 @@
     async function getAll() {
         await loadCompletePercent();
         const stored = await chrome.storage.local.get(STORAGE_KEY);
-        return sanitizeItems(stored[STORAGE_KEY]);
+        const policy = await getPolicy();
+        return sanitizeItems(stored[STORAGE_KEY]).filter(item => item.progressPercent >= Math.min(policy.minPercent, completePercent - 1));
     }
 
     async function saveAll(items) {
@@ -165,6 +183,8 @@
         get COMPLETE_PERCENT() {
             return completePercent;
         },
+        getPolicy,
+        setPolicy,
         getCompletePercent,
         setCompletePercent,
         MAX_ITEMS,

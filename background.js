@@ -3,6 +3,7 @@
 const STREAM_SHELL_PROVIDER_REGISTRY_KEY = "streamShellProviderRegistry";
 const STREAM_SHELL_PROVIDER_BUILTINS = Object.freeze([
     { id: "youtube", name: "YouTube", url: "https://www.youtube.com/" },
+    { id: "youtube-music", name: "YouTube Music", url: "https://music.youtube.com/", optional: true },
     { id: "netflix", name: "Netflix", url: "https://www.netflix.com/browse" },
     { id: "prime", name: "Prime Video", url: "https://www.primevideo.com/" },
     { id: "disney", name: "Disney+", url: "https://www.disneyplus.com/" },
@@ -64,14 +65,21 @@ function defaultStreamShellProviderRegistry() {
         version: 3,
         providers: [
             ...STREAM_SHELL_PROVIDER_BUILTINS.map(p => ({
-                ...p, kind: "builtin", enabled: true, showOnDashboard: true,
-                showInTitlebar: true
+                ...p, kind: "builtin", enabled: !p.optional, showOnDashboard: !p.optional,
+                showInTitlebar: !p.optional
             })),
             ...STREAM_SHELL_NATIVE_APPS
         ],
         dashboardOrder: [...ids, ...STREAM_SHELL_NATIVE_APP_IDS],
         titlebarOrder: [...ids, ...STREAM_SHELL_NATIVE_APP_IDS]
     };
+}
+
+function streamShellDashboardGroups(providers) {
+    const youtube = providers.find(p => p.id === "youtube");
+    const music = providers.find(p => p.id === "youtube-music");
+    return providers.filter(p => !(youtube && music && p.id === "youtube-music"))
+        .map(p => p.id === "youtube" && music ? [p, music] : [p]);
 }
 
 function normalizeStreamShellProviderRegistry(value) {
@@ -82,9 +90,9 @@ function normalizeStreamShellProviderRegistry(value) {
         const incoming = supplied.find(p => p && p.id === base.id);
         return {
             ...defaults.providers[index],
-            enabled: incoming?.enabled !== false,
-            showOnDashboard: incoming?.showOnDashboard !== false,
-            showInTitlebar: incoming?.showInTitlebar !== false,
+            enabled: incoming ? incoming.enabled !== false : defaults.providers[index].enabled,
+            showOnDashboard: incoming ? incoming.showOnDashboard !== false : defaults.providers[index].showOnDashboard,
+            showInTitlebar: incoming ? incoming.showInTitlebar !== false : defaults.providers[index].showInTitlebar,
             titlebarColor: streamShellValidatedTitlebarColor(incoming?.titlebarColor)
         };
     });
@@ -135,11 +143,91 @@ function normalizeStreamShellProviderRegistry(value) {
         const first = providers.find(p => p.enabled) || providers[0];
         first.enabled = true;
         first.showOnDashboard = true;
-    } else if (pinned.length > 7) {
-        const kept = new Set(dashboardOrder.filter(id => pinned.some(p => p.id === id)).slice(0, 7));
+    } else if (streamShellDashboardGroups(pinned).length > 7) {
+        const ordered = dashboardOrder.map(id => pinned.find(p => p.id === id)).filter(Boolean);
+        const kept = new Set(streamShellDashboardGroups(ordered).slice(0, 7).flat().map(p => p.id));
         for (const provider of pinned) if (!kept.has(provider.id)) provider.showOnDashboard = false;
     }
     return { version: 3, providers, dashboardOrder, titlebarOrder };
+}
+
+
+// Shared by both shell surfaces; existing custom_ artwork remains first choice.
+function streamShellProviderBackgroundPaths(provider, variant, registry) {
+    if (!["wide", "compact"].includes(variant)) return [];
+    if (STREAM_SHELL_BUILTIN_IDS.has(provider) || STREAM_SHELL_NATIVE_APP_IDS.has(provider))
+        return [`assets/backgrounds/${provider}_${variant}.png`];
+    const entry = registry.providers.find(p => p.id === provider && p.kind === "custom");
+    if (!entry) return [];
+    const key = streamShellValidatedArtworkKey(entry.artKey);
+    const name = streamShellValidatedArtworkKey(entry.name);
+    return [...new Set([
+        key ? streamShellCustomArtworkPath(key, variant) : null,
+        key ? `assets/backgrounds/${key}_${variant}.png` : null,
+        name ? `assets/backgrounds/${name}_${variant}.png` : null
+    ].filter(Boolean))];
+}
+
+// Extension pages share this origin-local visual preference. It does not
+// change activeProvider, which also controls browser-player restoration.
+function streamShellPersistentBackgroundProvider(state, registry, storage = globalThis.localStorage) {
+    const known = id => STREAM_SHELL_BUILTIN_IDS.has(id) ||
+        STREAM_SHELL_NATIVE_APP_IDS.has(id) ||
+        registry.providers.some(p => p.id === id && p.enabled !== false);
+    const key = "streamShellLastBackgroundProvider";
+    const visible = known(state?.leftMode) ? state.leftMode : null;
+    let previous = null;
+    try { previous = storage?.getItem(key); } catch {}
+    if (visible) {
+        try { if (previous !== visible) storage?.setItem(key, visible); } catch {}
+        return visible;
+    }
+    return known(previous) ? previous : (known(state?.activeProvider) ? state.activeProvider : "netflix");
+}
+
+const STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY = "streamShellSubscriptionConfig";
+const STREAM_SHELL_SUBSCRIPTION_DEFAULT_URLS = Object.freeze({
+    youtube: "https://www.youtube.com/paid_memberships",
+    netflix: "https://www.netflix.com/account",
+    prime: "https://www.amazon.de/gp/primecentral",
+    disney: "https://www.disneyplus.com/account",
+    crunchyroll: "https://www.crunchyroll.com/account/membership",
+    discord: "https://discord.com/settings/subscriptions"
+});
+function streamShellSubscriptionEntries(registry, config) {
+    const input = config && typeof config === "object" && !Array.isArray(config) ? config : {};
+    const providers = registry.providers.filter(p => p.id !== "youtube-music");
+    providers.push({id:"discord", name:"Discord", enabled:true});
+    return providers.map(p => {
+        const raw = input[p.id] || {};
+        const supported = Object.prototype.hasOwnProperty.call(STREAM_SHELL_SUBSCRIPTION_DEFAULT_URLS, p.id);
+        return {
+            id:p.id, name:p.id === "youtube" ? "YouTube Premium / Music" : p.name,
+            visible: typeof raw.visible === "boolean" ? raw.visible : supported,
+            mode: supported && raw.mode !== "manual" ? "auto" : "manual",
+            supported, url: streamShellValidatedCustomUrl(raw.url === undefined ?
+                STREAM_SHELL_SUBSCRIPTION_DEFAULT_URLS[p.id] : raw.url) || "",
+            plan: typeof raw.plan === "string" ? raw.plan.slice(0,80) : "",
+            status: ["active","ending","inactive","unknown"].includes(raw.status) ? raw.status : "unknown",
+            date: typeof raw.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : "",
+            dateKind: raw.dateKind === "ends" ? "ends" : "renews",
+            icon: p.kind === "custom" ? streamShellCustomArtworkPath(p.artKey,"icon") :
+                `assets/providers/icons/${p.id}.svg`
+        };
+    });
+}
+
+// Shared control accents: explicit provider override takes precedence.
+function streamShellProviderAccentRgb(id, registry) {
+    const provider = registry?.providers?.find(item => item.id === id);
+    const custom = streamShellValidatedTitlebarColor(provider?.titlebarColor);
+    if (custom) {
+        const value = parseInt(custom.slice(1),16);
+        return `${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}`;
+    }
+    return ({youtube:"255, 35, 72", "youtube-music":"255, 35, 72", netflix:"229, 9, 20",
+        prime:"0, 168, 225", disney:"69, 116, 255", crunchyroll:"255, 101, 0",
+        mangayomi:"220, 40, 80", discord:"88, 101, 242"})[id] || "157, 177, 210";
 }
 /*
  * Shared provider resume URL canonicalization + stable media identity.
@@ -388,7 +476,31 @@ function resolveProviderMediaLink(
     };
 }
 
+/* Shared import validation. No channel list is bundled with Stream Shell. */
+function normalizeYoutubeBlocklist(data) {
+    if (!data || typeof data !== 'object' || !Array.isArray(data.channels)) throw new Error('Expected a JSON object with a channels array.');
+    if (data.platform && data.platform !== 'youtube') throw new Error('This list is not for YouTube.');
+    if (data.channels.length > 20000) throw new Error('Maximum 20,000 channels per list.');
+    const channels = new Map();
+    for (const entry of data.channels) {
+        if (!entry || !/^UC[\w-]{22}$/.test(entry.channelId || '')) throw new Error('Every channel needs a valid YouTube channelId.');
+        const handle = typeof entry.handle === 'string' && /^@[^\s/?#]+$/.test(entry.handle) ? entry.handle : '';
+        channels.set(entry.channelId, {channelId: entry.channelId, handle, name: String(entry.name || '').slice(0, 200)});
+    }
+    return {schemaVersion: 1, platform: 'youtube', title: String(data.title || 'YouTube blocklist').slice(0, 200), channels: [...channels.values()]};
+}
+
+function normalizeYoutubeFilterState(stored) {
+    const lists = Array.isArray(stored?.lists) ? stored.lists :
+        stored?.list?.channels?.length ? [{id:'legacy', enabled:true, mode:'blur', text:'on blocklist', list:stored.list}] : [];
+    const normalized = lists.map(entry => ({id:String(entry.id),enabled:entry.enabled !== false,
+        mode:entry.mode === 'remove' ? 'remove' : 'blur',text:typeof entry.text === 'string' ? entry.text.slice(0,200) : 'on blocklist',list:entry.list}));
+    const channels = new Map();
+    for (const entry of normalized) if (entry.enabled) for (const channel of entry.list.channels) channels.set(channel.channelId,channel);
+    return {enabled:stored?.enabled === true,lists:normalized,list:{channels:[...channels.values()]}};
+}
 const PROVIDERS = {
+    "youtube-music": { label: "YouTube Music", url: "https://music.youtube.com/" },
     youtube: {
         label: "YouTube",
         url: "https://www.youtube.com/"
@@ -465,45 +577,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 const SUBSCRIPTION_STORAGE_KEY =
     "streamShellSubscriptions";
-
-
-const SUBSCRIPTION_PROVIDERS = [
-    {
-        id:
-            "youtube",
-
-        url:
-            "https://www.youtube.com/paid_memberships"
-    },
-    {
-        id:
-            "netflix",
-
-        url:
-            "https://www.netflix.com/account"
-    },
-    {
-        id:
-            "prime",
-
-        url:
-            "https://www.amazon.de/gp/primecentral"
-    },
-    {
-        id:
-            "disney",
-
-        url:
-            "https://www.disneyplus.com/account"
-    },
-    {
-        id:
-            "crunchyroll",
-
-        url:
-            "https://www.crunchyroll.com/account/membership"
-    }
-];
 
 
 const GOOGLE_PLAY_SUBSCRIPTIONS_URL =
@@ -6770,7 +6843,7 @@ let titlebarProviderLastAckAt = null;
 let titlebarProviderLastRejectedIconCount = 0;
 
 const STREAM_SHELL_TITLEBAR_BUILTIN_LABELS = Object.freeze({
-    youtube: "YT", netflix: "N", prime: "P", disney: "D+", crunchyroll: "CR", mangayomi: "MY"
+    "youtube-music": "YM", youtube: "YT", netflix: "N", prime: "P", disney: "D+", crunchyroll: "CR", mangayomi: "MY"
 });
 
 // Load primary PNG bytes directly in the extension worker: the native helper handles
@@ -7911,6 +7984,7 @@ function startTitlebarReconcileLoop() {
     }
 
     let titlebarReconcileTick = 0;
+    let diagnosticHeartbeatSequence = 0;
     let lastPerformanceTick = performance.now();
 
     titlebarReconcileTimer =
@@ -7942,6 +8016,8 @@ function startTitlebarReconcileLoop() {
                     titlebarPort.postMessage({
                         type:
                             "heartbeat",
+                        sequence: diagnosticHeartbeatSequence = (diagnosticHeartbeatSequence % 2147483647) + 1,
+                        sentAtUtc: new Date().toISOString(),
 
                         protocolVersion:
                             TITLEBAR_PROTOCOL_VERSION
@@ -9894,7 +9970,8 @@ async function waitForPrimeVerification(
     windowId,
     tabId,
     initialResult,
-    timeoutMs = 120000
+    timeoutMs = 120000,
+    billingUrl = PRIME_CENTRAL_URL
 ) {
     await setSubscriptionSyncWindowInteractive(
         windowId
@@ -10084,7 +10161,7 @@ async function waitForPrimeVerification(
                 try {
                     await navigateSubscriptionTab(
                         tabId,
-                        PRIME_CENTRAL_URL,
+                        billingUrl,
                         18000
                     );
 
@@ -10490,13 +10567,20 @@ async function createSubscriptionSyncWindow() {
 }
 
 
-async function _syncSubscriptions() {
+async function _syncSubscriptions(providerId = null) {
+    const stored = await chrome.storage.local.get([STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY,
+        STREAM_SHELL_PROVIDER_REGISTRY_KEY, SUBSCRIPTION_STORAGE_KEY]);
+    const entries = streamShellSubscriptionEntries(
+        normalizeStreamShellProviderRegistry(stored[STREAM_SHELL_PROVIDER_REGISTRY_KEY]),
+        stored[STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY]);
+    const selected = entries.filter(p => p.visible && p.mode === "auto" && (!providerId || p.id === providerId));
+    if (!selected.length) return stored[SUBSCRIPTION_STORAGE_KEY] || {items:{}};
+    const selectedIds = new Set(selected.map(p=>p.id));
     let syncWindowId =
         null;
 
 
-    const items =
-        {};
+    const items = {...stored[SUBSCRIPTION_STORAGE_KEY]?.items};
 
 
     try {
@@ -10541,7 +10625,7 @@ async function _syncSubscriptions() {
 
         for (
             const provider
-            of SUBSCRIPTION_PROVIDERS
+            of selected.filter(p=>p.id !== "discord" && p.url)
         ) {
             try {
                 await navigateSubscriptionTab(
@@ -10577,11 +10661,15 @@ async function _syncSubscriptions() {
                         await waitForPrimeVerification(
                             syncWindowId,
                             tabId,
-                            result
+                            result,
+                            120000,
+                            provider.url
                         );
                 }
 
 
+                result.lastSuccessAt = ["active","ending","inactive"].includes(result.status)
+                    ? Date.now() : stored[SUBSCRIPTION_STORAGE_KEY]?.items?.[provider.id]?.lastSuccessAt || null;
                 items[provider.id] =
                     result;
             } catch (error) {
@@ -10675,6 +10763,15 @@ async function _syncSubscriptions() {
     }
 
 
+    // Google Play can report other services; retain only requested automatic entries.
+    for (const id of Object.keys(items)) {
+        if (!selectedIds.has(id)) {
+            if (stored[SUBSCRIPTION_STORAGE_KEY]?.items?.[id])
+                items[id] = stored[SUBSCRIPTION_STORAGE_KEY].items[id];
+            else delete items[id];
+        }
+    }
+
     const state = {
         items,
         updatedAt:
@@ -10692,7 +10789,7 @@ async function _syncSubscriptions() {
 }
 
 
-async function syncSubscriptions() {
+async function syncSubscriptions(providerId = null) {
     if (
         subscriptionSyncLock
     ) {
@@ -10701,7 +10798,7 @@ async function syncSubscriptions() {
 
 
     subscriptionSyncLock =
-        _syncSubscriptions()
+        _syncSubscriptions(providerId)
             .finally(
                 () => {
                     subscriptionSyncLock =
@@ -12910,7 +13007,7 @@ chrome.runtime.onMessage.addListener(
             }
 
 
-            syncSubscriptions()
+            syncSubscriptions(typeof message.providerId === "string" ? message.providerId : null)
                 .then(
                     state => {
                         sendResponse({
@@ -13184,6 +13281,117 @@ chrome.runtime.onMessage.addListener(
 );
 
 
+/* Internal extension API: imports are explicit; the default list is empty. */
+const YOUTUBE_BLOCKLIST_KEY = 'streamShellYoutubeBlocklistV1';
+chrome.runtime.onMessage.addListener((message, sender, respond) => {
+    if (message?.type !== 'youtube-blocklist-api') return false;
+    const run = async () => {
+        const dashboard = isDashboardSender(sender);
+        let youtube = false;
+        try { youtube = /(^|\.)youtube\.com$/.test(new URL(sender.url || sender.tab?.url).hostname); } catch {}
+        if (sender.id !== chrome.runtime.id || (!dashboard && !(youtube && message.action === 'get'))) throw new Error('Unsupported sender.');
+        const stored = await chrome.storage.local.get(YOUTUBE_BLOCKLIST_KEY);
+        let state = normalizeYoutubeFilterState(stored[YOUTUBE_BLOCKLIST_KEY]);
+        if (message.action === 'import') {
+            if (state.lists.length >= 30) throw new Error('Maximum 30 filter lists.');
+            state.lists.push({id:crypto.randomUUID(),enabled:true,mode:'blur',text:'on blocklist',list:normalizeYoutubeBlocklist(message.data)});
+            state.enabled = true;
+        } else if (message.action === 'enable') {
+            state = {...state, enabled: message.enabled === true};
+        } else if (message.action === 'remove') {
+            state.lists = message.listId ? state.lists.filter(entry => entry.id !== message.listId) : [];
+        } else if (message.action === 'update') {
+            const entry = state.lists.find(entry => entry.id === message.listId);
+            if (!entry) throw new Error('Filter list not found.');
+            if (typeof message.enabled === 'boolean') entry.enabled = message.enabled;
+            if (['blur','remove'].includes(message.mode)) entry.mode = message.mode;
+            if (typeof message.text === 'string') entry.text = message.text.slice(0,200);
+        } else if (message.action !== 'get') throw new Error('Unknown blocklist action.');
+        state = normalizeYoutubeFilterState(state);
+        if (message.action !== 'get') await chrome.storage.local.set({[YOUTUBE_BLOCKLIST_KEY]: state});
+        return {ok: true, state};
+    };
+    run().then(respond).catch(error => respond({ok: false, error: String(error.message || error)}));
+    return true;
+});
+/* Bounded, shared identity resolution for visible Shorts. Never execute page HTML. */
+const SS_SHORTS_CACHE_KEY = 'streamShellYoutubeShortsIdentityV1';
+let ssShortsChain = Promise.resolve(), ssShortsLastRequest = 0;
+const ssShortsPending = new Map();
+function ssShortsPlayerIdentity(html, videoId) {
+    const pattern = /(?:var\s+ytInitialPlayerResponse\s*=|window\["ytInitialPlayerResponse"\]\s*=|"playerResponse"\s*:)/g;
+    for (const match of html.matchAll(pattern)) {
+        let start = match.index + match[0].length;
+        while (/\s/.test(html[start] || '') && start < html.length) start++;
+        if (html[start] !== '{') continue;
+        let depth = 0, quoted = false, escaped = false;
+        for (let i = start; i < Math.min(html.length, start + 2000000); i++) {
+            const ch = html[i];
+            if (quoted) {if (escaped) escaped = false; else if (ch === '\\') escaped = true; else if (ch === '"') quoted = false; continue;}
+            if (ch === '"') quoted = true;
+            else if (ch === '{') depth++;
+            else if (ch === '}' && --depth === 0) {
+                try {
+                    const details = JSON.parse(html.slice(start, i + 1)).videoDetails;
+                    if (details?.videoId === videoId && /^UC[\w-]{22}$/.test(details.channelId || '')) return details.channelId;
+                } catch {}
+                break;
+            }
+        }
+    }
+    return null;
+}
+async function ssResolveShortIdentity(videoId) {
+    if (!/^[\w-]{11}$/.test(videoId || '')) throw new Error('Invalid video ID.');
+    if (ssShortsPending.has(videoId)) return ssShortsPending.get(videoId);
+    if (ssShortsPending.size >= 32) return {channelId: null, retryAfterMs: 30000};
+    const task = ssShortsChain.then(async () => {
+        const stored = await chrome.storage.local.get([SS_SHORTS_CACHE_KEY, YOUTUBE_BLOCKLIST_KEY]);
+        const state = stored[YOUTUBE_BLOCKLIST_KEY];
+        if (!state?.enabled || !state.list?.channels?.length) return {channelId: null, retryAfterMs: 600000};
+        const cache = stored[SS_SHORTS_CACHE_KEY] || {};
+        const hit = cache[videoId];
+        if (hit && hit.expires > Date.now()) return {channelId: hit.channelId, retryAfterMs: hit.expires - Date.now()};
+        const wait = Math.max(0, 1500 - (Date.now() - ssShortsLastRequest));
+        if (wait) await new Promise(resolve => setTimeout(resolve, wait));
+        // Recheck after waiting so disabling the feature stops queued network work.
+        const latest = (await chrome.storage.local.get(YOUTUBE_BLOCKLIST_KEY))[YOUTUBE_BLOCKLIST_KEY];
+        if (!latest?.enabled || !latest.list?.channels?.length) return {channelId: null, retryAfterMs: 600000};
+        ssShortsLastRequest = Date.now();
+        let channelId = null;
+        const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 8000);
+        try {
+            const response = await fetch(`https://www.youtube.com/shorts/${videoId}`, {credentials:'omit', signal:controller.signal});
+            if (response.ok) {
+                const reader = response.body.getReader(); let bytes = 0, text = '', decoder = new TextDecoder();
+                try {
+                    while (true) {
+                        const {value, done} = await reader.read(); if (done) break;
+                        bytes += value.byteLength; if (bytes > 4000000) break;
+                        text += decoder.decode(value, {stream:true});
+                    }
+                } finally {await reader.cancel().catch(() => {});}
+                channelId = ssShortsPlayerIdentity(text, videoId);
+            }
+        } catch {} finally {clearTimeout(timeout);}
+        const ttl = channelId ? 7 * 86400000 : 600000;
+        cache[videoId] = {channelId, expires:Date.now() + ttl};
+        const entries = Object.entries(cache).filter(([,entry]) => entry.expires > Date.now()).sort((a,b) => b[1].expires-a[1].expires).slice(0,500);
+        await chrome.storage.local.set({[SS_SHORTS_CACHE_KEY]:Object.fromEntries(entries)});
+        return {channelId, retryAfterMs:ttl};
+    });
+    ssShortsPending.set(videoId, task);
+    ssShortsChain = task.catch(() => {});
+    try {return await task;} finally {ssShortsPending.delete(videoId);}
+}
+chrome.runtime.onMessage.addListener((message, sender, respond) => {
+    if (message?.type !== 'youtube-shorts-identity') return false;
+    let allowed = false;
+    try {allowed = sender.id === chrome.runtime.id && /(^|\.)youtube\.com$/.test(new URL(sender.url || sender.tab?.url).hostname);} catch {}
+    if (!allowed) {respond({ok:false}); return false;}
+    ssResolveShortIdentity(message.videoId).then(result => respond({ok:true,...result})).catch(() => respond({ok:false}));
+    return true;
+});
 function windowBounds(window) {
     if (
         !window ||
@@ -14902,7 +15110,7 @@ async function runStreamShellLaunchSelfTest() {
     );
 
     const providers = {};
-    for (const provider of STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id)) {
+    for (const provider of STREAM_SHELL_PROVIDER_BUILTINS.filter(p => p.id !== "youtube-music").map(p => p.id)) {
         const windowId = Number.isInteger(providerWindows?.[provider])
             ? providerWindows[provider]
             : null;
@@ -14929,8 +15137,8 @@ async function runStreamShellLaunchSelfTest() {
             state: `MV${manifest.manifest_version || "?"}`
         },
         providerRegistry: {
-            ok: STREAM_SHELL_PROVIDER_BUILTINS.length === 5,
-            state: `${STREAM_SHELL_PROVIDER_BUILTINS.length} integrated adapters`
+            ok: STREAM_SHELL_PROVIDER_BUILTINS.length === 6,
+            state: `${STREAM_SHELL_PROVIDER_BUILTINS.length} built-in providers`
         },
         providerApi: {
             ok: true,

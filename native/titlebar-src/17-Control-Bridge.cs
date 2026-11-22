@@ -335,16 +335,28 @@ internal static partial class StreamShellTitlebarHost
             byte[] payload = Encoding.UTF8.GetBytes(json);
             byte[] length = BitConverter.GetBytes(payload.Length);
 
-            lock (OutputLock)
+            Interlocked.Increment(ref PerformanceOutputWaiters);
+            try
             {
-                Stream output = Console.OpenStandardOutput();
-                output.Write(length, 0, length.Length);
-                output.Write(payload, 0, payload.Length);
-                output.Flush();
+                lock (OutputLock)
+                {
+                    Interlocked.Exchange(ref PerformanceOutputTick, Environment.TickCount);
+                    Interlocked.Exchange(ref PerformanceOutputActive, 1);
+                    try
+                    {
+                        Stream output = Console.OpenStandardOutput();
+                        output.Write(length, 0, length.Length);
+                        output.Write(payload, 0, payload.Length);
+                        output.Flush();
+                    }
+                    finally { Interlocked.Exchange(ref PerformanceOutputActive, 0); }
+                }
             }
+            finally { Interlocked.Decrement(ref PerformanceOutputWaiters); }
         }
         catch
         {
+            Interlocked.Increment(ref PerformanceOutputFailures);
         }
     }
 

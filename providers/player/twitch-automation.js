@@ -8,7 +8,11 @@
     const DEFAULTS = {
         streamShellTwitchAutoClaimPoints: true,
         streamShellTwitchAutoClaimDrops: true,
-        streamShellTwitchMarblesAutoJoin: true
+        streamShellTwitchMarblesAutoJoin: true,
+        streamShellTwitchMarblesMinDelaySeconds: 1,
+        streamShellTwitchMarblesMaxDelaySeconds: 4,
+        streamShellTwitchMarblesMinViewerPercent: 5,
+        streamShellTwitchMarblesMaxViewerPercent: 10
     };
     const RESERVED_CHANNEL_PATHS = new Set([
         "directory", "downloads", "drops", "friends", "inventory", "jobs",
@@ -34,8 +38,6 @@
     ].join(",");
     const MARBLES_CONFIG = Object.freeze({
         burstWindowMs: 30000, cooldownMs: 120000,
-        minTriggerCount: 5, maxTriggerCount: 10,
-        minDelayMs: 1000, maxDelayMs: 4000,
         initialHydrationGuardMs: 12000,
         historyBurstGuardMs: 8000, historyBurstWindowMs: 45000,
         historyBatchThreshold: 4, maxFreshMessageAgeMs: 30000,
@@ -56,6 +58,7 @@
     const workspaceSlotId = core.getSlotId();
     let marblesLastAutoPlayAt = 0;
     let marblesPendingTimer = null;
+    let marblesJoinInFlight = false;
     let marblesTriggerCount = 0;
     let marblesObservedChannel = null;
     let marblesHydrationGuardUntil = Date.now() + MARBLES_CONFIG.initialHydrationGuardMs;
@@ -106,13 +109,73 @@
         return Math.floor(Math.random() * (max - min + 1)) + min;
     }
 
+    let viewerCount = null;
+    let viewerCountChannel = null;
+    let viewerCountUpdatedAt = null;
+    let viewerCountTimer = null;
+    let viewerCountStartupAttempts = 0;
+    let viewerCountLastAttemptAt = null;
+    function parseViewerCount(text) {
+        const value = String(text || "").trim().replace(/\s/g, "");
+        if (!value) return null;
+        const compact = value.match(/^([\d.,]+)([kKmM])$/);
+        const number = compact
+            ? Number(compact[1].replace(",", ".")) * (compact[2].toLowerCase() === "k" ? 1000 : 1000000)
+            : /^[\d.,]+$/.test(value) ? Number(value.replace(/[.,]/g, "")) : NaN;
+        return Number.isFinite(number) && number > 0 ? Math.round(number) : null;
+    }
+    function refreshViewerCount() {
+        if (!automationDocumentAlive) return false;
+        viewerCountLastAttemptAt = Date.now();
+        const channel = currentChannelUrl();
+        const node = document.querySelector('[data-a-target="animated-channel-viewers-count"], [data-a-target="channel-viewers-count"], [data-test-selector="viewer-count"]');
+        const count = parseViewerCount(node?.textContent);
+        if (!channel || count === null) return false;
+        const first = viewerCountChannel !== channel || viewerCount === null;
+        viewerCount = count;
+        viewerCountChannel = channel;
+        viewerCountUpdatedAt = Date.now();
+        // A routine sample must not cancel an already scheduled join.
+        if (first || marblesPendingTimer === null) resetMarblesBurst();
+        return true;
+    }
+    function sampleViewerCount() {
+        viewerCountTimer = null;
+        if (!automationDocumentAlive) return;
+        const valid = refreshViewerCount();
+        viewerCountStartupAttempts += 1;
+        const delay = valid ? 300000 : viewerCountStartupAttempts < 12 ? 5000 : 300000;
+        if (valid) viewerCountStartupAttempts = 12;
+        viewerCountTimer = setTimeout(sampleViewerCount, delay);
+    }
+    function beginViewerCountAcquisition() {
+        if (viewerCountTimer !== null) clearTimeout(viewerCountTimer);
+        viewerCount = null;
+        viewerCountChannel = null;
+        viewerCountUpdatedAt = null;
+        viewerCountStartupAttempts = 0;
+        // Allow Twitch's route and initial DOM to settle before the first read.
+        viewerCountTimer = setTimeout(sampleViewerCount, 5000);
+    }
+
+    function marblesRange(kind) {
+        const delay = kind === "delay";
+        const suffix = delay ? "DelaySeconds" : "ViewerPercent";
+        const values = ["Min", "Max"].map(bound => {
+            const key = `streamShellTwitchMarbles${bound}${suffix}`;
+            const raw = settings[key];
+            const value = typeof raw === "number" && Number.isFinite(raw) ? raw : DEFAULTS[key];
+            return Math.max(delay ? 0 : 1, Math.min(delay ? 120 : 100, Math.round(value)));
+        }).sort((a, b) => a - b);
+        return delay ? values.map(value => value * 1000) : values;
+    }
+
     function resetMarblesBurst({ reroll = true } = {}) {
         marblesPlayEvents.length = 0;
         if (reroll || !marblesTriggerCount) {
-            marblesTriggerCount = randomIntInclusive(
-                MARBLES_CONFIG.minTriggerCount,
-                MARBLES_CONFIG.maxTriggerCount
-            );
+            const percent = randomIntInclusive(...marblesRange("percent"));
+            marblesTriggerCount = viewerCount && viewerCountChannel === currentChannelUrl()
+                ? Math.max(1, Math.ceil(viewerCount * percent / 100)) : Infinity;
         }
     }
 
@@ -401,11 +464,12 @@
     }
 
     function scheduleMarblesAutoJoin() {
-        if (!settings.streamShellTwitchMarblesAutoJoin || marblesPendingTimer !== null) return;
+        if (!viewerCount || viewerCountChannel !== currentChannelUrl()) return;
+        if (!settings.streamShellTwitchMarblesAutoJoin || marblesJoinInFlight || marblesPendingTimer !== null) return;
         const now = Date.now();
         if (now - marblesLastAutoPlayAt < MARBLES_CONFIG.cooldownMs) return;
 
-        const delay = randomIntInclusive(MARBLES_CONFIG.minDelayMs, MARBLES_CONFIG.maxDelayMs);
+        const delay = randomIntInclusive(...marblesRange("delay"));
         twitchRuntimeMetrics.lastJoinScheduledAt = now;
         twitchRuntimeMetrics.joinScheduledDelayMs = delay;
         marblesPendingTimer = setTimeout(async () => {
@@ -423,7 +487,11 @@
 
             twitchRuntimeMetrics.lastJoinAttemptAt = Date.now();
             twitchRuntimeMetrics.joinAttempts += 1;
-            const sent = await sendMarblesPlayCommand().catch(() => false);
+            marblesJoinInFlight = true;
+            let sent = false;
+            try { sent = await sendMarblesPlayCommand().catch(() => false); }
+            finally { marblesJoinInFlight = false; }
+            if (!automationDocumentAlive) return;
             twitchRuntimeMetrics.lastJoinResult = sent ? "submitted" : "not-submitted";
             if (!sent) {
                 resetMarblesBurst({ reroll: false });
@@ -450,10 +518,10 @@
 
         /* Twitch can hydrate old chat lines after a channel/stream navigation.
          * Treat every channel transition like a fresh content-script start:
-         * arm a new 5 s grace period and discard the first arriving line. This
+         * arm a new hydration grace period and discard the first arriving line. This
          * prevents an old !play burst from joining a round already in progress. */
         if (channel !== marblesObservedChannel) {
-            armMarblesHydrationGuard(channel);
+            synchronizeMarblesChannel(channel);
             return;
         }
 
@@ -625,6 +693,7 @@
                 if (!label) continue;
                 matched = true;
                 if (!clickOnce(button, 3000)) continue;
+                core.stopPlaybackRecovery?.("raid-opt-out");
                 raidGuardMetrics.optOutAttempts++;
                 raidGuardMetrics.lastOptOutAt = Date.now();
                 raidGuardMetrics.lastOptOutLabel = label.slice(0, 80);
@@ -690,8 +759,10 @@
         return {
             marblesAutoJoinEnabled: settings.streamShellTwitchMarblesAutoJoin === true,
             pendingJoin: marblesPendingTimer !== null,
+            joinInFlight: marblesJoinInFlight,
             uniquePlayUsersInBurst: new Set(marblesPlayEvents.map(event => event.userKey)).size,
-            triggerCount: marblesTriggerCount, observedChannel: marblesObservedChannel,
+            viewerCount, viewerCountChannel, viewerCountUpdatedAt, viewerCountLastAttemptAt, viewerCountStartupAttempts,
+            triggerCount: Number.isFinite(marblesTriggerCount) ? marblesTriggerCount : null, observedChannel: marblesObservedChannel,
             raidGuard: { ...raidGuardMetrics, enabled: raidProtectionEnabled },
             lastSuccessfulJoinAt: marblesLastAutoPlayAt,
             hydrationGuardUntil: marblesHydrationGuardUntil,
@@ -725,6 +796,7 @@
         ]).catch(() => ({}));
         if (!automationDocumentAlive || !core.isAlive()) return;
         settings = {...DEFAULTS, ...stored};
+        beginViewerCountAcquisition();
         marblesLastAutoPlayAt = Number(stored[marblesCooldownStorageKey()] || 0);
         resetMarblesBurst();
         marblesObservedChannel = currentChannelUrl();
@@ -759,13 +831,22 @@
             cancelPendingMarblesJoin();
             resetMarblesBurst();
         }
+        if (Object.keys(changes).some(key => /^streamShellTwitchMarbles(Min|Max)/.test(key))) {
+            cancelPendingMarblesJoin();
+            resetMarblesBurst();
+        }
         if (relevant) {
             syncObserver(); syncFallbackTimer(); scheduleScan();
         }
     }
+    function synchronizeMarblesChannel(channel = currentChannelUrl()) {
+        if (channel !== marblesObservedChannel) {
+            armMarblesHydrationGuard(channel);
+            beginViewerCountAcquisition();
+        }
+    }
     function onWorkspaceChanged() {
-        const channel = currentChannelUrl();
-        if (channel !== marblesObservedChannel) armMarblesHydrationGuard(channel);
+        synchronizeMarblesChannel();
     }
     function onRaidProtectionChanged(enabled) {
         if (raidProtectionEnabled === enabled) return;
@@ -775,6 +856,7 @@
     function dispose() {
         automationDocumentAlive = false;
         automationStarted = false;
+        if (viewerCountTimer !== null) clearTimeout(viewerCountTimer);
         if (fallbackTimer) clearInterval(fallbackTimer);
         if (raidGuardTimer) clearInterval(raidGuardTimer);
         if (scanTimer !== null) clearTimeout(scanTimer);

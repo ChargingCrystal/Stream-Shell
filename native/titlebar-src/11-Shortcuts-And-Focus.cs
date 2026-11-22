@@ -120,7 +120,7 @@ internal static partial class StreamShellTitlebarHost
         }
 
         bool providerMode =
-            mode == "youtube" ||
+            mode == "youtube" || mode == "youtube-music" ||
             mode == "netflix" ||
             mode == "prime" ||
             mode == "disney" ||

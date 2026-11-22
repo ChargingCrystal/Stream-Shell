@@ -305,3 +305,13 @@ assets/providers/custom/custom_<artwork-key>_icon.svg. If neither is found,
 show the provider initials. Native host protocol and C# helper remain v8;
 reloading the extension is sufficient. Earlier notes refer to the former
 native SVG primary and are superseded by this entry.
+
+0.22.2 independent hang recorder
+- Reinstall this helper to collect command/stdout/UI state, visibility decisions, process metrics and bounded minidumps during browser-wide hangs.
+- Details, limits and test instructions: ../docs/HANG-DIAGNOSTICS.md.
+- Logs: %LOCALAPPDATA%\StreamShell\Logs; private minidumps: HangDumps subfolder.
+
+0.22.3 hang timing correction
+- Fixes false unsigned timing gaps and captures sustained late-heartbeat transport.
+- Run install-hang-diagnostics.cmd; the included tests simulate timing faults automatically.
+- Existing v0.22.2 false-alarm quota does not consume the corrected recorder quota.

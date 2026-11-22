@@ -59,7 +59,7 @@
     function normalizeConfig(raw) {
         const result = {
             version: 1,
-            items: {}
+            items: {...raw?.items}
         };
 
         for (const provider of PROVIDERS) {
@@ -299,9 +299,12 @@
 
 
     async function saveFinanceConfig(config) {
+        const stored = await chrome.storage.local.get(FINANCE_CONFIG_KEY);
+        const current = stored[FINANCE_CONFIG_KEY] || {};
         await chrome.storage.local.set({
-            [FINANCE_CONFIG_KEY]:
-                normalizeConfig(config)
+            [FINANCE_CONFIG_KEY]: {...current, ...normalizeConfig(config),
+                items: {...current.items, ...Object.fromEntries(PROVIDERS.map(provider =>
+                    [provider.id, normalizeConfig(config).items[provider.id]]))}}
         });
     }
 
@@ -814,6 +817,7 @@
                 "#finance-reconcile"
             );
 
+        await financeWriteQueue;
         const config =
             readConfigFromOverlay(
                 baseConfig
@@ -1173,6 +1177,37 @@
         }
     }
 
+
+
+    let financeWriteQueue = Promise.resolve();
+    document.addEventListener("change", event => {
+        const input = event.target;
+        const id = input.dataset?.financeAmount || input.dataset?.financeCadence;
+        if (!id || !overlay || !overlay.contains(input)) return;
+        if (input.checkValidity && !input.checkValidity()) { input.reportValidity(); return; }
+        const field = input.dataset.financeAmount ? "amountCents" : "cadence";
+        const value = field === "amountCents" ? clampCents(Number(input.value) * 100) :
+            (input.value === "yearly" ? "yearly" : "monthly");
+        financeWriteQueue = financeWriteQueue.catch(() => {}).then(async () => {
+            const stored = await chrome.storage.local.get(FINANCE_CONFIG_KEY);
+            const current = stored[FINANCE_CONFIG_KEY] || {version:1,items:{}};
+            await chrome.storage.local.set({[FINANCE_CONFIG_KEY]: {...current,
+                items: {...current.items, [id]: {amountCents:0,cadence:"monthly",
+                    ...current.items?.[id], [field]:value}}}});
+        }).catch(renderEngineError);
+    });
+    chrome.storage.onChanged?.addListener((changes,area) => {
+        if (area !== "local" || !changes[FINANCE_CONFIG_KEY] || !overlay) return;
+        const config = normalizeConfig(changes[FINANCE_CONFIG_KEY].newValue);
+        for (const provider of PROVIDERS) {
+            const amount = overlay.querySelector(`[data-finance-amount="${provider.id}"]`);
+            const cadence = overlay.querySelector(`[data-finance-cadence="${provider.id}"]`);
+            const item = config.items[provider.id];
+            if (amount && document.activeElement !== amount) amount.value = (item.amountCents / 100).toFixed(2);
+            if (cadence && document.activeElement !== cadence) cadence.value = item.cadence;
+        }
+        markReportDirty();
+    });
 
     function installFinanceStylesheet() {
         if (

@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const src = file => fs.readFileSync(path.join(__dirname, '..', 'src', file), 'utf8');
 const ctx = vm.createContext({
+    STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY: 'streamShellSubscriptionConfig',
     STREAM_SHELL_PROVIDER_REGISTRY_KEY: 'streamShellProviderRegistry',
     defaultStreamShellProviderRegistry: () => ({version: 2, providers: []}),
     normalizeStreamShellProviderRegistry: value => value

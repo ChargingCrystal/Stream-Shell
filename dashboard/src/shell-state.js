@@ -174,24 +174,9 @@ function renderState(
     }
 
 
-    // A native LEFT app is a visual Dashboard identity, not a web player.
-    // Keep activeProvider intact for the next browser-provider transition.
-    let provider =
-        state.leftMode === "mangayomi"
-            ? "mangayomi"
-            : (state.activeProvider || "netflix");
-
-
-    if (
-        provider !== "mangayomi" &&
-        !PROVIDERS.has(
-            provider
-        )
-    ) {
-        provider =
-            "netflix";
-    }
-
+    const provider = streamShellPersistentBackgroundProvider(
+        state, getStreamShellProviderRegistry()
+    );
 
     const reportedLayoutProfile =
         state.layoutProfile === "compact"
@@ -278,18 +263,14 @@ function renderState(
 
 
     const customProvider = getStreamShellProviderRegistry().providers.find(
-        entry => entry.id === provider && entry.kind === "custom"
+        entry => entry.id === provider && (entry.kind === "custom" || entry.id === "youtube-music")
     );
-    const customBackgroundPath = customProvider
-        ? streamShellCustomArtworkPath(customProvider.artKey, backgroundVariant)
-        : null;
     const neutralBackground = "radial-gradient(ellipse at 77% 20%, rgba(70, 79, 104, .21), transparent 62%), linear-gradient(135deg, #0b0e17, #03050a)";
-    const backgroundPath = STREAM_SHELL_BUILTIN_IDS.has(provider)
-        ? `assets/backgrounds/${provider}_${backgroundVariant}.png`
-        : customBackgroundPath;
-    panorama.style.backgroundImage = backgroundPath
-        ? `url("${chrome.runtime.getURL(backgroundPath)}"), ${neutralBackground}`
-        : neutralBackground;
+    const backgroundPaths = streamShellProviderBackgroundPaths(provider, backgroundVariant, getStreamShellProviderRegistry());
+    panorama.style.backgroundImage = [
+        ...backgroundPaths.map(path => `url("${chrome.runtime.getURL(path)}")`),
+        neutralBackground
+    ].join(", ");
 
     const wordmark = WORDMARKS[provider] ||
         (customProvider ? streamShellCustomArtworkPath(customProvider.artKey, "wordmark") : null);

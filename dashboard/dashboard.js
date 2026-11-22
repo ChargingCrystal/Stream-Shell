@@ -3,6 +3,7 @@
 const STREAM_SHELL_PROVIDER_REGISTRY_KEY = "streamShellProviderRegistry";
 const STREAM_SHELL_PROVIDER_BUILTINS = Object.freeze([
     { id: "youtube", name: "YouTube", url: "https://www.youtube.com/" },
+    { id: "youtube-music", name: "YouTube Music", url: "https://music.youtube.com/", optional: true },
     { id: "netflix", name: "Netflix", url: "https://www.netflix.com/browse" },
     { id: "prime", name: "Prime Video", url: "https://www.primevideo.com/" },
     { id: "disney", name: "Disney+", url: "https://www.disneyplus.com/" },
@@ -64,14 +65,21 @@ function defaultStreamShellProviderRegistry() {
         version: 3,
         providers: [
             ...STREAM_SHELL_PROVIDER_BUILTINS.map(p => ({
-                ...p, kind: "builtin", enabled: true, showOnDashboard: true,
-                showInTitlebar: true
+                ...p, kind: "builtin", enabled: !p.optional, showOnDashboard: !p.optional,
+                showInTitlebar: !p.optional
             })),
             ...STREAM_SHELL_NATIVE_APPS
         ],
         dashboardOrder: [...ids, ...STREAM_SHELL_NATIVE_APP_IDS],
         titlebarOrder: [...ids, ...STREAM_SHELL_NATIVE_APP_IDS]
     };
+}
+
+function streamShellDashboardGroups(providers) {
+    const youtube = providers.find(p => p.id === "youtube");
+    const music = providers.find(p => p.id === "youtube-music");
+    return providers.filter(p => !(youtube && music && p.id === "youtube-music"))
+        .map(p => p.id === "youtube" && music ? [p, music] : [p]);
 }
 
 function normalizeStreamShellProviderRegistry(value) {
@@ -82,9 +90,9 @@ function normalizeStreamShellProviderRegistry(value) {
         const incoming = supplied.find(p => p && p.id === base.id);
         return {
             ...defaults.providers[index],
-            enabled: incoming?.enabled !== false,
-            showOnDashboard: incoming?.showOnDashboard !== false,
-            showInTitlebar: incoming?.showInTitlebar !== false,
+            enabled: incoming ? incoming.enabled !== false : defaults.providers[index].enabled,
+            showOnDashboard: incoming ? incoming.showOnDashboard !== false : defaults.providers[index].showOnDashboard,
+            showInTitlebar: incoming ? incoming.showInTitlebar !== false : defaults.providers[index].showInTitlebar,
             titlebarColor: streamShellValidatedTitlebarColor(incoming?.titlebarColor)
         };
     });
@@ -135,11 +143,91 @@ function normalizeStreamShellProviderRegistry(value) {
         const first = providers.find(p => p.enabled) || providers[0];
         first.enabled = true;
         first.showOnDashboard = true;
-    } else if (pinned.length > 7) {
-        const kept = new Set(dashboardOrder.filter(id => pinned.some(p => p.id === id)).slice(0, 7));
+    } else if (streamShellDashboardGroups(pinned).length > 7) {
+        const ordered = dashboardOrder.map(id => pinned.find(p => p.id === id)).filter(Boolean);
+        const kept = new Set(streamShellDashboardGroups(ordered).slice(0, 7).flat().map(p => p.id));
         for (const provider of pinned) if (!kept.has(provider.id)) provider.showOnDashboard = false;
     }
     return { version: 3, providers, dashboardOrder, titlebarOrder };
+}
+
+
+// Shared by both shell surfaces; existing custom_ artwork remains first choice.
+function streamShellProviderBackgroundPaths(provider, variant, registry) {
+    if (!["wide", "compact"].includes(variant)) return [];
+    if (STREAM_SHELL_BUILTIN_IDS.has(provider) || STREAM_SHELL_NATIVE_APP_IDS.has(provider))
+        return [`assets/backgrounds/${provider}_${variant}.png`];
+    const entry = registry.providers.find(p => p.id === provider && p.kind === "custom");
+    if (!entry) return [];
+    const key = streamShellValidatedArtworkKey(entry.artKey);
+    const name = streamShellValidatedArtworkKey(entry.name);
+    return [...new Set([
+        key ? streamShellCustomArtworkPath(key, variant) : null,
+        key ? `assets/backgrounds/${key}_${variant}.png` : null,
+        name ? `assets/backgrounds/${name}_${variant}.png` : null
+    ].filter(Boolean))];
+}
+
+// Extension pages share this origin-local visual preference. It does not
+// change activeProvider, which also controls browser-player restoration.
+function streamShellPersistentBackgroundProvider(state, registry, storage = globalThis.localStorage) {
+    const known = id => STREAM_SHELL_BUILTIN_IDS.has(id) ||
+        STREAM_SHELL_NATIVE_APP_IDS.has(id) ||
+        registry.providers.some(p => p.id === id && p.enabled !== false);
+    const key = "streamShellLastBackgroundProvider";
+    const visible = known(state?.leftMode) ? state.leftMode : null;
+    let previous = null;
+    try { previous = storage?.getItem(key); } catch {}
+    if (visible) {
+        try { if (previous !== visible) storage?.setItem(key, visible); } catch {}
+        return visible;
+    }
+    return known(previous) ? previous : (known(state?.activeProvider) ? state.activeProvider : "netflix");
+}
+
+const STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY = "streamShellSubscriptionConfig";
+const STREAM_SHELL_SUBSCRIPTION_DEFAULT_URLS = Object.freeze({
+    youtube: "https://www.youtube.com/paid_memberships",
+    netflix: "https://www.netflix.com/account",
+    prime: "https://www.amazon.de/gp/primecentral",
+    disney: "https://www.disneyplus.com/account",
+    crunchyroll: "https://www.crunchyroll.com/account/membership",
+    discord: "https://discord.com/settings/subscriptions"
+});
+function streamShellSubscriptionEntries(registry, config) {
+    const input = config && typeof config === "object" && !Array.isArray(config) ? config : {};
+    const providers = registry.providers.filter(p => p.id !== "youtube-music");
+    providers.push({id:"discord", name:"Discord", enabled:true});
+    return providers.map(p => {
+        const raw = input[p.id] || {};
+        const supported = Object.prototype.hasOwnProperty.call(STREAM_SHELL_SUBSCRIPTION_DEFAULT_URLS, p.id);
+        return {
+            id:p.id, name:p.id === "youtube" ? "YouTube Premium / Music" : p.name,
+            visible: typeof raw.visible === "boolean" ? raw.visible : supported,
+            mode: supported && raw.mode !== "manual" ? "auto" : "manual",
+            supported, url: streamShellValidatedCustomUrl(raw.url === undefined ?
+                STREAM_SHELL_SUBSCRIPTION_DEFAULT_URLS[p.id] : raw.url) || "",
+            plan: typeof raw.plan === "string" ? raw.plan.slice(0,80) : "",
+            status: ["active","ending","inactive","unknown"].includes(raw.status) ? raw.status : "unknown",
+            date: typeof raw.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(raw.date) ? raw.date : "",
+            dateKind: raw.dateKind === "ends" ? "ends" : "renews",
+            icon: p.kind === "custom" ? streamShellCustomArtworkPath(p.artKey,"icon") :
+                `assets/providers/icons/${p.id}.svg`
+        };
+    });
+}
+
+// Shared control accents: explicit provider override takes precedence.
+function streamShellProviderAccentRgb(id, registry) {
+    const provider = registry?.providers?.find(item => item.id === id);
+    const custom = streamShellValidatedTitlebarColor(provider?.titlebarColor);
+    if (custom) {
+        const value = parseInt(custom.slice(1),16);
+        return `${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}`;
+    }
+    return ({youtube:"255, 35, 72", "youtube-music":"255, 35, 72", netflix:"229, 9, 20",
+        prime:"0, 168, 225", disney:"69, 116, 255", crunchyroll:"255, 101, 0",
+        mangayomi:"220, 40, 80", discord:"88, 101, 242"})[id] || "157, 177, 210";
 }
 const PROVIDER_NAMES = {
     youtube:
@@ -168,6 +256,7 @@ const PROVIDERS =
 
 
 const WORDMARKS = {
+    "youtube-music": "assets/providers/wordmarks/youtube-music.svg",
     youtube:
         "assets/providers/wordmarks/youtube.svg",
 
@@ -442,14 +531,14 @@ function streamShellPinnedProviders(registry = getStreamShellProviderRegistry())
         .map(id => lookup.get(id))
         .filter(p => p?.enabled && p?.showOnDashboard &&
             (p.id !== "mangayomi" || settingsValues.streamShellSevenSeasAcknowledged === true))
-        .slice(0, 7);
+        ;
 }
 
 function renderProviderSelector() {
     const root = document.querySelector(".provider-selector");
     if (!root) return;
 
-    const pinned = streamShellPinnedProviders();
+    const pinned = streamShellDashboardGroups(streamShellPinnedProviders());
     const layout = STREAM_SHELL_PROVIDER_GRID_PATTERNS[pinned.length] || [];
     root.replaceChildren();
     root.dataset.providerCount = String(pinned.length);
@@ -464,7 +553,15 @@ function renderProviderSelector() {
         const row = document.createElement("div");
         row.className = `provider-row provider-row-count-${size}`;
         for (let j = 0; j < size; j++) {
-            const provider = pinned[index++];
+            const group = pinned[index++];
+            const holder = group.length === 2 ? document.createElement("div") : row;
+            if (group.length === 2) {
+                holder.className = "provider-card-split";
+                holder.setAttribute("role", "group");
+                holder.setAttribute("aria-label", "YouTube and YouTube Music");
+                row.appendChild(holder);
+            }
+            for (const provider of group) {
             const card = document.createElement("button");
             card.type = "button";
             card.className = "provider-card";
@@ -493,11 +590,13 @@ function renderProviderSelector() {
             } else {
                 icon.src = `../assets/providers/icons/${provider.id}.svg`;
                 icon.alt = "";
+                icon.addEventListener("error", () => { icon.hidden = true; });
             }
             const label = document.createElement("span");
-            label.textContent = provider.name;
+            label.textContent = provider.id === "youtube-music" ? "Music" : provider.name;
             card.append(icon, label);
-            row.appendChild(card);
+            holder.appendChild(card);
+            }
         }
         root.appendChild(row);
     }
@@ -620,25 +719,24 @@ function renderProviderRegistrySettings() {
     const registry = getStreamShellProviderRegistry();
     const sevenSeas = settingsValues.streamShellSevenSeasAcknowledged === true;
     const byId = new Map(registry.providers.map(p => [p.id, p]));
-    const visible = streamShellPinnedProviders(registry).length;
+    const visible = streamShellDashboardGroups(streamShellPinnedProviders(registry)).length;
     const rows = registry.dashboardOrder.map((id, index) => {
         const p = byId.get(id);
         const locked = p.id === "mangayomi" && !sevenSeas;
         const pinned = !locked && p.enabled && p.showOnDashboard;
         const label = escapeSettingsHtml(p.name);
-        return `<div class="setting-row settings-provider-registry-row">
+        return `<div class="setting-row settings-provider-registry-row" data-ss-order-item="${id}" data-ss-order-surface="dashboard">
+            ${settingsProviderDragHandle(id, "dashboard", p.name)}
             <span class="setting-copy"><strong>${label}</strong>
             <span>${p.kind === "native" ? "Native Windows app · optional helper" : p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}${p.kind === "custom" ? " · " + escapeSettingsHtml(p.url) : ""}</span></span>
             <label class="settings-provider-registry-toggle">
-                <input type="checkbox" data-registry-enabled="${id}" ${p.enabled && !locked ? "checked" : ""} ${locked ? "disabled" : ""}>
+                <span class="settings-switch" style="--settings-accent-rgb:${streamShellProviderAccentRgb(id, registry)}"><input type="checkbox" data-registry-enabled="${id}" ${p.enabled && !locked ? "checked" : ""} ${locked ? "disabled" : ""}><span aria-hidden="true"></span></span>
                 <span>Enabled</span>
             </label>
             <label class="settings-provider-registry-toggle">
-                <input type="checkbox" data-registry-visibility="${id}" ${pinned ? "checked" : ""} ${p.enabled && !locked ? "" : "disabled"}>
+                <span class="settings-switch" style="--settings-accent-rgb:${streamShellProviderAccentRgb(id, registry)}"><input type="checkbox" data-registry-visibility="${id}" ${pinned ? "checked" : ""} ${p.enabled && !locked ? "" : "disabled"}><span aria-hidden="true"></span></span>
                 <span>Dashboard</span>
             </label>
-            <button type="button" class="settings-provider-registry-move" data-registry-move="${id}" data-registry-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${label} up">↑</button>
-            <button type="button" class="settings-provider-registry-move" data-registry-move="${id}" data-registry-direction="1" ${index === registry.dashboardOrder.length - 1 ? "disabled" : ""} aria-label="Move ${label} down">↓</button>
             ${p.kind === "custom" ? `<button type="button" class="settings-provider-registry-move" data-registry-edit="${id}" aria-label="Edit ${label}">✎</button>
             <button type="button" class="settings-provider-registry-move" data-registry-remove="${id}" aria-label="Remove ${label}">×</button>` : ""}
         </div>`;
@@ -647,19 +745,18 @@ function renderProviderRegistrySettings() {
         const p = byId.get(id);
         if (!p) return "";
         const locked = p.id === "mangayomi" && !sevenSeas;
-        return `<div class="setting-row settings-provider-registry-row">
+        return `<div class="setting-row settings-provider-registry-row" data-ss-order-item="${id}" data-ss-order-surface="titlebar">
+            ${settingsProviderDragHandle(id, "titlebar", p.name)}
             <span class="setting-copy"><strong>${escapeSettingsHtml(p.name)}</strong>
                 <span>${p.kind === "native" ? "Native Windows app" : p.kind === "builtin" ? "Integrated" : "Basic HTTPS window"}</span></span>
             <label class="settings-provider-registry-toggle">
-                <input type="checkbox" data-registry-titlebar-visible="${id}" ${p.showInTitlebar && p.enabled && !locked ? "checked" : ""} ${p.enabled && !locked ? "" : "disabled"}>
+                <span class="settings-switch" style="--settings-accent-rgb:${streamShellProviderAccentRgb(id, registry)}"><input type="checkbox" data-registry-titlebar-visible="${id}" ${p.showInTitlebar && p.enabled && !locked ? "checked" : ""} ${p.enabled && !locked ? "" : "disabled"}><span aria-hidden="true"></span></span>
                 <span>Titlebar</span>
             </label>
             <label class="settings-provider-titlebar-color" title="Titlebar theme / active-state background color; icons always stay neutral monochrome">
                 <input type="color" data-registry-titlebar-color-picker="${id}" value="${p.titlebarColor || '#D5D0DD'}" aria-label="${escapeSettingsHtml(p.name)} titlebar theme color">
                 <input type="text" data-registry-titlebar-color-hex="${id}" maxlength="7" spellcheck="false" placeholder="Auto" value="${escapeSettingsHtml(p.titlebarColor || '')}" aria-label="${escapeSettingsHtml(p.name)} theme color hex">
             </label>
-            <button type="button" class="settings-provider-registry-move" data-registry-titlebar-move="${id}" data-registry-titlebar-direction="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${escapeSettingsHtml(p.name)} up in titlebar">↑</button>
-            <button type="button" class="settings-provider-registry-move" data-registry-titlebar-move="${id}" data-registry-titlebar-direction="1" ${index === registry.titlebarOrder.length - 1 ? "disabled" : ""} aria-label="Move ${escapeSettingsHtml(p.name)} down in titlebar">↓</button>
         </div>`;
     }).join("");
 
@@ -677,12 +774,12 @@ function renderProviderRegistrySettings() {
     </div>`).join("");
     const form = `<div class="settings-custom-provider-form">
         <div class="settings-custom-provider-fields">
-            <label>Name<input id="settings-custom-provider-name" maxlength="48" placeholder="Paramount+" value="${escapeSettingsHtml(editing?.name || "")}"></label>
-            <label>Icon / initials<input id="settings-custom-provider-icon" maxlength="8" placeholder="P+" value="${escapeSettingsHtml(editing?.icon || "")}"></label>
-            <label>HTTPS URL<input id="settings-custom-provider-url" type="url" placeholder="https://www.paramountplus.com/" value="${escapeSettingsHtml(editing?.url || "")}"></label>
+            <label>Name<input id="settings-custom-provider-name" maxlength="48" placeholder="Provider name" value="${escapeSettingsHtml(editing?.name || "")}"></label>
+            <label>Icon / initials<input id="settings-custom-provider-icon" maxlength="8" placeholder="AB" value="${escapeSettingsHtml(editing?.icon || "")}"></label>
+            <label>HTTPS URL<input id="settings-custom-provider-url" type="url" placeholder="https://example.com/" value="${escapeSettingsHtml(editing?.url || "")}"></label>
         </div>
         <div class="settings-custom-provider-bottom">
-            <label>Local artwork key (optional)<input id="settings-custom-provider-art-key" maxlength="32" placeholder="paramount" value="${escapeSettingsHtml(editing?.artKey || "")}"></label>
+            <label>Local artwork key (optional)<input id="settings-custom-provider-art-key" maxlength="32" placeholder="my_provider" value="${escapeSettingsHtml(editing?.artKey || "")}"></label>
             <div class="settings-custom-provider-actions">
                 <button type="button" class="settings-provider-registry-move" id="settings-custom-provider-save">${editing ? "Save changes" : "Add provider"}</button>
                 ${editing ? `<button type="button" class="settings-provider-registry-move" id="settings-custom-provider-cancel">Cancel</button>` : ""}
@@ -702,15 +799,314 @@ function renderProviderRegistrySettings() {
     return settingsPage("Providers",
         `<p class="ss-seven-seas-status">${sevenSeas ? "Third-party integrations unlocked." : "Mangayomi is locked. Enable General → Seven Seas to unlock it."}</p>` +
         `<div class="settings-provider-registry-columns">` +
-            settingsSubgroup(`Dashboard (${visible}/7)`, rows,
-                "Up to seven pinned providers; independent of the native titlebar.") +
-            settingsSubgroup("Native titlebar (unlimited)", titlebarRows,
-                "Independent order and colors; extra buttons appear under … .") +
+            settingsSubgroup("Dashboard", `<div class="ss-provider-list">${rows}</div>` +
+                `<p class="ss-provider-selection-count">${streamShellPinnedProviders(registry).length} providers selected · ${visible}/7 dashboard slots</p>` +
+                renderSettingsProviderPreview(registry, "dashboard"),
+                "Drag the handles or preview buttons to reorder. YouTube and Music share one slot.") +
+            settingsSubgroup("Native titlebar (unlimited)", `<div class="ss-provider-list">${titlebarRows}</div>` +
+                `<p class="ss-provider-selection-count">${registry.providers.filter(p => p.enabled && p.showInTitlebar).length} titlebar providers selected</p>` + renderSettingsProviderPreview(registry, "titlebar"),
+                "Drag to reorder the horizontal preview or list. Extra buttons appear under … in the native titlebar.") +
         `</div>` +
         settingsSubgroup("Mangayomi · native integration", nativeSetup) +
         settingsSubgroup(editing ? "Edit custom provider" : "Add custom provider", form)
     );
 }
+/* Settings-only layout previews. Both surfaces write the existing registry order. */
+function settingsProviderDragHandle(id, surface, label) {
+    return `<button type="button" class="ss-provider-drag" draggable="true"
+        data-ss-drag="${escapeSettingsHtml(id)}" data-ss-order-surface="${surface}"
+        aria-label="Reorder ${escapeSettingsHtml(label)}" title="Drag to reorder · Alt + arrow keys">⠿</button>`;
+}
+function settingsProviderPreviewContent(provider, surface) {
+    const label = provider.id === "youtube-music" ? "Music" : provider.name;
+    const path = surface === "titlebar"
+        ? (provider.kind === "custom" ? streamShellNativeCustomIconPath(provider.artKey) : `native/titlebar-icons/${provider.id}.png`)
+        : provider.kind === "custom"
+        ? streamShellCustomArtworkPath(provider.artKey,"icon")
+        : `assets/providers/icons/${provider.id}.svg`;
+    const icon = path ? `<img src="${escapeSettingsHtml(chrome.runtime.getURL(path))}" alt="" draggable="false">` :
+        `<span class="ss-preview-initials">${escapeSettingsHtml(provider.icon || provider.name.slice(0,2))}</span>`;
+    return icon + `<span>${escapeSettingsHtml(label)}</span>`;
+}
+function renderSettingsProviderPreview(registry, surface) {
+    const lookup = new Map(registry.providers.map(p=>[p.id,p]));
+    const allowed = p => p && p.enabled && (p.id !== "mangayomi" || settingsValues.streamShellSevenSeasAcknowledged === true);
+    const groups = surface === "dashboard" ? streamShellDashboardGroups(streamShellPinnedProviders(registry)) :
+        registry.titlebarOrder.map(id=>lookup.get(id)).filter(p=>allowed(p) && p.showInTitlebar).map(p=>[p]);
+    const tile = group => {
+        const first=group[0], id=first.id;
+        const color=streamShellValidatedTitlebarColor(first.titlebarColor);
+        return `<button type="button" draggable="true" class="ss-layout-tile ${group.length===2?"ss-layout-tile-split":""}"
+            data-ss-drag="${id}" data-ss-order-item="${id}" data-ss-order-surface="${surface}"
+            ${color && surface==="titlebar" ? `style="--preview-tint:${color}"` : ""}
+            aria-label="Reorder ${escapeSettingsHtml(group.map(p=>p.name).join(" and "))}" title="Drag to reorder · Alt + arrow keys">
+            ${group.map(p=>`<span class="ss-layout-segment">${settingsProviderPreviewContent(p, surface)}</span>`).join("")}
+        </button>`;
+    };
+    let content;
+    if(surface==="dashboard") {
+        let index=0;
+        content=(STREAM_SHELL_PROVIDER_GRID_PATTERNS[groups.length] || []).map(count=>
+            `<div class="ss-layout-preview-row" data-columns="${count}">${Array.from({length:count},()=>tile(groups[index++])).join("")}</div>`).join("");
+    } else content=groups.map(tile).join("");
+    return `<div class="ss-layout-preview ss-layout-preview-${surface}" aria-label="${surface} layout preview">
+        <div class="ss-layout-preview-heading">${surface==="dashboard"?"Dashboard layout":"Titlebar layout"}<span>Drag to arrange</span></div>
+        <div class="ss-layout-preview-canvas">${content || '<span class="ss-layout-empty">Select providers above to build this layout.</span>'}</div>
+        <span class="ss-reorder-status" role="status" aria-live="polite"></span>
+    </div>`;
+}
+function reorderSettingsProviders(registry, surface, sourceId, targetId, after=false) {
+    if(!["dashboard","titlebar"].includes(surface)) return registry;
+    const key=surface==="dashboard"?"dashboardOrder":"titlebarOrder";
+    let order=registry[key];
+    if(!order.includes(sourceId) || !order.includes(targetId) || sourceId===targetId) return registry;
+    const paired=surface==="dashboard" && ["youtube","youtube-music"].every(id=>{
+        const p=registry.providers.find(p=>p.id===id);
+        return p?.enabled && p.showOnDashboard;
+    });
+    // Canonicalize the shared slot even when old list ordering separated Music.
+    if (paired) {
+        order=order.filter(id=>id!=="youtube-music");
+        order.splice(order.indexOf("youtube")+1,0,"youtube-music");
+    }
+    const members=id=>paired && ["youtube","youtube-music"].includes(id)?["youtube","youtube-music"]:[id];
+    const moving=members(sourceId), target=members(targetId);
+    if(target.some(id=>moving.includes(id)))return registry;
+    const remaining=order.filter(id=>!moving.includes(id));
+    const positions=target.map(id=>remaining.indexOf(id)).filter(index=>index>=0);
+    const index=after?Math.max(...positions)+1:Math.min(...positions);
+    remaining.splice(index,0,...moving);
+    return {...registry,[key]:remaining};
+}
+let settingsProviderDrag = null;
+function clearSettingsProviderDrop() {
+    document.querySelectorAll(".ss-drop-before,.ss-drop-after,.ss-dragging").forEach(el=>{
+        el.classList.remove("ss-drop-before","ss-drop-after","ss-dragging");
+    });
+}
+function saveSettingsProviderDrop(surface,source,target,after) {
+    return updateStreamShellProviderRegistry(registry=>reorderSettingsProviders(registry,surface,source,target,after))
+        .then(()=>{
+            const status=document.querySelector(`.ss-layout-preview-${surface} .ss-reorder-status`);
+            if(status)status.textContent="Order saved";
+        }).catch(error=>{
+            const status=document.querySelector(`.ss-layout-preview-${surface} .ss-reorder-status`);
+            if(status)status.textContent="Unable to save order: "+error.message;
+        });
+}
+document.addEventListener("dragstart",event=>{
+    const handle=event.target.closest?.("[data-ss-drag]");
+    if(!handle)return;
+    settingsProviderDrag={id:handle.dataset.ssDrag,surface:handle.dataset.ssOrderSurface};
+    event.dataTransfer.effectAllowed="move";
+    event.dataTransfer.setData("text/plain",settingsProviderDrag.id);
+    handle.classList.add("ss-dragging");
+});
+document.addEventListener("dragover",event=>{
+    const target=event.target.closest?.("[data-ss-order-item]");
+    if(!target || !settingsProviderDrag || target.dataset.ssOrderSurface!==settingsProviderDrag.surface)return;
+    event.preventDefault(); event.dataTransfer.dropEffect="move";
+    const rect=target.getBoundingClientRect();
+    const horizontal=target.classList.contains("ss-layout-tile");
+    const after=horizontal?event.clientX>rect.left+rect.width/2:event.clientY>rect.top+rect.height/2;
+    document.querySelectorAll(".ss-drop-before,.ss-drop-after").forEach(el=>el.classList.remove("ss-drop-before","ss-drop-after"));
+    target.classList.add(after?"ss-drop-after":"ss-drop-before");
+});
+document.addEventListener("drop",event=>{
+    const target=event.target.closest?.("[data-ss-order-item]");
+    if(!target || !settingsProviderDrag || target.dataset.ssOrderSurface!==settingsProviderDrag.surface)return;
+    event.preventDefault();
+    const drag=settingsProviderDrag;
+    const after=target.classList.contains("ss-drop-after");
+    settingsProviderDrag=null;clearSettingsProviderDrop();
+    saveSettingsProviderDrop(drag.surface,drag.id,target.dataset.ssOrderItem,after);
+});
+document.addEventListener("dragend",()=>{settingsProviderDrag=null;clearSettingsProviderDrop();});
+document.addEventListener("keydown",event=>{
+    const handle=event.target.closest?.("[data-ss-drag]");
+    if(!handle || !event.altKey || !["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(event.key))return;
+    event.preventDefault();
+    const surface=handle.dataset.ssOrderSurface,id=handle.dataset.ssDrag;
+    const registry=getStreamShellProviderRegistry();
+    const order=registry[surface==="dashboard"?"dashboardOrder":"titlebarOrder"];
+    const step=["ArrowDown","ArrowRight"].includes(event.key)?1:-1;
+    let index=order.indexOf(id)+step;
+    while(index>=0 && index<order.length) {
+        const next=reorderSettingsProviders(registry,surface,id,order[index],step>0);
+        if(next!==registry) {
+            saveSettingsProviderDrop(surface,id,order[index],step>0).then(()=>{
+                document.querySelector(`[data-ss-drag="${id}"][data-ss-order-surface="${surface}"]`)?.focus();
+            });break;
+        }
+        index+=step;
+    }
+});
+document.addEventListener("error",event=>{
+    if(event.target.matches?.(".ss-layout-tile img"))event.target.hidden=true;
+},true);
+
+// Observe only the preview width; keep the existing draggable button nodes.
+let settingsTitlebarPreviewObserver = null;
+function settingsTitlebarRowCapacity(width) {
+    return Math.max(1, Math.floor((width - 60) / 110));
+}
+function syncSettingsTitlebarPreview() {
+    settingsTitlebarPreviewObserver?.disconnect();
+    settingsTitlebarPreviewObserver = null;
+    const canvas = document.querySelector(".ss-layout-preview-titlebar .ss-layout-preview-canvas");
+    if (!canvas) return;
+    const tiles = Array.from(canvas.querySelectorAll(".ss-layout-tile"));
+    if (!tiles.length) return;
+    let previousCapacity = 0;
+    const arrange = () => {
+        const width = canvas.clientWidth;
+        if (!width) return;
+        const capacity = settingsTitlebarRowCapacity(width);
+        if (capacity === previousCapacity) return;
+        previousCapacity = capacity;
+        const focused = document.activeElement;
+        const fragment = document.createDocumentFragment();
+        const marker = () => {
+            const span = document.createElement("span");
+            span.className = "ss-titlebar-continuation";
+            span.textContent = "…";
+            span.setAttribute("aria-hidden", "true");
+            return span;
+        };
+        for (let start = 0; start < tiles.length; start += capacity) {
+            const row = document.createElement("div");
+            row.className = "ss-titlebar-preview-line";
+            if (start) row.append(marker());
+            tiles.slice(start, start + capacity).forEach(tile => row.append(tile));
+            if (start + capacity < tiles.length) row.append(marker());
+            fragment.append(row);
+        }
+        canvas.replaceChildren(fragment);
+        if (tiles.includes(focused)) focused.focus({preventScroll:true});
+    };
+    arrange();
+    if (typeof ResizeObserver !== "undefined") {
+        settingsTitlebarPreviewObserver = new ResizeObserver(arrange);
+        settingsTitlebarPreviewObserver.observe(canvas);
+    }
+}
+
+function renderSubscriptionSettingsPage() {
+    const entries = streamShellSubscriptionEntries(getStreamShellProviderRegistry(),
+        settingsValues[STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY]);
+    const esc = escapeSettingsHtml;
+    const field = (p,key,label,type="text",value=p[key]) =>
+        `<label>${label}<input type="${type}" data-subscription-id="${esc(p.id)}"
+          data-subscription-field="${key}" value="${esc(value ?? "")}" ${type === "number" ? 'min="0" max="100000" step="0.01"' : ""}></label>`;
+    const select = (p,key,label,options) => `<label>${label}<select
+        data-subscription-id="${esc(p.id)}" data-subscription-field="${key}">
+        ${options.map(([id,name])=>`<option value="${id}" ${p[key]===id?"selected":""}>${name}</option>`).join("")}
+        </select></label>`;
+    return settingsSubgroup("Subscriptions", `<p>Choose subscriptions independently of Dashboard pins.
+        Prices and billing intervals are shared with Finance. YouTube Premium and Music share one entry.
+        Automatic sync uses existing provider adapters; custom providers use manual details.</p>
+        <div id="subscription-settings-feedback" role="status"></div>` +
+        `<div class="subscription-settings-grid">` + entries.map(p=>`<fieldset class="subscription-settings-entry"><legend>${esc(p.name)}</legend>
+        <label class="subscription-settings-visible"><span class="settings-switch" style="--settings-accent-rgb:${streamShellProviderAccentRgb(p.id, getStreamShellProviderRegistry())}"><input type="checkbox"
+        data-subscription-id="${esc(p.id)}" data-subscription-field="visible" ${p.visible?"checked":""}><span aria-hidden="true"></span></span> Show on Landing</label>
+        <div class="subscription-settings-finance">
+        <label>Price (EUR)<input type="number" min="0" max="9999999.99" step="0.01"
+          data-subscription-finance="amountCents" data-subscription-id="${esc(p.id)}"
+          value="${((settingsValues.streamShellSubscriptionFinance?.items?.[p.id]?.amountCents || 0)/100).toFixed(2)}"></label>
+        <label>Interval<select data-subscription-finance="cadence" data-subscription-id="${esc(p.id)}">
+          <option value="monthly">Monthly</option><option value="yearly" ${settingsValues.streamShellSubscriptionFinance?.items?.[p.id]?.cadence==="yearly"?"selected":""}>Yearly</option></select></label>
+        </div>
+        <div class="subscription-settings-fields">
+        ${select(p,"mode","Data source",p.supported?[["auto",p.id==="discord"?"Automatic (Google Play)":"Automatic"],["manual","Manual"]]:[["manual","Manual"]])}
+        ${field(p,"plan","Plan")}
+        ${select(p,"status","Manual status",[["unknown","Unknown"],["active","Active"],["ending","Ending"],["inactive","Inactive"]])}
+        ${field(p,"date","Next payment / end date","date")}
+        ${select(p,"dateKind","Date meaning",[["renews","Renews"],["ends","Ends"]])}
+        ${field(p,"url","Billing / account URL","url")}
+        </div></fieldset>`).join("") + "</div>");
+}
+let subscriptionSettingsWriteQueue = Promise.resolve();
+document.addEventListener("change", event => {
+    const input = event.target.closest?.("[data-subscription-field]");
+    if (!input) return;
+    const id = input.dataset.subscriptionId, field = input.dataset.subscriptionField;
+    const value = field === "visible" ? input.checked : input.value;
+    if (field === "url" && value && !streamShellValidatedCustomUrl(value)) {
+        input.setCustomValidity("Enter a valid HTTPS URL."); input.reportValidity(); return;
+    }
+    input.setCustomValidity("");
+    subscriptionSettingsWriteQueue = subscriptionSettingsWriteQueue.catch(()=>{}).then(async()=>{
+        const stored = await chrome.storage.local.get(STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY);
+        const config = {...stored[STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY]};
+        config[id] = {...config[id], [field]:value};
+        await chrome.storage.local.set({[STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY]:config});
+        settingsValues[STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY] = config;
+    }).catch(error=>{
+        const feedback = document.querySelector("#subscription-settings-feedback");
+        if (feedback) feedback.textContent = "Unable to save: " + error.message;
+    });
+}, true);
+
+let openingSubscriptionSettings = false;
+async function openRequestedSubscriptionSettings() {
+    if (openingSubscriptionSettings) return;
+    const stored = await chrome.storage.local.get("streamShellOpenSubscriptionSettings");
+    if (!stored.streamShellOpenSubscriptionSettings) return;
+    openingSubscriptionSettings = true;
+    try {
+        await openSettingsCenter("general");
+        selectSettingsSection("subscriptions");
+        await chrome.storage.local.remove("streamShellOpenSubscriptionSettings");
+    } finally {openingSubscriptionSettings = false;}
+}
+chrome.storage.onChanged.addListener((changes,area)=>{
+    if(area==="local" && changes.streamShellOpenSubscriptionSettings?.newValue)
+        openRequestedSubscriptionSettings().catch(()=>{});
+});
+
+
+function subscriptionFinanceReference(id) {
+    const finance = settingsValues.streamShellSubscriptionFinance?.items?.[id];
+    if (!finance) return "Price: maintained in the Finance overview.";
+    const amount = Number(finance.amountCents);
+    if (!Number.isFinite(amount)) return "Price: maintained in the Finance overview.";
+    return "Finance: " + escapeSettingsHtml(new Intl.NumberFormat(undefined,
+        {style:"currency",currency:"EUR"}).format(amount / 100)) +
+        (finance.cadence === "yearly" ? " / year" : " / month");
+}
+chrome.storage.onChanged.addListener((changes,area)=>{
+    if (area !== "local" || !changes.streamShellSubscriptionFinance) return;
+    settingsValues.streamShellSubscriptionFinance = changes.streamShellSubscriptionFinance.newValue;
+    if (settingsCenterIsOpen() && settingsProvider === "general" && settingsSection === "subscriptions")
+        document.querySelectorAll("[data-subscription-finance]").forEach(input=>{
+            if (document.activeElement===input) return;
+            const item=settingsValues.streamShellSubscriptionFinance?.items?.[input.dataset.subscriptionId] || {};
+            input.value=input.dataset.subscriptionFinance==="cadence" ? (item.cadence || "monthly") :
+                ((item.amountCents || 0)/100).toFixed(2);
+        });
+});
+
+
+document.addEventListener("change",event=>{
+    const input=event.target.closest?.("[data-subscription-finance]");
+    if(!input)return;
+    if(!input.checkValidity()){input.reportValidity();return;}
+    const id=input.dataset.subscriptionId, field=input.dataset.subscriptionFinance;
+    const value=field==="amountCents"?Math.round(Number(input.value)*100):input.value;
+    subscriptionSettingsWriteQueue=subscriptionSettingsWriteQueue.catch(()=>{}).then(async()=>{
+        const key="streamShellSubscriptionFinance";
+        const stored=await chrome.storage.local.get(key);
+        const current=stored[key] || {version:1,items:{}};
+        const next={...current,items:{...current.items,[id]:{
+            amountCents:0,cadence:"monthly",...current.items?.[id],[field]:value
+        }}};
+        await chrome.storage.local.set({[key]:next});
+        settingsValues[key]=next;
+    }).catch(error=>{
+        const feedback=document.querySelector("#subscription-settings-feedback");
+        if(feedback)feedback.textContent="Unable to save: "+error.message;
+    });
+},true);
 /*
  * ============================================================
  * CONTEXTUAL DASHBOARD MOTION
@@ -3453,6 +3849,7 @@ function baseSettingKeyForStorageKey(storageKey) {
 }
 
 const SETTINGS_DEFAULTS = {
+    streamShellSubscriptionConfig: {},
     streamShellDisplayMode: "auto",
     streamShellSevenSeasAcknowledged: false,
     streamShellProviderRegistry: defaultStreamShellProviderRegistry(),
@@ -3462,6 +3859,10 @@ const SETTINGS_DEFAULTS = {
     streamShellTwitchAutoClaimDrops: true,
     streamShellTwitchPreventRaids: true,
     streamShellTwitchMarblesAutoJoin: true,
+    streamShellTwitchMarblesMinDelaySeconds: 1,
+    streamShellTwitchMarblesMaxDelaySeconds: 4,
+    streamShellTwitchMarblesMinViewerPercent: 5,
+    streamShellTwitchMarblesMaxViewerPercent: 10,
     streamShellTwitchAutoMute: true,
     streamShellVolumeBoost_twitch: 100,
     streamShellAudioProfile_twitch: "normal",
@@ -3612,12 +4013,14 @@ const SETTINGS_SECTIONS = {
     general: [
         ["display", "Display"],
         ["providers", "Providers"],
+        ["subscriptions", "Subscriptions"],
         ["seven-seas", "Seven Seas"],
         ["anarchy", "Anarchy"],
         ["twitch", "Twitch"]
     ],
     youtube: [
         ["search", "Search"],
+        ["blocklist", "Blocklist"],
         ["appearance", "Appearance"],
         ["player", "Player"],
         ["playback", "Playback"],
@@ -3839,6 +4242,12 @@ function hexToRgbTriplet(hex) {
 
 function paintAnarchySettings() {
     if (!settingsCenter || settingsSection !== "anarchy") return;
+    settingsCenter.querySelectorAll('.settings-switch:has(input[data-setting-key^="streamShellVisual"])').forEach((control, index) => {
+        control.style.setProperty("--anarchy-dvd-rgb", hexToRgbTriplet(nextAnarchyColor("visual-" + index)));
+    });
+    settingsCenter.querySelectorAll('input[type="range"]').forEach(control => {
+        control.style.setProperty("--settings-accent-rgb", hexToRgbTriplet(nextAnarchyColor("intensity")));
+    });
     settingsCenter.style.setProperty(
         "--anarchy-playback-rgb",
         hexToRgbTriplet(nextAnarchyColor("playback"))
@@ -3910,6 +4319,10 @@ function streamShellExportSettings(stored) {
 // Known Dashboard input contracts. These mirror the actual controls, NOT the
 // provider/runtime storage schema. No additional reads or watchers are added.
 const STREAM_SHELL_SETTING_BOUNDS = Object.freeze({
+    streamShellTwitchMarblesMinDelaySeconds: [0, 120, 1],
+    streamShellTwitchMarblesMaxDelaySeconds: [0, 120, 1],
+    streamShellTwitchMarblesMinViewerPercent: [1, 100, 1],
+    streamShellTwitchMarblesMaxViewerPercent: [1, 100, 1],
     streamShellContinueWatchingCompletePercent: [1, 100, 1],
     streamShellYoutubeUploadDateRelativeDays: [0, 30, 1],
     streamShellYoutubeAutoLikePercent: [1, 100, 1],
@@ -3959,6 +4372,23 @@ function streamShellNormalizeSettingValue(key, value) {
 
     if (!SETTINGS_STORAGE_KEY_SET.has(key)) {
         throw new Error(`Unknown Stream Shell setting: ${key}`);
+    }
+    if (key === STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY) {
+        if (!value || typeof value !== "object" || Array.isArray(value))
+            throw new Error("Invalid subscription configuration");
+        const result = {};
+        for (const [id,raw] of Object.entries(value).slice(0,200)) {
+            if (!/^(youtube|netflix|prime|disney|crunchyroll|discord|mangayomi|custom-[a-z0-9]{8,40})$/.test(id) ||
+                !raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+            const entry = streamShellSubscriptionEntries({providers:[
+                {id, name:id, kind:id.startsWith("custom-")?"custom":"builtin"}
+            ]}, {[id]:raw}).find(p=>p.id===id);
+            if (!entry) continue;
+            result[id] = {};
+            for (const field of ["visible","mode","url","plan","status","date","dateKind"])
+                result[id][field] = entry[field];
+        }
+        return result;
     }
     if (key === STREAM_SHELL_PROVIDER_REGISTRY_KEY) {
         return normalizeStreamShellProviderRegistry(value);
@@ -4037,6 +4467,31 @@ function streamShellWriteSetting(key, value) {
     );
     return pending;
 }
+let settingsExplanationsVisible = false;
+function settingsSectionIcon(id) {
+    const paths = {
+        search: 'M10 3a7 7 0 1 0 0 14a7 7 0 1 0 0-14M15 15l6 6',
+        display: 'M3 4h18v13H3zM8 21h8M12 17v4',
+        providers: 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z',
+        subscriptions: 'M3 5h18v15H3zM3 10h18M7 15h4',
+        playback: 'M8 4l12 8-12 8z',
+        player: 'M3 4h18v16H3zM9 8l7 4-7 4z',
+        audio: 'M3 9h4l5-5v16l-5-5H3zM16 8q5 4 0 8M19 5q8 7 0 14',
+        subtitles: 'M3 5h18v14H3zM6 10h5M14 10h4M6 14h3M12 14h6',
+        automation: 'M13 2L4 14h7l-1 8 10-13h-7z',
+        anarchy: 'M13 2L4 14h7l-1 8 10-13h-7z',
+        appearance: 'M12 3a9 9 0 1 0 9 9h-9z',
+        quality: 'M12 3l9 5v8l-9 5-9-5V8zM8 12l3 3 5-6',
+        'upload-date': 'M4 5h16v16H4zM8 2v6M16 2v6M4 10h16',
+        'auto-like': 'M8 10l4-7h3v6h5l-2 12H8zM3 10h5v11H3z',
+        cleanup: 'M4 7h16M9 3h6l2 4M6 7l1 14h10l1-14M10 11v6M14 11v6',
+        'safe-mode': 'M12 2l9 4v6q0 6-9 10-9-4-9-10V6zM8 12l3 3 5-6',
+        'seven-seas': 'M12 3v16M9 6h6M4 14q0 7 8 7t8-7M8 17l4 4 4-4',
+        twitch: 'M4 3h17v13l-5 5h-5l-4 3v-3H4zM10 7v6M16 7v6'
+    };
+    return `<svg class="settings-nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${paths[id] || paths.providers}"></path></svg>`;
+}
+
 function notifySettingsVisibility(open) {
     chrome.runtime.sendMessage({
         type: "dashboard-settings-visibility",
@@ -4083,7 +4538,7 @@ function settingSwitch(key, title, description) {
         ? "playback"
         : key === "streamShellSubtitleAnarchy"
             ? "subtitles"
-            : key === "streamShellDvdAnarchy"
+            : key === "streamShellDvdAnarchy" || key.startsWith("streamShellVisual")
                 ? "dvd"
                 : "";
     const anarchyClass = anarchyKind
@@ -4245,9 +4700,17 @@ function renderTwitchUtilitySettings() {
             settingSwitch(
                 "streamShellTwitchMarblesAutoJoin",
                 "Marbles auto-join",
-                "Watch this Twitch window's chat for a burst of 5-10 unique !play messages, then send one !play after a 1-4 second jitter. Each Workspace slot has its own 120-second cooldown."
+                "Watch for a burst of !play messages from distinct users within 30 seconds, then join after a random delay using the ranges below. Each Workspace slot keeps its 120-second cooldown."
             ),
             "All Twitch automation is local DOM automation; Stream Shell does not use Twitch OAuth or a Twitch API token."
+        ) +
+        settingsSubgroup(
+            "Auto-join ranges",
+            settingNumber("streamShellTwitchMarblesMinDelaySeconds", "Minimum jitter", "Shortest delay before sending !play.", 0, 120, "s") +
+            settingNumber("streamShellTwitchMarblesMaxDelaySeconds", "Maximum jitter", "Longest delay before sending !play.", 0, 120, "s") +
+            settingNumber("streamShellTwitchMarblesMinViewerPercent", "Minimum viewers", "Minimum percentage of viewers who must send !play.", 1, 100, "%") +
+            settingNumber("streamShellTwitchMarblesMaxViewerPercent", "Maximum viewers", "Maximum percentage of viewers who must send !play.", 1, 100, "%"),
+            "Viewer count is read once every five minutes per window. Auto-join waits when the count is unavailable or belongs to a different channel. The percentage is randomized for each burst. Equal values give a fixed delay or count; reversed limits are treated as an ordered range. Changes reset pending joins."
         ) +
         settingsSubgroup(
             "Audio",
@@ -4560,12 +5023,14 @@ function renderAnarchySettings() {
             )
         ) +
         settingsSubgroup(
-            "Visual",
+            "DVD",
             settingSwitch(
                 "streamShellDvdAnarchy",
                 "DVD Anarchy",
                 "Bounce a DVD logo around whichever supported provider occupies the active left surface, randomly changing speed and color on collisions."
-            ) +
+            )
+        ) +
+        settingsSubgroup("Visual director",
             settingSwitch("streamShellVisualAnarchy", "Visual Anarchy Director",
                 "One event timer for random visual disasters. Active, playing video only; restores all video styles when disabled.") +
             settingSelect("streamShellVisualFrequency", "Chaos frequency", "Average interval between visual events.", [
@@ -4573,7 +5038,9 @@ function renderAnarchySettings() {
                 ["chaotic","Chaotic · 20–60 s"],
                 ["absolute","Absolute Anarchy · 5–15 s"]
             ]) +
-            settingRange("streamShellVisualIntensity", "Chaos intensity", "Visual effect strength (GPU-intensive at high values).", 0, 100, 5) +
+            settingRange("streamShellVisualIntensity", "Chaos intensity", "Visual effect strength (GPU-intensive at high values).", 0, 100, 5)
+        ) +
+        settingsSubgroup("Effects",
             settingSwitch("streamShellVisualZoom", "Zoom Anarchy", "Random zoom and off-center focus.") +
             settingSwitch("streamShellVisualDeepFry", "Deep Fry Roulette", "Brief contrast and saturation overload.") +
             settingSwitch("streamShellVisualVhs", "VHS Meltdown", "Scanlines, color fringing and visual jitter.") +
@@ -6391,6 +6858,145 @@ function updateSettingsSearchResults() {
     results.innerHTML = renderSettingsSearchResults(settingsProvider, settingsSearchQuery);
 }
 
+function renderYoutubeBlocklistSettings() {
+    return `<section class="settings-group settings-group-page ss-filter-page" data-youtube-blocklist>
+        <div class="settings-group-heading ss-filter-heading"><h2>Filter lists</h2><div class="ss-filter-actions">
+        <label class="ss-filter-enable">Enable filters<span class="settings-switch"><input type="checkbox" role="switch" data-blocklist-enabled><span aria-hidden="true"></span></span></label>
+        <button type="button" class="settings-provider-registry-move" data-blocklist-import>Import JSON list</button></div></div>
+        <p data-blocklist-status role="status"></p><div data-blocklist-lists></div>
+        <p class="ss-filter-help">Each import adds a separate list. Remove takes priority when lists overlap; otherwise the first matching list supplies the blur text.</p>
+        <input type="file" accept=".json,application/json" data-blocklist-file hidden></section>`;
+}
+async function mountYoutubeBlocklistSettings(root) {
+    const host=root.querySelector('[data-youtube-blocklist]'); if(!host)return;
+    const status=host.querySelector('[data-blocklist-status]'), file=host.querySelector('[data-blocklist-file]'), enabled=host.querySelector('[data-blocklist-enabled]');
+    let busy=false;
+    async function api(action,payload={}) {
+        if(busy)return; busy=true;
+        host.querySelectorAll('button,input,select').forEach(el=>el.disabled=true);
+        try {
+            const result=await chrome.runtime.sendMessage({type:'youtube-blocklist-api',action,...payload});
+            if(!result?.ok)throw Error(result?.error || 'Filter service unavailable.');
+            render(result.state);status.textContent='';
+        } catch(error){status.textContent=error.message;}
+        finally {busy=false;host.querySelectorAll('button,input,select').forEach(el=>el.disabled=false);}
+    }
+    function render(state) {
+        enabled.checked=state.enabled;
+        const list=host.querySelector('[data-blocklist-lists]');list.replaceChildren();
+        for(const entry of state.lists){
+            const row=document.createElement('div');row.className='ss-filter-list-row';
+            const toggle=document.createElement('input');toggle.type='checkbox';toggle.checked=entry.enabled;toggle.setAttribute('aria-label','Enable '+entry.list.title);
+            const toggleWrap=document.createElement('label');toggleWrap.className='settings-switch';toggle.setAttribute('role','switch');const track=document.createElement('span');track.setAttribute('aria-hidden','true');toggleWrap.append(toggle,track);
+            const title=document.createElement('span');title.className='ss-filter-title';title.textContent=`${entry.list.title} · ${entry.list.channels.length} channels`;
+            const mode=document.createElement('select');mode.setAttribute('aria-label','Filter action');
+            for(const [value,label] of [['blur','Blur'],['remove','Remove']]){const option=document.createElement('option');option.value=value;option.textContent=label;mode.append(option);}mode.value=entry.mode;
+            const text=document.createElement('input');text.type='text';text.maxLength=200;text.value=entry.text;text.placeholder='Blur label';text.setAttribute('aria-label','Blur label');text.disabled=entry.mode==='remove';text.style.visibility=entry.mode==='remove'?'hidden':'';
+            const remove=document.createElement('button');remove.type='button';remove.className='settings-provider-registry-move ss-filter-delete';remove.setAttribute('aria-label','Delete '+entry.list.title);remove.textContent='×';remove.title='Delete list';
+            toggle.onchange=()=>api('update',{listId:entry.id,enabled:toggle.checked});
+            mode.onchange=()=>api('update',{listId:entry.id,mode:mode.value,text:text.value});
+            text.onchange=()=>api('update',{listId:entry.id,text:text.value});
+            remove.onclick=()=>api('remove',{listId:entry.id});
+            row.append(toggleWrap,title,mode,text,remove);list.append(row);
+        }
+        if(!state.lists.length)list.textContent='No filter lists imported.';
+    }
+    host.querySelector('[data-blocklist-import]').onclick=()=>file.click();
+    file.onchange=async()=>{const selected=file.files[0];if(!selected)return;try{if(selected.size>5*1024*1024)throw Error('Maximum JSON size is 5 MB.');await api('import',{data:JSON.parse(await selected.text())});}catch(e){status.textContent=e.message;}file.value='';};
+    enabled.onchange=()=>api('enable',{enabled:enabled.checked});
+    await api('get');
+}
+/* Personal notes belong to one provider/category, with no prefilled content. */
+const settingsPageNoteDrafts = new Map();
+function appendSettingsNoteText(container, value) {
+    // Build DOM nodes, never interpret user notes as HTML.
+    const pattern = /(?:https?:\/\/|www\.)[^\s<>]+|\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?:\/[^\s<>]*)?/gi;
+    let offset = 0;
+    for (const match of value.matchAll(pattern)) {
+        container.append(document.createTextNode(value.slice(offset, match.index)));
+        const text = match[0];
+        const link = document.createElement("a");
+        link.textContent = text;
+        link.href = /^https?:\/\//i.test(text) ? text : "https://" + text;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        container.append(link);
+        offset = match.index + text.length;
+    }
+    container.append(document.createTextNode(value.slice(offset)));
+}
+async function mountSettingsPageNote(root, provider, section) {
+    const host = root.querySelector("[data-settings-page-note]");
+    const edit = root.querySelector("[data-settings-note-edit]");
+    const key = "streamShellSettingsPageNote:" + provider + ":" + section;
+    let saved = "";
+    let editing = false;
+    let loading = true;
+    edit.disabled = true;
+    function preview() {
+        editing = false;
+        host.replaceChildren();
+        host.hidden = !saved.trim();
+        if (saved.trim()) appendSettingsNoteText(host, saved);
+        edit.setAttribute("aria-expanded", "false");
+    }
+    function editor() {
+        if (loading || editing) return;
+        editing = true;
+        host.hidden = false;
+        host.replaceChildren();
+        edit.setAttribute("aria-expanded", "true");
+        const field = document.createElement("textarea");
+        field.rows = 3;
+        field.maxLength = 12000;
+        field.setAttribute("aria-label", "Page note");
+        field.placeholder = "Your notes and links…";
+        field.value = settingsPageNoteDrafts.get(key) ?? saved;
+        field.addEventListener("input", () => settingsPageNoteDrafts.set(key, field.value));
+        const actions = document.createElement("div");
+        actions.className = "settings-note-actions";
+        const status = document.createElement("span");
+        status.setAttribute("role", "status");
+        const save = document.createElement("button");
+        save.type = "button"; save.textContent = "Save";
+        const cancel = document.createElement("button");
+        cancel.type = "button"; cancel.textContent = "Cancel";
+        save.addEventListener("click", async () => {
+            save.disabled = cancel.disabled = true;
+            try {
+                const value = field.value;
+                await chrome.storage.local.set({[key]: value});
+                saved = value;
+                settingsPageNoteDrafts.delete(key);
+                preview();
+            } catch {
+                status.textContent = "Could not save. Please try again.";
+                save.disabled = cancel.disabled = false;
+            }
+        });
+        cancel.addEventListener("click", () => { settingsPageNoteDrafts.delete(key); preview(); });
+        field.addEventListener("keydown", event => {
+            if (event.key === "Escape") { event.stopPropagation(); cancel.click(); }
+            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") { event.preventDefault(); save.click(); }
+        });
+        actions.append(status, cancel, save);
+        host.append(field, actions);
+        field.focus();
+    }
+    edit.addEventListener("click", editor);
+    try {
+        const stored = await chrome.storage.local.get(key);
+        if (!host.isConnected) return;
+        saved = typeof stored[key] === "string" ? stored[key] : "";
+        loading = false; edit.disabled = false;
+        preview();
+        if (settingsPageNoteDrafts.has(key)) editor();
+    } catch {
+        edit.title = "Could not load page note. Reopen this category to retry.";
+    }
+}
+
+let settingsCategoryOrder = {};
 function renderSettingsContent() {
     if (!settingsContent) {
         return;
@@ -6408,6 +7014,10 @@ function renderSettingsContent() {
 
     if (settingsSection === "display") {
         html = renderDisplaySettings();
+    }
+
+    if (settingsProvider === "general" && settingsSection === "subscriptions") {
+        html = renderSubscriptionSettingsPage();
     }
 
     if (settingsProvider === "general" && settingsSection === "providers") {
@@ -6738,7 +7348,17 @@ function renderSettingsContent() {
 
     }
 
-    settingsContent.innerHTML = html;
+    if (settingsProvider === "youtube" && settingsSection === "blocklist") html = renderYoutubeBlocklistSettings();
+
+    const contextName = settingsProvider === "general" ? "General" : (PROVIDER_NAMES[settingsProvider] || settingsProvider);
+    settingsContent.innerHTML = `<div class="settings-workspace-bar">
+        <span class="settings-workspace-context">${escapeSettingsHtml(contextName)} <span aria-hidden="true">/</span> ${escapeSettingsHtml(settingsSectionLabel(settingsProvider, settingsSection))}</span>
+        <button type="button" class="settings-note-edit settings-help-toggle" data-settings-note-edit aria-label="Edit page note" title="Edit page note">✎</button>
+        <button type="button" class="settings-help-toggle" data-settings-help aria-pressed="${settingsExplanationsVisible}">${settingsExplanationsVisible ? "Hide explanations" : "Show explanations"}</button>
+        </div><div class="settings-page-note" data-settings-page-note hidden></div>` + html;
+    mountSettingsPageNote(settingsContent, settingsProvider, settingsSection);
+    mountYoutubeBlocklistSettings(settingsContent);
+    settingsContent.classList.toggle("settings-explanations-visible", settingsExplanationsVisible);
 
     if (settingsSection === "search") {
         const searchInput = document.getElementById("settings-search-input");
@@ -6747,6 +7367,7 @@ function renderSettingsContent() {
         }
     }
 
+    if (typeof syncSettingsTitlebarPreview === "function") syncSettingsTitlebarPreview();
     syncAnarchySettingsVisuals();
 }
 
@@ -6755,7 +7376,12 @@ function renderSettingsSidebar() {
         return;
     }
 
-    const sections = SETTINGS_SECTIONS[settingsProvider] || [];
+    const sourceSections = SETTINGS_SECTIONS[settingsProvider] || [];
+    const order = settingsCategoryOrder[settingsProvider] || [];
+    const sections = [...sourceSections].sort((a,b) => {
+        const rank = id => order.includes(id) ? order.indexOf(id) : order.length + sourceSections.findIndex(row => row[0] === id);
+        return rank(a[0])-rank(b[0]);
+    });
 
     if (!sections.some(([id]) => id === settingsSection)) {
         settingsSection = defaultSettingsSection(settingsProvider);
@@ -6766,12 +7392,26 @@ function renderSettingsSidebar() {
             <button
                 type="button"
                 class="settings-section-button ${id === "search" ? "settings-section-search " : ""}${id === settingsSection ? "active" : ""}"
-                data-settings-section="${id}"
+                draggable="true" title="Drag to reorder categories" data-settings-section="${id}" aria-current="${id === settingsSection ? "page" : "false"}"
             >
-                ${label}
+                ${settingsSectionIcon(id)}<span>${label}</span>
             </button>
         `
     ).join("");
+    let dragged = null;
+    for (const button of settingsSidebar.querySelectorAll('[data-settings-section]')) {
+        button.addEventListener('dragstart', event => {dragged = button.dataset.settingsSection;event.dataTransfer.setData('text/plain',dragged);event.dataTransfer.effectAllowed='move';});
+        button.addEventListener('dragover', event => {if(dragged)event.preventDefault();});
+        button.addEventListener('drop', async event => {
+            event.preventDefault();const target=button.dataset.settingsSection;
+            if(!dragged || dragged===target)return;
+            const ids=sections.map(row=>row[0]);ids.splice(ids.indexOf(dragged),1);ids.splice(ids.indexOf(target),0,dragged);
+            settingsCategoryOrder[settingsProvider]=ids;
+            renderSettingsSidebar();
+            await chrome.storage.local.set({streamShellSettingsCategoryOrder:settingsCategoryOrder});
+        });
+        button.addEventListener('dragend',()=>{dragged=null;});
+    }
 }
 
 function renderSettingsTabs() {
@@ -6801,10 +7441,11 @@ function renderSettingsCenter() {
 async function loadSettingsValues() {
     try {
         const stored = await chrome.storage.local.get(
-            SETTINGS_STORAGE_KEYS
+            [...SETTINGS_STORAGE_KEYS, "streamShellSubscriptionFinance"]
         );
 
         settingsValues = streamShellHydrateSettings(stored);
+        settingsValues.streamShellSubscriptionFinance = stored.streamShellSubscriptionFinance;
     } catch {
         settingsValues = {
             ...SETTINGS_DEFAULTS
@@ -6836,6 +7477,8 @@ async function openSettingsCenter(provider) {
         await loadSettingsValues();
     }
 
+    const categoryState = await chrome.storage.local.get("streamShellSettingsCategoryOrder");
+    settingsCategoryOrder = categoryState.streamShellSettingsCategoryOrder || {};
     await refreshSleepTimerState();
 
     if (settingsCloseTimer) {
@@ -6922,6 +7565,14 @@ function handleSettingsClick(event) {
 
     if (!button) {
         return false;
+    }
+
+    if (button.hasAttribute("data-settings-help")) {
+        settingsExplanationsVisible = !settingsExplanationsVisible;
+        settingsContent.classList.toggle("settings-explanations-visible", settingsExplanationsVisible);
+        button.setAttribute("aria-pressed", String(settingsExplanationsVisible));
+        button.textContent = settingsExplanationsVisible ? "Hide explanations" : "Show explanations";
+        return true;
     }
 
     if (button.id === "now-playing-settings") {
@@ -7284,8 +7935,9 @@ document.addEventListener(
             const id = pinInput.dataset.registryVisibility;
             const requested = pinInput.checked;
             const current = getStreamShellProviderRegistry();
-            const before = streamShellPinnedProviders(current).length;
-            if ((!requested && before <= 1) || (requested && before >= 7)) {
+            const pins = streamShellPinnedProviders(current);
+            const after = requested ? [...pins, current.providers.find(p => p.id === id)] : pins.filter(p => p.id !== id);
+            if (!after.length || streamShellDashboardGroups(after).length > 7) {
                 pinInput.checked = !requested;
                 return;
             }
@@ -7400,7 +8052,7 @@ chrome.storage.onChanged.addListener(
 
 notifySettingsVisibility(false);
 renderProviderSelector();
-loadSettingsValues().catch(() => {});
+loadSettingsValues().then(() => openRequestedSubscriptionSettings()).catch(() => {});
 /*
  * ============================================================
  * CLICK ROUTER
@@ -7822,24 +8474,9 @@ function renderState(
     }
 
 
-    // A native LEFT app is a visual Dashboard identity, not a web player.
-    // Keep activeProvider intact for the next browser-provider transition.
-    let provider =
-        state.leftMode === "mangayomi"
-            ? "mangayomi"
-            : (state.activeProvider || "netflix");
-
-
-    if (
-        provider !== "mangayomi" &&
-        !PROVIDERS.has(
-            provider
-        )
-    ) {
-        provider =
-            "netflix";
-    }
-
+    const provider = streamShellPersistentBackgroundProvider(
+        state, getStreamShellProviderRegistry()
+    );
 
     const reportedLayoutProfile =
         state.layoutProfile === "compact"
@@ -7926,18 +8563,14 @@ function renderState(
 
 
     const customProvider = getStreamShellProviderRegistry().providers.find(
-        entry => entry.id === provider && entry.kind === "custom"
+        entry => entry.id === provider && (entry.kind === "custom" || entry.id === "youtube-music")
     );
-    const customBackgroundPath = customProvider
-        ? streamShellCustomArtworkPath(customProvider.artKey, backgroundVariant)
-        : null;
     const neutralBackground = "radial-gradient(ellipse at 77% 20%, rgba(70, 79, 104, .21), transparent 62%), linear-gradient(135deg, #0b0e17, #03050a)";
-    const backgroundPath = STREAM_SHELL_BUILTIN_IDS.has(provider)
-        ? `assets/backgrounds/${provider}_${backgroundVariant}.png`
-        : customBackgroundPath;
-    panorama.style.backgroundImage = backgroundPath
-        ? `url("${chrome.runtime.getURL(backgroundPath)}"), ${neutralBackground}`
-        : neutralBackground;
+    const backgroundPaths = streamShellProviderBackgroundPaths(provider, backgroundVariant, getStreamShellProviderRegistry());
+    panorama.style.backgroundImage = [
+        ...backgroundPaths.map(path => `url("${chrome.runtime.getURL(path)}")`),
+        neutralBackground
+    ].join(", ");
 
     const wordmark = WORDMARKS[provider] ||
         (customProvider ? streamShellCustomArtworkPath(customProvider.artKey, "wordmark") : null);

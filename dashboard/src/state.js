@@ -25,6 +25,7 @@ const PROVIDERS =
 
 
 const WORDMARKS = {
+    "youtube-music": "assets/providers/wordmarks/youtube-music.svg",
     youtube:
         "assets/providers/wordmarks/youtube.svg",
 

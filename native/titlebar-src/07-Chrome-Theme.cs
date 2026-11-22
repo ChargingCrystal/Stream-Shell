@@ -52,7 +52,8 @@ internal static partial class StreamShellTitlebarHost
                     return CustomChromeTheme(button.AccentColor);
             }
         }
-        if (String.Equals(mode, "youtube", StringComparison.OrdinalIgnoreCase))
+        if (String.Equals(mode, "youtube", StringComparison.OrdinalIgnoreCase) ||
+            String.Equals(mode, "youtube-music", StringComparison.OrdinalIgnoreCase))
         {
             return new ChromeTheme(
                 Rgb(31, 2, 9),

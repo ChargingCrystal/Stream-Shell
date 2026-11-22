@@ -15,6 +15,9 @@ internal static partial class StreamShellTitlebarHost
 {
     public static int Main(string[] args)
     {
+        if (args != null && args.Length > 0 && args[0] == "--diagnostic-dump")
+            return RunPerformanceDumpWorker(args);
+
         if (
             args != null &&
             args.Length >= 2 &&
@@ -123,14 +126,19 @@ internal static partial class StreamShellTitlebarHost
             }
 
             shuttingDown = true;
+            PerformanceLifecycle("host-cleanup");
             CleanupWindows();
+            PerformanceLifecycle("host-stop");
+            PerformanceStop.Set();
             return 0;
         }
         catch (Exception ex)
         {
+            PerformanceLifecycle("host-fatal");
             LogNativeFailure("host-fatal", ex);
             try { CleanupWindows(); }
             catch (Exception cleanup) { LogNativeFailure("host-cleanup", cleanup); }
+            PerformanceStop.Set();
             return 10;
         }
     }
@@ -249,6 +257,7 @@ internal static partial class StreamShellTitlebarHost
 
             if (msg == WM_CLOSE)
             {
+                PerformanceLifecycle("controller-close");
                 shuttingDown = true;
                 KillTimer(hWnd, new UIntPtr(1));
                 DestroyWindow(hWnd);
@@ -257,6 +266,7 @@ internal static partial class StreamShellTitlebarHost
 
             if (msg == WM_DESTROY)
             {
+                PerformanceLifecycle("controller-destroy");
                 shuttingDown = true;
                 controllerWindow = IntPtr.Zero;
                 CleanupOverlay(ref leftChromeOverlay);

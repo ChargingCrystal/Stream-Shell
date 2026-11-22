@@ -12,6 +12,7 @@ const statuses = [];
 let rerenders = 0;
 const ctx = vm.createContext({
     console,
+    STREAM_SHELL_SUBSCRIPTION_CONFIG_KEY: "streamShellSubscriptionConfig",
     STREAM_SHELL_PROVIDER_REGISTRY_KEY: 'streamShellProviderRegistry',
     defaultStreamShellProviderRegistry: () => ({version:2, providers:[]}),
     normalizeStreamShellProviderRegistry: value => ({normalized:true, ...value}),
@@ -35,7 +36,7 @@ vm.runInContext(src('settings-storage.js'), ctx);
 const expr = code => vm.runInContext(code, ctx);
 const plain = code => JSON.parse(JSON.stringify(expr(code)));
 
-assert.equal(expr('SETTINGS_STORAGE_KEYS.length'), 139);
+assert.equal(expr('SETTINGS_STORAGE_KEYS.length'), 144);
 assert.equal(expr('streamShellNormalizeSettingValue("streamShellVisualIntensity", 175)'), 100);
 assert.throws(() => expr('streamShellNormalizeSettingValue("streamShellVisualFrequency", "bad")'), /Invalid option/);
 assert.equal(expr('streamShellHydrateSettings({streamShellTwitchAutoMute:false,extraneous:"ignore"}).streamShellTwitchAutoMute'),false);

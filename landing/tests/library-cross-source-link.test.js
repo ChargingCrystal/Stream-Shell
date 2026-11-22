@@ -34,7 +34,7 @@ assert.equal(link([soloTMDB],[{...soloAniList,title:'Other Title',originalTitle:
 assert.equal(link([{...soloTMDB,title:'Dune'}],[soloAniList]).length,2,'unrelated titles never merge');
 // Render wiring: native AniList row is hidden only when paired, and linked
 // cards keep the original TMDB card factory (availability and action handlers).
-assert.match(script,/createMediaItem\(tmdb,\{mode:"watchlist",saved:true,addedAt:tmdb\.addedAt\}\)/);
+assert.match(script,/createMediaItem\(tmdb,options\)/);
 assert.match(script,/streamShellAniListCover\(anilist,"ss-anilist-cover"\)/);
 assert.match(script,/row\.insertBefore\(cover,main\)/);
 assert.match(script,/visibleRows = streamShellSortedLibrary\(tmdbItems,nativeItems\)\s*\.filter\(streamShellLibraryMatchesType\)/);

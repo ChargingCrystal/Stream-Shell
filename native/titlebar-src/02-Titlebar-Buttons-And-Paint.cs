@@ -17,6 +17,7 @@ internal static partial class StreamShellTitlebarHost
     {
         switch ((id ?? String.Empty).ToLowerInvariant())
         {
+            case "youtube-music": return new ButtonDef("YM", id, "youtube-music.png", 19, 19);
             case "youtube": return new ButtonDef("YT", id, "youtube.png", 19, 14);
             case "netflix": return new ButtonDef("N", id, "netflix.png", 12, 20);
             case "prime": return new ButtonDef("P", id, "prime.png", 18, 18);
@@ -242,7 +243,7 @@ internal static partial class StreamShellTitlebarHost
                 string[] parts = row.Split('\t');
                 if (parts.Length != 5) return false;
                 string id = parts[0];
-                if (!Regex.IsMatch(id, "^(youtube|netflix|prime|disney|crunchyroll|mangayomi|custom-[a-z0-9]{8,40})$", RegexOptions.CultureInvariant)) return false;
+                if (!Regex.IsMatch(id, "^(youtube|youtube-music|netflix|prime|disney|crunchyroll|mangayomi|custom-[a-z0-9]{8,40})$", RegexOptions.CultureInvariant)) return false;
                 if (!used.Add(id)) return false;
                 string label = parts[1];
                 string fullName = parts[2];
@@ -504,7 +505,8 @@ internal static partial class StreamShellTitlebarHost
 
     private static uint GetChromeAccent(string mode)
     {
-        if (String.Equals(mode, "youtube", StringComparison.OrdinalIgnoreCase))
+        if (String.Equals(mode, "youtube", StringComparison.OrdinalIgnoreCase) ||
+            String.Equals(mode, "youtube-music", StringComparison.OrdinalIgnoreCase))
             return Rgb(255, 35, 72);
         if (String.Equals(mode, "netflix", StringComparison.OrdinalIgnoreCase))
             return Rgb(229, 9, 20);
@@ -765,7 +767,7 @@ internal static partial class StreamShellTitlebarHost
         lock (StateLock)
         {
             if (action == "landing" || action.StartsWith("custom-", StringComparison.OrdinalIgnoreCase) ||
-                action == "youtube" || action == "netflix" || action == "prime" || action == "disney" || action == "crunchyroll" || action == "mangayomi")
+                action == "youtube" || action == "youtube-music" || action == "netflix" || action == "prime" || action == "disney" || action == "crunchyroll" || action == "mangayomi")
             {
                 return String.Equals(leftMode, action, StringComparison.OrdinalIgnoreCase);
             }
@@ -799,7 +801,7 @@ internal static partial class StreamShellTitlebarHost
             if (action == "volume")
             {
                 return volumeActive &&
-                    (leftMode == "youtube" || leftMode == "netflix" || leftMode == "prime" || leftMode == "disney" || leftMode == "crunchyroll");
+                    (leftMode == "youtube" || leftMode == "youtube-music" || leftMode == "netflix" || leftMode == "prime" || leftMode == "disney" || leftMode == "crunchyroll");
             }
         }
 

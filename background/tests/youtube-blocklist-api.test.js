@@ -1,0 +1,24 @@
+const fs=require('node:fs'),vm=require('node:vm'),path=require('node:path'),assert=require('node:assert/strict');
+const root=path.resolve(__dirname,'../..'),id='UC'+'a'.repeat(22),other='UC'+'b'.repeat(22);
+let listener;const db={};
+const c=vm.createContext({crypto:require("node:crypto").webcrypto,URL,Date,Map,Error,isDashboardSender:s=>s.url==='chrome-extension://test/dashboard.html',chrome:{runtime:{id:'test',onMessage:{addListener:fn=>listener=fn}},storage:{local:{get:async key=>({[key]:db[key]}),set:async values=>Object.assign(db,values)}}}});
+for(const file of ['shared/youtube-blocklist-core.js','background/src/09a-youtube-blocklist-api.js'])vm.runInContext(fs.readFileSync(path.join(root,file),'utf8'),c);
+const dash={id:'test',url:'chrome-extension://test/dashboard.html'},yt={id:'test',url:'https://www.youtube.com/'};
+const call=(action,sender= dash,extra={})=>new Promise(resolve=>listener({type:'youtube-blocklist-api',action,...extra},sender,resolve));
+(async()=>{
+ assert.equal((await call('get',yt)).state.list.channels.length,0);
+ assert.equal((await call('import',yt,{data:{channels:[]}})).ok,false);
+ const data={platform:'youtube',channels:[{channelId:id,handle:'@test'},{channelId:id,handle:'@test'}],archivedFunkChannels:[{channelId:other}],unresolvedHandles:['@other']};
+ let r=await call('import',dash,{data});assert.equal(r.ok,true);assert.equal(r.state.list.channels.length,1);assert.equal(r.state.enabled,true);
+ r=await call('import',dash,{data:{channels:[{channelId:'invalid'}]}});assert.equal(r.ok,false);assert.equal((await call('get',yt)).state.list.channels[0].channelId,id);
+ assert.equal((await call('get',{id:'test',url:'https://youtube.com.evil.invalid/'})).ok,false);
+ const first=(await call('get')).state.lists[0].id;
+ await call('import',dash,{data:{channels:[{channelId:other}]}});
+ let multi=(await call('get')).state;assert.equal(multi.lists.length,2);
+ await call('update',dash,{listId:first,mode:'remove',text:'custom'});
+ assert.equal((await call('get')).state.lists[0].mode,'remove');
+ await call('remove',dash,{listId:first});assert.equal((await call('get')).state.lists.length,1);
+ await call('enable',dash,{enabled:false});assert.equal((await call('get',yt)).state.enabled,false);
+ await call('remove');assert.equal((await call('get',yt)).state.list.channels.length,0);
+ console.log('PASS: default empty, explicit import, unique IDs, excluded archival entries, invalid-import preservation, sender permissions, disable and remove');
+})();

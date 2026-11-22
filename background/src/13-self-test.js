@@ -35,7 +35,7 @@ async function runStreamShellLaunchSelfTest() {
     );
 
     const providers = {};
-    for (const provider of STREAM_SHELL_PROVIDER_BUILTINS.map(p => p.id)) {
+    for (const provider of STREAM_SHELL_PROVIDER_BUILTINS.filter(p => p.id !== "youtube-music").map(p => p.id)) {
         const windowId = Number.isInteger(providerWindows?.[provider])
             ? providerWindows[provider]
             : null;
@@ -62,8 +62,8 @@ async function runStreamShellLaunchSelfTest() {
             state: `MV${manifest.manifest_version || "?"}`
         },
         providerRegistry: {
-            ok: STREAM_SHELL_PROVIDER_BUILTINS.length === 5,
-            state: `${STREAM_SHELL_PROVIDER_BUILTINS.length} integrated adapters`
+            ok: STREAM_SHELL_PROVIDER_BUILTINS.length === 6,
+            state: `${STREAM_SHELL_PROVIDER_BUILTINS.length} built-in providers`
         },
         providerApi: {
             ok: true,

@@ -1,0 +1,27 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const path = require('node:path');
+const source = fs.readFileSync(path.join(__dirname, '../../providers/player/twitch-automation.js'), 'utf8');
+const end = source.indexOf('    function resetMarblesBurst(');
+const context = {window:{__streamShellTwitchCoreV1:{isAlive:()=>true,getRaidProtectionEnabled:()=>false,getSlotId:()=>1}}};
+vm.createContext(context);
+vm.runInContext(source.slice(0,end) + '\n globalThis.probe = {parse: parseViewerCount, range: marblesRange, set: values => Object.assign(settings, values)};})();',context);
+const range = kind => Array.from(context.probe.range(kind));
+assert.deepEqual(range('delay'), [1000,4000]);
+assert.deepEqual(range('messages'), [5,10]);
+context.probe.set({streamShellTwitchMarblesMinDelaySeconds:8,streamShellTwitchMarblesMaxDelaySeconds:2,streamShellTwitchMarblesMinViewerPercent:12,streamShellTwitchMarblesMaxViewerPercent:12});
+assert.deepEqual(range('delay'), [2000,8000]);
+assert.deepEqual(range('messages'), [12,12]);
+context.probe.set({streamShellTwitchMarblesMinDelaySeconds:0,streamShellTwitchMarblesMaxDelaySeconds:Infinity,streamShellTwitchMarblesMinViewerPercent:-5,streamShellTwitchMarblesMaxViewerPercent:900});
+assert.deepEqual(range('delay'), [0,4000]);
+assert.deepEqual(range('messages'), [1,100]);
+console.log('Marbles configurable ranges, reversed limits, fixed values and invalid input: PASS');
+
+assert.equal(context.probe.parse('1,234'), 1234);
+assert.equal(context.probe.parse('1.234'), 1234);
+assert.equal(context.probe.parse('1.2K'), 1200);
+assert.equal(context.probe.parse('2,5K'), 2500);
+assert.equal(context.probe.parse(''), null);
+assert.equal(context.probe.parse('offline'), null);
+assert.equal(context.probe.parse('0'), null);

@@ -19,6 +19,7 @@ internal static partial class StreamShellTitlebarHost
 
         if (type.Equals("shutdown", StringComparison.OrdinalIgnoreCase))
         {
+            PerformanceLifecycle("shutdown-command");
             shuttingDown = true;
             if (controllerWindow != IntPtr.Zero)
                 PostMessage(controllerWindow, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
